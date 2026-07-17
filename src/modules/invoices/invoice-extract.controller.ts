@@ -1,4 +1,4 @@
-import { Controller, Post, UseInterceptors, UploadedFile, UseGuards } from '@nestjs/common';
+import { Controller, Post, UseInterceptors, UploadedFile, UseGuards, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { JwtAuthGuard } from '../../common/jwt-auth.guard';
@@ -12,6 +12,9 @@ export class InvoiceExtractController {
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }))
   async extract(@UploadedFile() file: Express.Multer.File) {
+    console.log('Extract called, file:', file?.originalname, file?.size, file?.mimetype);
+    if (!file) throw new BadRequestException('No file received');
+    if (!process.env.ANTHROPIC_API_KEY) throw new InternalServerErrorException('ANTHROPIC_API_KEY not set');
     const base64 = file.buffer.toString('base64');
     const isPdf = file.mimetype === 'application/pdf';
 
@@ -46,6 +49,7 @@ export class InvoiceExtractController {
     });
 
     const text = (response.content[0] as any).text.trim();
+    console.log('Claude response:', text.substring(0, 200));
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     return JSON.parse(jsonMatch ? jsonMatch[0] : text);
   }
