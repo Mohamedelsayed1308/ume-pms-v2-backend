@@ -15,6 +15,8 @@ export class AttachmentsController {
     limits: { fileSize: 10 * 1024 * 1024 },
   }))
   upload(@Param('id') invoiceId: string, @UploadedFile() file: Express.Multer.File) {
+    console.log('Upload request:', invoiceId, file?.originalname, file?.size);
+    if (!file) throw new Error('No file received');
     return this.svc.create(invoiceId, file);
   }
 
