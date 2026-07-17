@@ -12,9 +12,10 @@ export class InvoiceExtractController {
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }))
   async extract(@UploadedFile() file: Express.Multer.File) {
-    console.log('Extract called, file:', file?.originalname, file?.size, file?.mimetype);
-    if (!file) throw new BadRequestException('No file received');
-    if (!process.env.ANTHROPIC_API_KEY) throw new InternalServerErrorException('ANTHROPIC_API_KEY not set');
+    console.log('Extract called:', file?.originalname, file?.size, file?.mimetype);
+    if (!file || !file.buffer) throw new BadRequestException('No file received');
+    if (!process.env.ANTHROPIC_API_KEY) throw new InternalServerErrorException('ANTHROPIC_API_KEY not configured');
+
     const base64 = file.buffer.toString('base64');
     const isPdf = file.mimetype === 'application/pdf';
 
@@ -44,19 +45,18 @@ export class InvoiceExtractController {
 
     try {
       const response = await client.messages.create({
-        model: 'claude-sonnet-5',
+        model: 'claude-opus-4-8',
         max_tokens: 1024,
         messages: [{ role: 'user', content }],
-        ...(isPdf ? { betas: ['pdfs-2024-09-25'] } as any : {}),
       });
 
       const text = (response.content[0] as any).text.trim();
-      console.log('Claude response:', text.substring(0, 200));
+      console.log('Claude response preview:', text.substring(0, 200));
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       return JSON.parse(jsonMatch ? jsonMatch[0] : text);
     } catch (err: any) {
-      console.error('Anthropic error:', err?.message, err?.status, JSON.stringify(err?.error));
-      throw new InternalServerErrorException(err?.message || 'Anthropic API failed');
+      console.error('Claude error:', err?.message, err?.status);
+      throw new InternalServerErrorException(err?.message || 'Claude API failed');
     }
   }
 }
