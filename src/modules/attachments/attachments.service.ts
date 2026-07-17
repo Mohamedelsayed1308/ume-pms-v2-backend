@@ -7,7 +7,7 @@ import * as path from 'path';
 
 const supabase = createClient(
   'https://euzikjnyoprzkweechky.supabase.co',
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1emlram55b3Byemt3ZWVjaGt5Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0OTc0NTU3MSwiZXhwIjoyMDY1MzIxNTcxfQ.placeholder',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1emlram55b3Byemt3ZWVjaGt5Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MTg5MzMxNywiZXhwIjoyMDk3NDY5MzE3fQ.auJCCZ8qIEBPV4zYJGbD_Z0DxQ7MrUj_9x1DKzvzu_U',
 );
 
 const BUCKET = 'ume-attachments';
