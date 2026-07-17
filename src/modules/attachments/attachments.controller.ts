@@ -1,7 +1,6 @@
 import { Controller, Post, Get, Delete, Param, UploadedFile, UseInterceptors, UseGuards } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname } from 'path';
+import { memoryStorage } from 'multer';
 import { AttachmentsService } from './attachments.service';
 import { JwtAuthGuard } from '../../common/jwt-auth.guard';
 
@@ -12,14 +11,8 @@ export class AttachmentsController {
 
   @Post('invoice/:id')
   @UseInterceptors(FileInterceptor('file', {
-    storage: diskStorage({
-      destination: './uploads',
-      filename: (req, file, cb) => {
-        const unique = Date.now() + '-' + Math.round(Math.random() * 1e9);
-        cb(null, unique + extname(file.originalname));
-      },
-    }),
-    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+    storage: memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 },
   }))
   upload(@Param('id') invoiceId: string, @UploadedFile() file: Express.Multer.File) {
     return this.svc.create(invoiceId, file);

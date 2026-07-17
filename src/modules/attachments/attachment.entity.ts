@@ -21,6 +21,9 @@ export class Attachment {
   @Column({ type: 'int' })
   size: number;
 
+  @Column({ length: 500, nullable: true })
+  url: string;
+
   @CreateDateColumn()
   created_at: Date;
 
