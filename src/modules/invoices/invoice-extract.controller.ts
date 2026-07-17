@@ -42,15 +42,21 @@ export class InvoiceExtractController {
       content.push({ type: 'image', source: { type: 'base64', media_type: file.mimetype as any, data: base64 } });
     }
 
-    const response = await client.messages.create({
-      model: 'claude-opus-4-8',
-      max_tokens: 1024,
-      messages: [{ role: 'user', content }],
-    });
+    try {
+      const response = await client.messages.create({
+        model: 'claude-sonnet-5',
+        max_tokens: 1024,
+        messages: [{ role: 'user', content }],
+        ...(isPdf ? { betas: ['pdfs-2024-09-25'] } as any : {}),
+      });
 
-    const text = (response.content[0] as any).text.trim();
-    console.log('Claude response:', text.substring(0, 200));
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    return JSON.parse(jsonMatch ? jsonMatch[0] : text);
+      const text = (response.content[0] as any).text.trim();
+      console.log('Claude response:', text.substring(0, 200));
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      return JSON.parse(jsonMatch ? jsonMatch[0] : text);
+    } catch (err: any) {
+      console.error('Anthropic error:', err?.message, err?.status, JSON.stringify(err?.error));
+      throw new InternalServerErrorException(err?.message || 'Anthropic API failed');
+    }
   }
 }
