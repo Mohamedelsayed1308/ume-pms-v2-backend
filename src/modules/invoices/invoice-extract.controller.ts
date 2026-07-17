@@ -51,9 +51,18 @@ export class InvoiceExtractController {
       });
 
       const text = (response.content[0] as any).text.trim();
-      console.log('Claude response preview:', text.substring(0, 200));
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      return JSON.parse(jsonMatch ? jsonMatch[0] : text);
+      console.log('Claude response preview:', text.substring(0, 300));
+      // Extract first complete JSON object
+      const jsonMatch = text.match(/\{[\s\S]*?\}(?=\s*$|\s*```|\s*\n\n)/);
+      const jsonStr = jsonMatch ? jsonMatch[0] : text.match(/\{[\s\S]*\}/)?.[0] || text;
+      try {
+        return JSON.parse(jsonStr);
+      } catch {
+        // Try to find JSON between code fences
+        const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+        if (fenceMatch) return JSON.parse(fenceMatch[1]);
+        throw new Error('Could not parse JSON from Claude response: ' + text.substring(0, 100));
+      }
     } catch (err: any) {
       console.error('Claude error:', err?.message, err?.status);
       throw new InternalServerErrorException(err?.message || 'Claude API failed');
