@@ -72,6 +72,12 @@ export class Invoice {
   @Column({ type: 'text', nullable: true })
   comment: string;
 
+  @Column({ type: 'uuid', nullable: true })
+  created_by_id: string;
+
+  @Column({ length: 100, nullable: true })
+  created_by_name: string;
+
   @CreateDateColumn()
   created_at: Date;
 

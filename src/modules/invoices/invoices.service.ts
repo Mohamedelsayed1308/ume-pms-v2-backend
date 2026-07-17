@@ -154,6 +154,30 @@ export class InvoicesService {
     };
   }
 
+  async reportByUser() {
+    const invoices = await this.repo.find({
+      relations: { vessel: true },
+      order: { created_at: 'DESC' },
+    });
+
+    const map: Record<string, any> = {};
+    for (const inv of invoices) {
+      const userName = inv.created_by_name || 'غير معروف';
+      const userId = inv.created_by_id || 'unknown';
+      if (!map[userId]) {
+        map[userId] = { user_id: userId, user_name: userName, total: 0, by_vessel: {} };
+      }
+      map[userId].total += 1;
+      const vesselName = inv.vessel?.name || 'بدون سفينة';
+      map[userId].by_vessel[vesselName] = (map[userId].by_vessel[vesselName] || 0) + 1;
+    }
+
+    return Object.values(map).map((u) => ({
+      ...u,
+      by_vessel: Object.entries(u.by_vessel).map(([vessel, count]) => ({ vessel, count })),
+    }));
+  }
+
   getDueAlerts(daysAhead = 30) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);

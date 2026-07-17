@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
 import { InvoicesService } from './invoices.service';
 import { JwtAuthGuard } from '../../common/jwt-auth.guard';
 
@@ -16,8 +16,11 @@ export class InvoicesController {
   @Get('statement/supplier/:id') supplierStatement(@Param('id') id: string) { return this.svc.getSupplierStatement(id); }
   @Get('unpaid/by-supplier/:id') unpaidBySupplier(@Param('id') id: string) { return this.svc.findUnpaidBySupplier(id); }
   @Get('unpaid/by-vessel/:id') unpaidByVessel(@Param('id') id: string) { return this.svc.findUnpaidByVessel(id); }
+  @Get('report/by-user') reportByUser() { return this.svc.reportByUser(); }
   @Get(':id') findOne(@Param('id') id: string) { return this.svc.findOne(id); }
-  @Post() create(@Body() body: any) { return this.svc.create(body); }
+  @Post() create(@Body() body: any, @Request() req: any) {
+    return this.svc.create({ ...body, created_by_id: req.user?.id, created_by_name: req.user?.full_name || req.user?.email });
+  }
   @Put(':id') update(@Param('id') id: string, @Body() body: any) { return this.svc.update(id, body); }
   @Delete(':id') remove(@Param('id') id: string) { return this.svc.remove(id); }
 }
