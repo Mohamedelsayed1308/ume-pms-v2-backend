@@ -2,10 +2,14 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Vessel } from './vessel.entity';
+import { Invoice } from '../invoices/invoice.entity';
 
 @Injectable()
 export class VesselsService {
-  constructor(@InjectRepository(Vessel) private repo: Repository<Vessel>) {}
+  constructor(
+    @InjectRepository(Vessel) private repo: Repository<Vessel>,
+    @InjectRepository(Invoice) private invoiceRepo: Repository<Invoice>,
+  ) {}
 
   findAll() { return this.repo.find({ order: { name: 'ASC' } }); }
   findOne(id: string) { return this.repo.findOneBy({ id }); }
@@ -33,19 +37,18 @@ export class VesselsService {
   }
 
   async getSuppliersByVessel(vesselId: string) {
-    return this.repo
-      .createQueryBuilder('v')
-      .leftJoin('v.purchase_orders', 'po')
-      .leftJoin('po.supplier', 's')
-      .leftJoin('po.invoices', 'inv')
+    return this.invoiceRepo
+      .createQueryBuilder('inv')
+      .leftJoin('inv.supplier', 's')
       .select('s.id', 'supplier_id')
       .addSelect('s.name', 'supplier_name')
       .addSelect('COUNT(DISTINCT inv.id)', 'total_invoices')
-      .addSelect('SUM(inv.total_amount)', 'total_amount')
-      .addSelect('SUM(inv.paid_amount)', 'paid_amount')
-      .where('v.id = :id', { id: vesselId })
+      .addSelect('COALESCE(SUM(inv.total_amount), 0)', 'total_amount')
+      .addSelect('COALESCE(SUM(inv.paid_amount), 0)', 'paid_amount')
+      .where('inv.vessel_id = :id', { id: vesselId })
+      .andWhere('s.id IS NOT NULL')
       .groupBy('s.id, s.name')
-      .orderBy('total_amount', 'DESC')
+      .orderBy('SUM(inv.total_amount)', 'DESC')
       .getRawMany();
   }
 }
