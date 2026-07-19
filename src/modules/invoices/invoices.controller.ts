@@ -17,6 +17,7 @@ export class InvoicesController {
   @Get('unpaid/by-supplier/:id') unpaidBySupplier(@Param('id') id: string) { return this.svc.findUnpaidBySupplier(id); }
   @Get('unpaid/by-vessel/:id') unpaidByVessel(@Param('id') id: string) { return this.svc.findUnpaidByVessel(id); }
   @Get('report/by-user') reportByUser() { return this.svc.reportByUser(); }
+  @Get('report/department-delays') reportDepartmentDelays() { return this.svc.reportDepartmentDelays(); }
   @Get(':id') findOne(@Param('id') id: string) { return this.svc.findOne(id); }
   @Post() create(@Body() body: any, @Request() req: any) {
     return this.svc.create({ ...body, created_by_id: req.user?.id, created_by_name: req.user?.full_name || req.user?.email });

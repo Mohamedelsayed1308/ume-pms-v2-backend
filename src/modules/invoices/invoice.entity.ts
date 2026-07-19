@@ -78,6 +78,9 @@ export class Invoice {
   @Column({ length: 100, nullable: true })
   created_by_name: string;
 
+  @Column({ type: 'date', nullable: true })
+  approval_status_date: Date;
+
   @CreateDateColumn()
   created_at: Date;
 

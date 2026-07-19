@@ -154,6 +154,50 @@ export class InvoicesService {
     };
   }
 
+  async reportDepartmentDelays() {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const deptMap: Record<string, string> = {
+      waiting_po: 'Purchasing Dept',
+      delivery_missing: 'Purchasing Dept',
+      send_to_pay: 'Payments & Treasury Dept',
+    };
+
+    const invoices = await this.repo.find({
+      where: [
+        { approval_status: 'waiting_po' as any },
+        { approval_status: 'delivery_missing' as any },
+        { approval_status: 'send_to_pay' as any },
+      ],
+      relations: { supplier: true, vessel: true },
+      order: { approval_status_date: 'ASC' },
+    });
+
+    return invoices
+      .filter((inv) => inv.approval_status_date)
+      .map((inv) => {
+        const statusDate = new Date(inv.approval_status_date);
+        const diffMs = today.getTime() - statusDate.getTime();
+        const days_delayed = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+        return {
+          id: inv.id,
+          invoice_number: inv.invoice_number,
+          supplier: inv.supplier?.name,
+          vessel: inv.vessel?.name,
+          total_amount: inv.total_amount,
+          currency: inv.currency,
+          approval_status: inv.approval_status,
+          approval_status_date: inv.approval_status_date,
+          days_delayed,
+          department: deptMap[inv.approval_status] || '—',
+          is_delayed: days_delayed > 3,
+        };
+      })
+      .filter((inv) => inv.is_delayed)
+      .sort((a, b) => b.days_delayed - a.days_delayed);
+  }
+
   async reportByUser() {
     const invoices = await this.repo.find({
       relations: { vessel: true },
