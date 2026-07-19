@@ -2,10 +2,14 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThanOrEqual, Not, Repository } from 'typeorm';
 import { Invoice, InvoiceStatus } from './invoice.entity';
+import { Attachment } from '../attachments/attachment.entity';
 
 @Injectable()
 export class InvoicesService {
-  constructor(@InjectRepository(Invoice) private repo: Repository<Invoice>) {}
+  constructor(
+    @InjectRepository(Invoice) private repo: Repository<Invoice>,
+    @InjectRepository(Attachment) private attachmentRepo: Repository<Attachment>,
+  ) {}
 
   findAll() {
     return this.repo.find({
@@ -28,7 +32,11 @@ export class InvoicesService {
     return this.findOne(id);
   }
 
-  async remove(id: string) { await this.repo.delete(id); return { deleted: true }; }
+  async remove(id: string) {
+    await this.attachmentRepo.delete({ invoice_id: id });
+    await this.repo.delete(id);
+    return { deleted: true };
+  }
 
   async updatePaidAmount(invoiceId: string) {
     const invoice = await this.repo.findOne({
