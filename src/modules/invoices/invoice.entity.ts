@@ -17,9 +17,13 @@ export enum InvoiceStatus {
 }
 
 export enum ApprovalStatus {
+  BOOKING_WAITING_PAYMENT = 'booking_waiting_payment',
+  WAITING_APPROVAL = 'waiting_approval',
   WAITING_PO = 'waiting_po',
   SEND_TO_PAY = 'send_to_pay',
   HOLD = 'hold',
+  DELIVERY_MISSING = 'delivery_missing',
+  PAID = 'paid',
 }
 
 @Entity('invoices')
@@ -66,8 +70,8 @@ export class Invoice {
   @Column({ length: 200, nullable: true })
   notes: string;
 
-  @Column({ type: 'enum', enum: ApprovalStatus, nullable: true })
-  approval_status: ApprovalStatus;
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  approval_status: string;
 
   @Column({ type: 'text', nullable: true })
   comment: string;
