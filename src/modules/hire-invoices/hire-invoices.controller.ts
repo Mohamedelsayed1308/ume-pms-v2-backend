@@ -46,7 +46,7 @@ export class HireInvoicesController {
   async create(@Body() body: any) {
     const { items, ...invoiceData } = body;
     const invoice = this.repo.create(invoiceData);
-    const saved = await this.repo.save(invoice);
+    const saved = await this.repo.save(invoice) as unknown as HireInvoice;
     if (items?.length) {
       const itemEntities = items.map((it: any, i: number) =>
         this.itemRepo.create({ ...it, hire_invoice_id: saved.id, sort_order: i })
@@ -90,9 +90,11 @@ export class HireInvoicesController {
     await this.payRepo.save(payment);
 
     const invoice = await this.repo.findOne({ where: { id }, relations: { payments: true } });
-    const totalPaid = invoice.payments.reduce((s, p) => s + +p.amount, 0);
-    const status = totalPaid >= +invoice.total_amount ? 'paid' : totalPaid > 0 ? 'partial' : 'unpaid';
-    await this.repo.update(id, { paid_amount: totalPaid, status });
+    if (invoice) {
+      const totalPaid = invoice.payments.reduce((s, p) => s + +p.amount, 0);
+      const status = totalPaid >= +invoice.total_amount ? 'paid' : totalPaid > 0 ? 'partial' : 'unpaid';
+      await this.repo.update(id, { paid_amount: totalPaid, status });
+    }
 
     return this.repo.findOne({
       where: { id },
@@ -105,9 +107,11 @@ export class HireInvoicesController {
     await this.payRepo.delete(paymentId);
 
     const invoice = await this.repo.findOne({ where: { id }, relations: { payments: true } });
-    const totalPaid = invoice.payments.reduce((s, p) => s + +p.amount, 0);
-    const status = totalPaid >= +invoice.total_amount ? 'paid' : totalPaid > 0 ? 'partial' : 'unpaid';
-    await this.repo.update(id, { paid_amount: totalPaid, status });
+    if (invoice) {
+      const totalPaid = invoice.payments.reduce((s, p) => s + +p.amount, 0);
+      const status = totalPaid >= +invoice.total_amount ? 'paid' : totalPaid > 0 ? 'partial' : 'unpaid';
+      await this.repo.update(id, { paid_amount: totalPaid, status });
+    }
 
     return { success: true };
   }
