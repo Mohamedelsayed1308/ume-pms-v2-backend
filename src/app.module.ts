@@ -11,6 +11,9 @@ import { InvoicesModule } from './modules/invoices/invoices.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { CurrenciesModule } from './modules/currencies/currencies.module';
 import { AttachmentsModule } from './modules/attachments/attachments.module';
+import { CustomersModule } from './modules/customers/customers.module';
+import { ShippingCompaniesModule } from './modules/shipping-companies/shipping-companies.module';
+import { HireInvoicesModule } from './modules/hire-invoices/hire-invoices.module';
 
 @Module({
   imports: [
@@ -38,6 +41,9 @@ import { AttachmentsModule } from './modules/attachments/attachments.module';
     InvoicesModule,
     PaymentsModule,
     AttachmentsModule,
+    CustomersModule,
+    ShippingCompaniesModule,
+    HireInvoicesModule,
   ],
 })
 export class AppModule {}

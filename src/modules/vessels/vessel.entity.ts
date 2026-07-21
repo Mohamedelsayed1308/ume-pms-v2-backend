@@ -1,4 +1,5 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany, ManyToOne, JoinColumn } from 'typeorm';
+import { ShippingCompany } from '../shipping-companies/shipping-company.entity';
 import { PurchaseOrder } from '../purchase-orders/purchase-order.entity';
 
 @Entity('vessels')
@@ -18,6 +19,9 @@ export class Vessel {
   @Column({ length: 100, nullable: true })
   vessel_type: string;
 
+  @Column({ type: 'uuid', nullable: true })
+  shipping_company_id: string;
+
   @Column({ default: true })
   is_active: boolean;
 
@@ -26,6 +30,10 @@ export class Vessel {
 
   @UpdateDateColumn()
   updated_at: Date;
+
+  @ManyToOne(() => ShippingCompany, { nullable: true })
+  @JoinColumn({ name: 'shipping_company_id' })
+  shipping_company: ShippingCompany;
 
   @OneToMany(() => PurchaseOrder, (po) => po.vessel)
   purchase_orders: PurchaseOrder[];
