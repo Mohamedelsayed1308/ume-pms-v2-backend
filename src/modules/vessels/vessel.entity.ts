@@ -22,6 +22,12 @@ export class Vessel {
   @Column({ type: 'uuid', nullable: true })
   shipping_company_id: string;
 
+  @Column({ length: 200, nullable: true })
+  owner_name: string;
+
+  @Column({ type: 'text', nullable: true })
+  owner_address: string;
+
   @Column({ default: true })
   is_active: boolean;
 
