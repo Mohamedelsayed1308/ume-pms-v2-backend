@@ -26,11 +26,12 @@ export class InvoiceExtractController {
 {
   "invoice_number": "رقم الفاتورة",
   "total_amount": 0,
-  "currency": "USD أو EUR أو EGP",
+  "currency": "USD أو EUR أو EGP أو SAR أو GBP أو CHF أو AED",
   "invoice_date": "YYYY-MM-DD أو null",
   "due_date": "YYYY-MM-DD أو null",
   "supplier_name": "اسم المورد أو الشركة المُصدِرة للفاتورة",
   "vessel_name": "اسم السفينة أو الباخرة إن وجد أو null",
+  "po_number": "رقم أمر الشراء أو Your Reference أو Our Reference أو PO Number إن وجد أو null",
   "description": "وصف مختصر للفاتورة"
 }
 إذا لم تجد قيمة اتركها null. أرجع JSON فقط.`,
