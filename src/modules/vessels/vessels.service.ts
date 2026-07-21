@@ -13,9 +13,13 @@ export class VesselsService {
 
   findAll() { return this.repo.find({ relations: { shipping_company: true }, order: { name: 'ASC' } }); }
   findOne(id: string) { return this.repo.findOne({ where: { id }, relations: { shipping_company: true } }); }
-  create(data: Partial<Vessel>) { return this.repo.save(data); }
-  async update(id: string, data: Partial<Vessel>) {
-    await this.repo.update(id, data);
+  create(data: any) {
+    const clean = { ...data, shipping_company_id: data.shipping_company_id || null };
+    return this.repo.save(clean);
+  }
+  async update(id: string, data: any) {
+    const clean = { ...data, shipping_company_id: data.shipping_company_id || null };
+    await this.repo.update(id, clean);
     return this.findOne(id);
   }
   async remove(id: string) { await this.repo.delete(id); return { deleted: true }; }
