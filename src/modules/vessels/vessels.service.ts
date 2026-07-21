@@ -11,8 +11,8 @@ export class VesselsService {
     @InjectRepository(Invoice) private invoiceRepo: Repository<Invoice>,
   ) {}
 
-  findAll() { return this.repo.find({ order: { name: 'ASC' } }); }
-  findOne(id: string) { return this.repo.findOneBy({ id }); }
+  findAll() { return this.repo.find({ relations: { shipping_company: true }, order: { name: 'ASC' } }); }
+  findOne(id: string) { return this.repo.findOne({ where: { id }, relations: { shipping_company: true } }); }
   create(data: Partial<Vessel>) { return this.repo.save(data); }
   async update(id: string, data: Partial<Vessel>) {
     await this.repo.update(id, data);
