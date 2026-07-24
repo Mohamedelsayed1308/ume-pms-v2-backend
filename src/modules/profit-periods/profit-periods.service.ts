@@ -36,71 +36,69 @@ export class ProfitPeriodsService {
 
   // ── جلب وتحليل Excel من Google Drive ──────────────────────────────────
   async fetchFromGoogleDrive(fileId: string, dateFrom: string, dateTo: string) {
-    const url = `https://docs.google.com/spreadsheets/d/${fileId}/export?format=xlsx`;
-    console.log('[fetch-excel] URL:', url);
-    const response = await axios.get(url, {
-      responseType: 'arraybuffer',
-      timeout: 30000,
-      maxRedirects: 10,
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-    });
-    console.log('[fetch-excel] status:', response.status, 'size:', response.data?.byteLength);
-    const workbook = XLSX.read(response.data, { type: 'buffer', cellDates: true });
-
     const vessels = ['Poseidon', 'Amal', 'Daleela'];
     const result: Record<string, { revenue: number; voyages: number }> = {};
 
     const from = new Date(dateFrom);
     const to = new Date(dateTo);
-    // extend to end of day
     to.setHours(23, 59, 59, 999);
 
     for (const vesselName of vessels) {
-      const sheet = workbook.Sheets[vesselName];
-      if (!sheet) {
-        result[vesselName.toLowerCase()] = { revenue: 0, voyages: 0 };
-        continue;
-      }
+      try {
+        // gviz/tq يعمل بدون مصادقة مع ملفات "Anyone with link can view"
+        const url = `https://docs.google.com/spreadsheets/d/${fileId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(vesselName)}`;
+        console.log(`[fetch-excel] fetching ${vesselName}:`, url);
 
-      const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
-      let revenue = 0;
-      const voyageRefs = new Set<string>();
+        const res = await axios.get(url, {
+          timeout: 30000,
+          maxRedirects: 10,
+          headers: { 'User-Agent': 'Mozilla/5.0' },
+        });
 
-      for (const row of rows) {
-        if (!row || row.length < 14) continue;
+        // parse CSV
+        const wb = XLSX.read(res.data, { type: 'string', raw: false });
+        const sheetKey = Object.keys(wb.Sheets)[0];
+        const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[sheetKey], { header: 1, defval: null });
 
-        // col index 2 = DATE (0-based), col 0 = REF#, col 12+13 = revenue
-        const rawDate = row[2];
-        const ref = row[0];
+        console.log(`[fetch-excel] ${vesselName} rows:`, rows.length);
 
-        if (!rawDate) continue;
+        let revenue = 0;
+        const voyageRefs = new Set<string>();
 
-        let rowDate: Date;
-        if (rawDate instanceof Date) {
-          rowDate = rawDate;
-        } else if (typeof rawDate === 'number') {
-          // Excel serial date
-          rowDate = XLSX.SSF.parse_date_code
-            ? new Date((rawDate - 25569) * 86400 * 1000)
-            : new Date((rawDate - 25569) * 86400 * 1000);
-        } else if (typeof rawDate === 'string') {
-          rowDate = new Date(rawDate);
-        } else {
-          continue;
+        for (const row of rows) {
+          if (!row || row.length < 14) continue;
+
+          const rawDate = row[2];
+          const ref = row[0];
+          if (!rawDate) continue;
+
+          let rowDate: Date;
+          if (typeof rawDate === 'string') {
+            rowDate = new Date(rawDate);
+          } else if (typeof rawDate === 'number') {
+            rowDate = new Date((rawDate - 25569) * 86400 * 1000);
+          } else {
+            continue;
+          }
+
+          if (isNaN(rowDate.getTime())) continue;
+          if (rowDate < from || rowDate > to) continue;
+
+          const col12 = parseFloat(String(row[12]).replace(/,/g, '')) || 0;
+          const col13 = parseFloat(String(row[13]).replace(/,/g, '')) || 0;
+          revenue += col12 + col13;
+
+          if (ref) voyageRefs.add(String(ref).trim());
         }
 
-        if (isNaN(rowDate.getTime())) continue;
-        if (rowDate < from || rowDate > to) continue;
-
-        // sum col 12 and 13 (freight + extras)
-        const col12 = typeof row[12] === 'number' ? row[12] : 0;
-        const col13 = typeof row[13] === 'number' ? row[13] : 0;
-        revenue += col12 + col13;
-
-        if (ref) voyageRefs.add(String(ref).trim());
+        result[vesselName.toLowerCase()] = {
+          revenue: Math.round(revenue * 100) / 100,
+          voyages: voyageRefs.size,
+        };
+      } catch (e: any) {
+        console.error(`[fetch-excel] error for ${vesselName}:`, e?.message);
+        result[vesselName.toLowerCase()] = { revenue: 0, voyages: 0 };
       }
-
-      result[vesselName.toLowerCase()] = { revenue: Math.round(revenue * 100) / 100, voyages: voyageRefs.size };
     }
 
     return result;
@@ -112,44 +110,18 @@ export class ProfitPeriodsService {
 
     const totalRevenue = n(p.poseidon_revenue) + n(p.amal_revenue) + n(p.daleela_revenue);
     const totalVoyages = n(p.poseidon_voyages) + n(p.amal_voyages) + n(p.daleela_voyages);
-
     const totalOverPax = n(p.poseidon_over_pax) + n(p.amal_over_pax) + n(p.daleela_over_pax);
     const totalRent = n(p.poseidon_rent) + n(p.amal_rent) + n(p.daleela_rent);
 
-    const commissionRate = n(p.commission_rate) / 100;
-    const perVoyageFee = n(p.per_voyage_fee);
-
-    const commission = totalRevenue * commissionRate + totalVoyages * perVoyageFee + totalOverPax;
+    const commission = totalRevenue * (n(p.commission_rate) / 100) + totalVoyages * n(p.per_voyage_fee) + totalOverPax;
     const netProfit = totalRevenue - totalRent - commission;
 
-    const ratioBadawi = n(p.ratio_badawi) / 100;
-    const ratioIttihad = n(p.ratio_ittihad) / 100;
+    const shareBadawi = netProfit * (n(p.ratio_badawi) / 100);
+    const shareIttihad = netProfit * (n(p.ratio_ittihad) / 100);
 
-    const shareBadawi = netProfit * ratioBadawi;
-    const shareIttihad = netProfit * ratioIttihad;
+    const balanceBadawi = n(p.balance_prev_badawi) + shareBadawi - n(p.cash_safaga_badawi) - n(p.transfers_badawi);
+    const balanceIttihad = n(p.balance_prev_ittihad) + shareIttihad - n(p.cash_safaga_ittihad) - n(p.transfers_ittihad);
 
-    const prevBadawi = n(p.balance_prev_badawi);
-    const prevIttihad = n(p.balance_prev_ittihad);
-
-    const cashSafagaBadawi = n(p.cash_safaga_badawi);
-    const cashSafagaIttihad = n(p.cash_safaga_ittihad);
-    const transfersBadawi = n(p.transfers_badawi);
-    const transfersIttihad = n(p.transfers_ittihad);
-
-    const balanceBadawi = prevBadawi + shareBadawi - cashSafagaBadawi - transfersBadawi;
-    const balanceIttihad = prevIttihad + shareIttihad - cashSafagaIttihad - transfersIttihad;
-
-    return {
-      totalRevenue,
-      totalVoyages,
-      totalOverPax,
-      totalRent,
-      commission,
-      netProfit,
-      shareBadawi,
-      shareIttihad,
-      balanceBadawi,
-      balanceIttihad,
-    };
+    return { totalRevenue, totalVoyages, totalOverPax, totalRent, commission, netProfit, shareBadawi, shareIttihad, balanceBadawi, balanceIttihad };
   }
 }
