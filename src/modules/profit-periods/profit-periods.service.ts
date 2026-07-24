@@ -76,29 +76,25 @@ export class ProfitPeriodsService {
         const voyageRefs = new Set<string>();
 
         for (const row of rows) {
-          if (!row || row.length < 14) continue;
+          if (!row || row.length < 6) continue;
 
-          const rawDate = row[2];
-          const ref = row[0];
-          if (!rawDate) continue;
+          // col3=DATE, col1=REF#, col5=FREIGHT USD, col9=PASSENGERS
+          const rawDate = row[3];
+          const ref = row[1];
+          if (!rawDate || typeof rawDate !== 'string') continue;
 
-          let rowDate: Date;
-          if (typeof rawDate === 'string') {
-            rowDate = new Date(rawDate);
-          } else if (typeof rawDate === 'number') {
-            rowDate = new Date((rawDate - 25569) * 86400 * 1000);
-          } else {
-            continue;
-          }
+          // تجاهل صفوف الهيدر
+          if (rawDate === 'DATE' || rawDate === 'Date') continue;
 
+          const rowDate = new Date(rawDate);
           if (isNaN(rowDate.getTime())) continue;
           if (rowDate < from || rowDate > to) continue;
 
-          const col12 = parseFloat(String(row[12]).replace(/,/g, '')) || 0;
-          const col13 = parseFloat(String(row[13]).replace(/,/g, '')) || 0;
-          revenue += col12 + col13;
+          const freight = parseFloat(String(row[5] ?? '').replace(/,/g, '')) || 0;
+          const pax = parseFloat(String(row[9] ?? '').replace(/,/g, '')) || 0;
+          revenue += freight + pax;
 
-          if (ref) voyageRefs.add(String(ref).trim());
+          if (ref && String(ref).trim()) voyageRefs.add(String(ref).trim());
         }
 
         result[vesselName.toLowerCase()] = {
