@@ -97,6 +97,7 @@ export class ProfitPeriodsService {
 
           // قيمة NET BALANCE
           const net = parseFloat(String(row[cfg.netCol] ?? '').replace(/,/g, '')) || 0;
+          console.log(`[fetch] ${vesselName} row match: date=${rowDate.toISOString().slice(0,10)} rowLen=${row.length} col${cfg.netCol}=${row[cfg.netCol]} net=${net}`);
           revenue += net;
 
           // عد الرحلات الفريدة
