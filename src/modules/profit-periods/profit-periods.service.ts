@@ -75,26 +75,38 @@ export class ProfitPeriodsService {
         let revenue = 0;
         const voyageRefs = new Set<string>();
 
+        const isAmal = vesselName === 'Amal';
+
         for (const row of rows) {
-          if (!row || row.length < 6) continue;
+          if (!row || row.length < 4) continue;
 
-          // col3=DATE, col1=REF#, col5=FREIGHT USD, col9=PASSENGERS
+          // col3 = DATE as Excel serial number
           const rawDate = row[3];
-          const ref = row[1];
-          if (!rawDate || typeof rawDate !== 'string') continue;
+          if (rawDate === null || rawDate === undefined) continue;
+          if (typeof rawDate === 'string' && isNaN(Number(rawDate))) continue;
 
-          // تجاهل صفوف الهيدر
-          if (rawDate === 'DATE' || rawDate === 'Date') continue;
+          const serial = typeof rawDate === 'number' ? rawDate : Number(rawDate);
+          if (isNaN(serial) || serial < 40000) continue; // تجاهل قيم غير منطقية
 
-          const rowDate = new Date(rawDate);
+          // تحويل Excel serial إلى Date
+          const rowDate = new Date((serial - 25569) * 86400 * 1000);
           if (isNaN(rowDate.getTime())) continue;
           if (rowDate < from || rowDate > to) continue;
 
-          const freight = parseFloat(String(row[5] ?? '').replace(/,/g, '')) || 0;
-          const pax = parseFloat(String(row[9] ?? '').replace(/,/g, '')) || 0;
-          revenue += freight + pax;
-
-          if (ref && String(ref).trim()) voyageRefs.add(String(ref).trim());
+          if (isAmal) {
+            // Amal: col0=voyage, col1=Rev.Safaga, col2=Rev.Duba
+            const rev1 = parseFloat(String(row[1] ?? '').replace(/,/g, '')) || 0;
+            const rev2 = parseFloat(String(row[2] ?? '').replace(/,/g, '')) || 0;
+            revenue += rev1 + rev2;
+            const ref = row[0];
+            if (ref && typeof ref === 'number') voyageRefs.add(String(ref));
+          } else {
+            // Poseidon/Daleela: col1=voyage, col6=FREIGHT
+            const freight = parseFloat(String(row[6] ?? '').replace(/,/g, '')) || 0;
+            revenue += freight;
+            const ref = row[1];
+            if (ref && typeof ref === 'number') voyageRefs.add(String(ref));
+          }
         }
 
         result[vesselName.toLowerCase()] = {
