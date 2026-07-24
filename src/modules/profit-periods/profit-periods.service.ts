@@ -101,9 +101,12 @@ export class ProfitPeriodsService {
           if (isNaN(rowDate.getTime())) continue;
           if (rowDate < from || rowDate > to) continue;
 
+          // فقط صفوف الرحلات (Exp./Imp.) — تجاهل صفوف الإجماليات والمصاريف
+          const rowType = String(row[0] ?? '').trim();
+          if (rowType !== 'Exp.' && rowType !== 'Imp.') continue;
+
           // قيمة NET BALANCE
           const net = parseFloat(String(row[cfg.netCol] ?? '').replace(/,/g, '')) || 0;
-          console.log(`[fetch] ${vesselName} row match: date=${rowDate.toISOString().slice(0,10)} rowLen=${row.length} col${cfg.netCol}=${row[cfg.netCol]} net=${net}`);
           revenue += net;
 
           // عد الرحلات الفريدة
