@@ -44,9 +44,12 @@ export class ProfitPeriodsService {
 
     // إعدادات كل مركب: عمود NET BALANCE وطريقة قراءة التاريخ
     const VESSEL_CONFIG: Record<string, { netCol: number; dateAsSerial: boolean; voyCol: number }> = {
-      Poseidon: { netCol: 31, dateAsSerial: true,  voyCol: 1 }, // AF=31, date=serial, voy=col B (REF.#)
-      Amal:     { netCol: 29, dateAsSerial: false, voyCol: 2 }, // AD=29, date=text,   voy=col C (VOY)
-      Daleela:  { netCol: 29, dateAsSerial: false, voyCol: 2 }, // AD=29, date=text,   voy=col C (VOY)
+      // Poseidon: تواريخ الرحلات 2026 نصوص "D/M/YYYY"، الصفوف الرقمية هي أقسام أخرى تُتجاهل
+      Poseidon: { netCol: 31, dateAsSerial: false, voyCol: 1 },
+      // Amal: التواريخ في CSV كـ serial رقمية (خلايا تاريخ حقيقية)
+      Amal:     { netCol: 29, dateAsSerial: true,  voyCol: 2 },
+      // Daleela: نصوص مثل "March 1, 2025"
+      Daleela:  { netCol: 29, dateAsSerial: false, voyCol: 2 },
     };
 
     const vessels = ['Poseidon', 'Amal', 'Daleela'];
@@ -79,17 +82,22 @@ export class ProfitPeriodsService {
           const rawDate = row[3];
           if (rawDate === null || rawDate === undefined) continue;
 
-          // التاريخ يجب أن يكون نصاً فقط — الصفوف الرقمية (serial) تُتجاهل
-          // لأن صفوف الرحلات في 2026 كلها نص، والصفوف الرقمية من أقسام أخرى
-          if (typeof rawDate !== 'string' || !rawDate.trim()) continue;
-          const txt = rawDate.trim();
           let rowDate: Date;
-          // تحويل "D/M/YYYY" أو "DD/MM/YYYY" إلى "YYYY-MM-DD"
-          const dmyMatch = txt.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-          if (dmyMatch) {
-            rowDate = new Date(`${dmyMatch[3]}-${dmyMatch[2].padStart(2,'0')}-${dmyMatch[1].padStart(2,'0')}`);
+          if (cfg.dateAsSerial) {
+            // Amal: التاريخ كـ Excel serial رقمي
+            const numVal = Number(rawDate);
+            if (isNaN(numVal) || numVal <= 40000) continue;
+            rowDate = new Date((numVal - 25569) * 86400 * 1000);
           } else {
-            rowDate = new Date(txt); // "June 21, 2026" و نصوص أخرى
+            // Poseidon/Daleela: النص فقط — الصفوف الرقمية تُتجاهل (أقسام أخرى في الشيت)
+            if (typeof rawDate !== 'string' || !rawDate.trim()) continue;
+            const txt = rawDate.trim();
+            const dmyMatch = txt.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+            if (dmyMatch) {
+              rowDate = new Date(`${dmyMatch[3]}-${dmyMatch[2].padStart(2,'0')}-${dmyMatch[1].padStart(2,'0')}`);
+            } else {
+              rowDate = new Date(txt);
+            }
           }
 
           if (isNaN(rowDate.getTime())) continue;
