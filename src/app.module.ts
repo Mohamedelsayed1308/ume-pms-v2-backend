@@ -15,6 +15,7 @@ import { CustomersModule } from './modules/customers/customers.module';
 import { ShippingCompaniesModule } from './modules/shipping-companies/shipping-companies.module';
 import { HireInvoicesModule } from './modules/hire-invoices/hire-invoices.module';
 import { ManagementInvoicesModule } from './modules/management-invoices/management-invoices.module';
+import { ProfitPeriodsModule } from './modules/profit-periods/profit-periods.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { ManagementInvoicesModule } from './modules/management-invoices/manageme
     ShippingCompaniesModule,
     HireInvoicesModule,
     ManagementInvoicesModule,
+    ProfitPeriodsModule,
   ],
 })
 export class AppModule {}
