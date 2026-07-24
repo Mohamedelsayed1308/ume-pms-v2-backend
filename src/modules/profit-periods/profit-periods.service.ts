@@ -79,23 +79,17 @@ export class ProfitPeriodsService {
           const rawDate = row[3];
           if (rawDate === null || rawDate === undefined) continue;
 
+          // التاريخ يجب أن يكون نصاً فقط — الصفوف الرقمية (serial) تُتجاهل
+          // لأن صفوف الرحلات في 2026 كلها نص، والصفوف الرقمية من أقسام أخرى
+          if (typeof rawDate !== 'string' || !rawDate.trim()) continue;
+          const txt = rawDate.trim();
           let rowDate: Date;
-          const numVal = Number(rawDate);
-          if (!isNaN(numVal) && numVal > 40000) {
-            // Excel serial رقمي (يعمل مع Poseidon والمراكب الأخرى)
-            rowDate = new Date((numVal - 25569) * 86400 * 1000);
-          } else if (typeof rawDate === 'string' && rawDate.trim()) {
-            // نص تاريخ: "June 21, 2026" أو "21/6/2026"
-            const txt = rawDate.trim();
-            // تحويل "D/M/YYYY" أو "DD/MM/YYYY" إلى "YYYY-MM-DD"
-            const dmyMatch = txt.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-            if (dmyMatch) {
-              rowDate = new Date(`${dmyMatch[3]}-${dmyMatch[2].padStart(2,'0')}-${dmyMatch[1].padStart(2,'0')}`);
-            } else {
-              rowDate = new Date(txt);
-            }
+          // تحويل "D/M/YYYY" أو "DD/MM/YYYY" إلى "YYYY-MM-DD"
+          const dmyMatch = txt.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+          if (dmyMatch) {
+            rowDate = new Date(`${dmyMatch[3]}-${dmyMatch[2].padStart(2,'0')}-${dmyMatch[1].padStart(2,'0')}`);
           } else {
-            continue;
+            rowDate = new Date(txt); // "June 21, 2026" و نصوص أخرى
           }
 
           if (isNaN(rowDate.getTime())) continue;
