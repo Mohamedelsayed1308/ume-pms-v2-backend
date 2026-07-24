@@ -29,6 +29,14 @@ export class ProfitPeriodsController {
 
   @Post('fetch-excel')
   async fetchExcel(@Body() body: { file_id: string; date_from: string; date_to: string }) {
-    return this.svc.fetchFromGoogleDrive(body.file_id, body.date_from, body.date_to);
+    try {
+      return await this.svc.fetchFromGoogleDrive(body.file_id, body.date_from, body.date_to);
+    } catch (e: any) {
+      const msg = e?.response?.data ? `HTTP ${e.response.status}` : e?.message || 'Unknown error';
+      throw new (await import('@nestjs/common').then(m => m.HttpException))(
+        { message: msg, detail: e?.message },
+        500,
+      );
+    }
   }
 }

@@ -37,7 +37,14 @@ export class ProfitPeriodsService {
   // ── جلب وتحليل Excel من Google Drive ──────────────────────────────────
   async fetchFromGoogleDrive(fileId: string, dateFrom: string, dateTo: string) {
     const url = `https://docs.google.com/spreadsheets/d/${fileId}/export?format=xlsx`;
-    const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 30000 });
+    console.log('[fetch-excel] URL:', url);
+    const response = await axios.get(url, {
+      responseType: 'arraybuffer',
+      timeout: 30000,
+      maxRedirects: 10,
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+    });
+    console.log('[fetch-excel] status:', response.status, 'size:', response.data?.byteLength);
     const workbook = XLSX.read(response.data, { type: 'buffer', cellDates: true });
 
     const vessels = ['Poseidon', 'Amal', 'Daleela'];
