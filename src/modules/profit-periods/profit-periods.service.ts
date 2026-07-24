@@ -80,16 +80,22 @@ export class ProfitPeriodsService {
           if (rawDate === null || rawDate === undefined) continue;
 
           let rowDate: Date;
-          if (cfg.dateAsSerial) {
-            // Poseidon: التاريخ كـ Excel serial رقمي
-            if (typeof rawDate === 'string' && isNaN(Number(rawDate))) continue;
-            const serial = typeof rawDate === 'number' ? rawDate : Number(rawDate);
-            if (isNaN(serial) || serial < 40000) continue;
-            rowDate = new Date((serial - 25569) * 86400 * 1000);
+          const numVal = Number(rawDate);
+          if (!isNaN(numVal) && numVal > 40000) {
+            // Excel serial رقمي (يعمل مع Poseidon والمراكب الأخرى)
+            rowDate = new Date((numVal - 25569) * 86400 * 1000);
+          } else if (typeof rawDate === 'string' && rawDate.trim()) {
+            // نص تاريخ: "June 21, 2026" أو "21/6/2026"
+            const txt = rawDate.trim();
+            // تحويل "D/M/YYYY" أو "DD/MM/YYYY" إلى "YYYY-MM-DD"
+            const dmyMatch = txt.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+            if (dmyMatch) {
+              rowDate = new Date(`${dmyMatch[3]}-${dmyMatch[2].padStart(2,'0')}-${dmyMatch[1].padStart(2,'0')}`);
+            } else {
+              rowDate = new Date(txt);
+            }
           } else {
-            // Amal/Daleela: التاريخ كنص "June 21, 2026"
-            if (typeof rawDate !== 'string' || !rawDate.trim()) continue;
-            rowDate = new Date(rawDate.trim());
+            continue;
           }
 
           if (isNaN(rowDate.getTime())) continue;
