@@ -67,9 +67,9 @@ export class ProfitPeriodsService {
         const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[sheetKey], { header: 1, defval: null });
 
         console.log(`[fetch-excel] ${vesselName} rows:`, rows.length);
-        // log first 3 non-empty rows to inspect structure
-        rows.filter(r => r && r.length > 2).slice(0, 3).forEach((r, i) =>
-          console.log(`[fetch-excel] ${vesselName} row${i}:`, JSON.stringify(r.slice(0, 15)))
+        // log first 3 rows that have data in col3 (DATE)
+        rows.filter(r => r && r[3] && r[3] !== 'DATE').slice(0, 3).forEach((r, i) =>
+          console.log(`[fetch-excel] ${vesselName} data${i}:`, JSON.stringify(r.slice(0, 10)))
         );
 
         let revenue = 0;
