@@ -51,7 +51,8 @@ export class ProfitPeriodsService {
 
     for (const vesselName of vessels) {
       try {
-        const url = `https://docs.google.com/spreadsheets/d/${fileId}/pub?gid=${GIDS[vesselName]}&single=true&output=csv`;
+        const PUBLISHED_ID = '2PACX-1vSJmX-7dFDzqZaP38HzRYLy6MqkmJeRscbg7uV2--Pi-92LIbPvYXomvrVZT7U9BA';
+        const url = `https://docs.google.com/spreadsheets/d/e/${PUBLISHED_ID}/pub?gid=${GIDS[vesselName]}&single=true&output=csv`;
         console.log(`[fetch-excel] fetching ${vesselName}:`, url);
 
         const res = await axios.get(url, {
