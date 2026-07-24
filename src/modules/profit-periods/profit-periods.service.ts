@@ -38,7 +38,7 @@ export class ProfitPeriodsService {
   async fetchFromGoogleDrive(fileId: string, dateFrom: string, dateTo: string) {
     const GIDS: Record<string, number> = {
       Poseidon: 1709309661,
-      Amal: 319001398,
+      Amal: 432651161,
       Daleela: 1434981772,
     };
 
