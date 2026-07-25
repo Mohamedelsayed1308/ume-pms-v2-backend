@@ -12,11 +12,11 @@ export class TasksService {
   ) {}
 
   findAll() {
-    return this.repo.find({ relations: ['comments'], order: { created_at: 'DESC' } });
+    return this.repo.find({ relations: { comments: true }, order: { created_at: 'DESC' } });
   }
 
   findOne(id: string) {
-    return this.repo.findOne({ where: { id }, relations: ['comments'] });
+    return this.repo.findOne({ where: { id }, relations: { comments: true } });
   }
 
   create(data: any) {
