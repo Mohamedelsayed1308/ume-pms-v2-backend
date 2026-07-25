@@ -32,6 +32,9 @@ export class ProfitPeriod {
   @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 }) amal_rent: number;
   @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 }) daleela_rent: number;
 
+  // العمولة الإجمالية المجلوبة من الشيت (تحل محل حساب النسبة %)
+  @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 }) commission_amount: number;
+
   @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 }) cash_safaga_badawi: number;
   @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 }) cash_safaga_ittihad: number;
 

@@ -34,19 +34,29 @@ export class ProfitPeriodsService {
     return { deleted: true };
   }
 
+  private readonly APPS_SCRIPT_URL =
+    'https://script.google.com/macros/s/AKfycbxmnoBIXKK94r_fJWYd2u-Jo2u8izhx1HH8be7OQR9gzF506bXKrKOnFy3VBRaTMcJI4A/exec';
+
   // ── جلب البيانات من Google Apps Script Web App ───────────────────────────
   async fetchFromGoogleDrive(fileId: string, dateFrom: string, dateTo: string) {
-    const APPS_SCRIPT_URL =
-      'https://script.google.com/macros/s/AKfycbyk1mFJjstQpHtLf-5uSoRqiFUL9AIi2FQC7P5lUVrV3XpsyHyG6HQ52jdXgml-UI3I-g/exec';
-
-    const res = await axios.get(APPS_SCRIPT_URL, {
+    const res = await axios.get(this.APPS_SCRIPT_URL, {
       params: { date_from: dateFrom, date_to: dateTo },
       timeout: 60000,
       maxRedirects: 10,
       headers: { 'User-Agent': 'Mozilla/5.0' },
     });
-
     console.log('[apps-script] response:', JSON.stringify(res.data));
+    return res.data;
+  }
+
+  // ── جلب تواريخ نطاق رحلات Poseidon ──────────────────────────────────────
+  async fetchVoyageDates(voyageFrom: number, voyageTo: number) {
+    const res = await axios.get(this.APPS_SCRIPT_URL, {
+      params: { voyage_from: voyageFrom, voyage_to: voyageTo },
+      timeout: 30000,
+      maxRedirects: 10,
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+    });
     return res.data;
   }
 
@@ -55,9 +65,9 @@ export class ProfitPeriodsService {
     const n = (v: any) => Number(v) || 0;
 
     const DAILY_RATES = { poseidon: 14000, amal: 13000, daleela: 12000 };
-    const days = Math.round(
+    const days = Math.max(0, Math.round(
       (new Date(p.date_to).getTime() - new Date(p.date_from).getTime()) / (1000 * 60 * 60 * 24)
-    ) + 1;
+    ) + 1);
     const poseidonRent = days * DAILY_RATES.poseidon;
     const amalRent     = days * DAILY_RATES.amal;
     const daleelaRent  = n(p.daleela_revenue) > 0 ? days * DAILY_RATES.daleela : 0;
@@ -67,7 +77,10 @@ export class ProfitPeriodsService {
     const totalOverPax = n(p.poseidon_over_pax) + n(p.amal_over_pax) + n(p.daleela_over_pax);
     const totalRent = poseidonRent + amalRent + daleelaRent;
 
-    const commission = totalRevenue * (n(p.commission_rate) / 100) + totalVoyages * n(p.per_voyage_fee) + totalOverPax;
+    // إذا تم جلب العمولة من الشيت → استخدمها مباشرةً؛ وإلا احسبها بالنسبة
+    const commission = n(p.commission_amount) > 0
+      ? n(p.commission_amount)
+      : totalRevenue * (n(p.commission_rate) / 100) + totalVoyages * n(p.per_voyage_fee) + totalOverPax;
     const netProfit = totalRevenue - totalRent - commission;
 
     const shareBadawi = netProfit * (n(p.ratio_badawi) / 100);

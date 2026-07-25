@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, HttpException } from '@nestjs/common';
 import { ProfitPeriodsService } from './profit-periods.service';
 
 @Controller('api/profit-periods')
@@ -25,6 +25,11 @@ export class ProfitPeriodsController {
     const period = await this.svc.findOne(id);
     if (!period) return { error: 'Not found' };
     return this.svc.calculate(period);
+  }
+
+  @Get('voyage-dates')
+  async voyageDates(@Query('from') from: string, @Query('to') to: string) {
+    return this.svc.fetchVoyageDates(Number(from), Number(to));
   }
 
   @Post('fetch-excel')
