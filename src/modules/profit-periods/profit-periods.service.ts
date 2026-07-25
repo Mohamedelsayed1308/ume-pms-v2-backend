@@ -69,10 +69,10 @@ export class ProfitPeriodsService {
   }
 
   // ── حساب التوزيع (منطق Excel) ─────────────────────────────────────────
-  // توزيع النسب = (إجمالي إيراد - إجمالي إيجار) × ratio%
-  // نتيجة نشاط بدوي  = توزيع_بدوي  - كاش_بدوي  + إيجار_بوسيدون
-  // نتيجة نشاط اتحاد = توزيع_اتحاد - كاش_اتحاد + إيجار_امل + إيجار_دليلة
-  // رصيد مرحّل = رصيد_سابق + نتيجة_نشاط - تحويلات
+  // الإيراد من الشيت يتضمن Over Pax بالفعل → لا يُضاف مرة ثانية
+  // Over Pax يُوزَّع: بدوي = Poseidon×66.67% + Daleela×33.33%
+  //                  اتحاد = Poseidon×33.33% + Amal×100% + Daleela×66.67%
+  // البنكر يُضاف للرصيد النهائي: بدوي += bunker_badawi, اتحاد += bunker_ittihad
   calculate(p: ProfitPeriod) {
     const n = (v: any) => Number(v) || 0;
 
@@ -84,19 +84,23 @@ export class ProfitPeriodsService {
     const amalRent     = days * DAILY_RATES.amal;
     const daleelaRent  = n(p.daleela_revenue) > 0 ? days * DAILY_RATES.daleela : 0;
 
-    const totalRevenue = n(p.poseidon_revenue) + n(p.amal_revenue) + n(p.daleela_revenue)
-                       + n(p.poseidon_over_pax) + n(p.amal_over_pax) + n(p.daleela_over_pax);
+    // الإيراد الإجمالي (Over Pax داخل إيراد العبارة من الشيت)
+    const totalRevenue = n(p.poseidon_revenue) + n(p.amal_revenue) + n(p.daleela_revenue);
     const totalRent    = poseidonRent + amalRent + daleelaRent;
     const totalCommission = n(p.commission_amount);
 
-    // الأساس الموزَّع = إيراد - إيجار (العمولة تُطرح وتُضاف → تلغي نفسها)
+    // الأساس الموزَّع = إيراد - إيجار
     const netForDistribution = totalRevenue - totalRent;
     const distributionBadawi  = netForDistribution * (n(p.ratio_badawi)  / 100);
     const distributionIttihad = netForDistribution * (n(p.ratio_ittihad) / 100);
 
-    // نتيجة نشاط كل طرف = توزيع - كاش + إيجار العبارة الخاصة به
-    const activityBadawi  = distributionBadawi  - n(p.cash_safaga_badawi)  + poseidonRent;
-    const activityIttihad = distributionIttihad - n(p.cash_safaga_ittihad) + amalRent + daleelaRent;
+    // توزيع Over Pax حسب معادلة Excel
+    const overPaxBadawi  = n(p.poseidon_over_pax) * (2/3) + n(p.daleela_over_pax) * (1/3);
+    const overPaxIttihad = n(p.poseidon_over_pax) * (1/3) + n(p.amal_over_pax) + n(p.daleela_over_pax) * (2/3);
+
+    // نتيجة نشاط = توزيع - كاش + overPax_share + إيجار العبارة + بنكر
+    const activityBadawi  = distributionBadawi  - n(p.cash_safaga_badawi)  + overPaxBadawi  + poseidonRent + n(p.bunker_badawi);
+    const activityIttihad = distributionIttihad - n(p.cash_safaga_ittihad) + overPaxIttihad + amalRent + daleelaRent + n(p.bunker_ittihad);
 
     const balanceBadawi  = n(p.balance_prev_badawi)  + activityBadawi  - n(p.transfers_badawi);
     const balanceIttihad = n(p.balance_prev_ittihad) + activityIttihad - n(p.transfers_ittihad);
@@ -105,6 +109,7 @@ export class ProfitPeriodsService {
       totalRevenue, totalRent, totalCommission,
       netForDistribution,
       distributionBadawi, distributionIttihad,
+      overPaxBadawi, overPaxIttihad,
       activityBadawi, activityIttihad,
       balanceBadawi, balanceIttihad,
       days, poseidonRent, amalRent, daleelaRent,

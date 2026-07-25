@@ -27,6 +27,10 @@ export class ProfitPeriod {
   @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 }) amal_over_pax: number;
   @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 }) daleela_over_pax: number;
 
+  // ── بنكر (مجلوب من الشيت) ─────────────────────────────────────────────
+  @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 }) bunker_badawi: number;
+  @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 }) bunker_ittihad: number;
+
   // ── مدخلات يدوية ──────────────────────────────────────────────────────
   @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 }) poseidon_rent: number;
   @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 }) amal_rent: number;
