@@ -8,6 +8,11 @@ export class ProfitPeriodsController {
   @Get()
   findAll() { return this.svc.findAll(); }
 
+  @Get('voyage-dates')
+  async voyageDates(@Query('from') from: string, @Query('to') to: string) {
+    return this.svc.fetchVoyageDates(Number(from), Number(to));
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) { return this.svc.findOne(id); }
 
@@ -25,11 +30,6 @@ export class ProfitPeriodsController {
     const period = await this.svc.findOne(id);
     if (!period) return { error: 'Not found' };
     return this.svc.calculate(period);
-  }
-
-  @Get('voyage-dates')
-  async voyageDates(@Query('from') from: string, @Query('to') to: string) {
-    return this.svc.fetchVoyageDates(Number(from), Number(to));
   }
 
   @Post('fetch-excel')
