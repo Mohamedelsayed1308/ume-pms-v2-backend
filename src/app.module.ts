@@ -16,6 +16,7 @@ import { ShippingCompaniesModule } from './modules/shipping-companies/shipping-c
 import { HireInvoicesModule } from './modules/hire-invoices/hire-invoices.module';
 import { ManagementInvoicesModule } from './modules/management-invoices/management-invoices.module';
 import { ProfitPeriodsModule } from './modules/profit-periods/profit-periods.module';
+import { TasksModule } from './modules/tasks/tasks.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { ProfitPeriodsModule } from './modules/profit-periods/profit-periods.mod
     HireInvoicesModule,
     ManagementInvoicesModule,
     ProfitPeriodsModule,
+    TasksModule,
   ],
 })
 export class AppModule {}
