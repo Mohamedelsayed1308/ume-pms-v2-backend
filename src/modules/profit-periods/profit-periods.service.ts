@@ -38,9 +38,17 @@ export class ProfitPeriodsService {
     'https://script.google.com/macros/s/AKfycbxmnoBIXKK94r_fJWYd2u-Jo2u8izhx1HH8be7OQR9gzF506bXKrKOnFy3VBRaTMcJI4A/exec';
 
   // ── جلب البيانات من Google Apps Script Web App ───────────────────────────
-  async fetchFromGoogleDrive(fileId: string, dateFrom: string, dateTo: string) {
+  async fetchFromGoogleDrive(
+    fileId: string, dateFrom: string, dateTo: string,
+    voyFrom?: number, voyTo?: number,
+  ) {
+    const params: any = { date_from: dateFrom, date_to: dateTo };
+    if (voyFrom != null && voyTo != null) {
+      params.voy_from = voyFrom;
+      params.voy_to   = voyTo;
+    }
     const res = await axios.get(this.APPS_SCRIPT_URL, {
-      params: { date_from: dateFrom, date_to: dateTo },
+      params,
       timeout: 60000,
       maxRedirects: 10,
       headers: { 'User-Agent': 'Mozilla/5.0' },
