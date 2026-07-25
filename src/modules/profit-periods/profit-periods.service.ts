@@ -84,7 +84,8 @@ export class ProfitPeriodsService {
     const amalRent     = days * DAILY_RATES.amal;
     const daleelaRent  = n(p.daleela_revenue) > 0 ? days * DAILY_RATES.daleela : 0;
 
-    const totalRevenue = n(p.poseidon_revenue) + n(p.amal_revenue) + n(p.daleela_revenue);
+    const totalRevenue = n(p.poseidon_revenue) + n(p.amal_revenue) + n(p.daleela_revenue)
+                       + n(p.poseidon_over_pax) + n(p.amal_over_pax) + n(p.daleela_over_pax);
     const totalRent    = poseidonRent + amalRent + daleelaRent;
     const totalCommission = n(p.commission_amount);
 
