@@ -54,10 +54,18 @@ export class ProfitPeriodsService {
   calculate(p: ProfitPeriod) {
     const n = (v: any) => Number(v) || 0;
 
+    const DAILY_RATES = { poseidon: 14000, amal: 13000, daleela: 12000 };
+    const days = Math.round(
+      (new Date(p.date_to).getTime() - new Date(p.date_from).getTime()) / (1000 * 60 * 60 * 24)
+    ) + 1;
+    const poseidonRent = days * DAILY_RATES.poseidon;
+    const amalRent     = days * DAILY_RATES.amal;
+    const daleelaRent  = n(p.daleela_revenue) > 0 ? days * DAILY_RATES.daleela : 0;
+
     const totalRevenue = n(p.poseidon_revenue) + n(p.amal_revenue) + n(p.daleela_revenue);
     const totalVoyages = n(p.poseidon_voyages) + n(p.amal_voyages) + n(p.daleela_voyages);
     const totalOverPax = n(p.poseidon_over_pax) + n(p.amal_over_pax) + n(p.daleela_over_pax);
-    const totalRent = n(p.poseidon_rent) + n(p.amal_rent) + n(p.daleela_rent);
+    const totalRent = poseidonRent + amalRent + daleelaRent;
 
     const commission = totalRevenue * (n(p.commission_rate) / 100) + totalVoyages * n(p.per_voyage_fee) + totalOverPax;
     const netProfit = totalRevenue - totalRent - commission;
