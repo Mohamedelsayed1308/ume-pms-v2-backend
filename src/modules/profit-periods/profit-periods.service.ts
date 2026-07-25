@@ -34,22 +34,21 @@ export class ProfitPeriodsService {
     return { deleted: true };
   }
 
-  // ── جلب وتحليل Excel من Google Drive ──────────────────────────────────
+  // ── جلب وتحليل البيانات من Google Sheets (gviz API) ─────────────────────
   async fetchFromGoogleDrive(fileId: string, dateFrom: string, dateTo: string) {
+    // Original spreadsheet ID (from the edit URL)
+    const SPREADSHEET_ID = '1xBNKsoDdlh2q6uEoKNEf49Q3UdIR6cJz';
+
     const GIDS: Record<string, number> = {
       Poseidon: 1709309661,
       Amal: 432651161,
       Daleela: 1434981772,
     };
 
-    // إعدادات كل مركب: عمود NET BALANCE وطريقة قراءة التاريخ
-    const VESSEL_CONFIG: Record<string, { netCol: number; dateAsSerial: boolean; voyCol: number }> = {
-      // Poseidon: تواريخ الرحلات 2026 نصوص "D/M/YYYY"، الصفوف الرقمية هي أقسام أخرى تُتجاهل
-      Poseidon: { netCol: 31, dateAsSerial: false, voyCol: 1 },
-      // Amal: التواريخ في CSV كـ serial رقمية (خلايا تاريخ حقيقية)
-      Amal:     { netCol: 29, dateAsSerial: true,  voyCol: 2 },
-      // Daleela: نصوص مثل "March 1, 2025"
-      Daleela:  { netCol: 29, dateAsSerial: false, voyCol: 2 },
+    const VESSEL_CONFIG: Record<string, { netCol: number; voyCol: number }> = {
+      Poseidon: { netCol: 31, voyCol: 1 }, // AF=31, REF.# in col B
+      Amal:     { netCol: 29, voyCol: 2 }, // AD=29, VOY in col C
+      Daleela:  { netCol: 29, voyCol: 2 }, // AD=29
     };
 
     const vessels = ['Poseidon', 'Amal', 'Daleela'];
@@ -62,74 +61,94 @@ export class ProfitPeriodsService {
     for (const vesselName of vessels) {
       const cfg = VESSEL_CONFIG[vesselName];
       try {
-        const PUBLISHED_ID = '2PACX-1vSJmX-7dFDzqZaP38HzRYLy6MqkmJeRscbg7uV2--Pi-92LIbPvYXomvrVZT7U9BA';
-        const url = `https://docs.google.com/spreadsheets/d/e/${PUBLISHED_ID}/pub?gid=${GIDS[vesselName]}&single=true&output=csv`;
+        // gviz API exports dates as formatted text strings (not serial numbers)
+        const url = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&gid=${GIDS[vesselName]}`;
 
-        const res = await axios.get(url, { timeout: 30000, maxRedirects: 10, headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const res = await axios.get(url, {
+          timeout: 30000,
+          maxRedirects: 10,
+          headers: { 'User-Agent': 'Mozilla/5.0' },
+        });
 
-        const wb = XLSX.read(res.data, { type: 'string', raw: false });
+        const wb = XLSX.read(res.data, { type: 'string', raw: true });
         const sheetKey = Object.keys(wb.Sheets)[0];
         const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[sheetKey], { header: 1, defval: null });
 
-        console.log(`[fetch] ${vesselName} total rows: ${rows.length}, netCol: ${cfg.netCol}, dateAsSerial: ${cfg.dateAsSerial}`);
+        console.log(`[gviz] ${vesselName} total rows: ${rows.length}`);
 
         let revenue = 0;
         const voyageRefs = new Set<string>();
+        let matchedCount = 0;
 
         for (const row of rows) {
           if (!row || row.length < 4) continue;
 
-          const rawDate = row[3];
-          if (rawDate === null || rawDate === undefined) continue;
-
-          let rowDate: Date;
-          if (cfg.dateAsSerial) {
-            // Amal: التاريخ كـ Excel serial رقمي
-            const numVal = Number(rawDate);
-            if (isNaN(numVal) || numVal <= 40000) continue;
-            rowDate = new Date((numVal - 25569) * 86400 * 1000);
-          } else {
-            // Poseidon/Daleela: النص فقط — الصفوف الرقمية تُتجاهل (أقسام أخرى في الشيت)
-            if (typeof rawDate !== 'string' || !rawDate.trim()) continue;
-            const txt = rawDate.trim();
-            const dmyMatch = txt.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-            if (dmyMatch) {
-              rowDate = new Date(`${dmyMatch[3]}-${dmyMatch[2].padStart(2,'0')}-${dmyMatch[1].padStart(2,'0')}`);
-            } else {
-              rowDate = new Date(txt);
-            }
-          }
-
-          if (isNaN(rowDate.getTime())) continue;
-          if (rowDate < from || rowDate > to) continue;
-
-          // فقط صفوف الرحلات (Exp./Imp.) — تجاهل صفوف الإجماليات والمصاريف
           const rowType = String(row[0] ?? '').trim();
           if (rowType !== 'Exp.' && rowType !== 'Imp.') continue;
 
-          // قيمة NET BALANCE
+          const rawDate = row[3];
+          if (rawDate === null || rawDate === undefined || rawDate === '') continue;
+
+          const rowDate = this.parseDate(String(rawDate).trim());
+          if (!rowDate || isNaN(rowDate.getTime())) continue;
+          if (rowDate < from || rowDate > to) continue;
+
           const net = parseFloat(String(row[cfg.netCol] ?? '').replace(/,/g, '')) || 0;
+          if (net === 0) continue;
+
+          matchedCount++;
+          if (matchedCount <= 5) {
+            console.log(`[gviz] ${vesselName} match: type=${rowType} date="${rawDate}" col${cfg.netCol}=${net}`);
+          }
+
           revenue += net;
 
-          // عد الرحلات الفريدة
           const voyRef = row[cfg.voyCol];
           if (voyRef !== null && voyRef !== undefined && voyRef !== '') {
-            voyageRefs.add(String(voyRef));
+            voyageRefs.add(String(voyRef).trim());
           }
         }
 
-        console.log(`[fetch] ${vesselName} → revenue=${revenue}, voyages=${voyageRefs.size}`);
+        console.log(`[gviz] ${vesselName} → revenue=${revenue}, voyages=${voyageRefs.size}, matched rows=${matchedCount}`);
         result[vesselName.toLowerCase()] = {
           revenue: Math.round(revenue * 100) / 100,
           voyages: voyageRefs.size,
         };
       } catch (e: any) {
-        console.error(`[fetch-excel] error for ${vesselName}:`, e?.message);
+        console.error(`[gviz] error for ${vesselName}:`, e?.message);
         result[vesselName.toLowerCase()] = { revenue: 0, voyages: 0 };
       }
     }
 
     return result;
+  }
+
+  private parseDate(raw: string): Date | null {
+    if (!raw) return null;
+
+    // Excel serial number
+    const num = Number(raw);
+    if (!isNaN(num) && num > 40000 && num < 60000) {
+      return new Date((num - 25569) * 86400 * 1000);
+    }
+
+    // D/M/YYYY or M/D/YYYY — resolve ambiguity by number range
+    const slashMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (slashMatch) {
+      const a = Number(slashMatch[1]);
+      const b = Number(slashMatch[2]);
+      const y = slashMatch[3];
+      // if a > 12 → must be DD/MM/YYYY; if b > 12 → must be MM/DD/YYYY; else default DD/MM (Egyptian locale)
+      const day   = a > 12 ? a : (b > 12 ? b : a);
+      const month = a > 12 ? b : (b > 12 ? a : b);
+      return new Date(`${y}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`);
+    }
+
+    // "June 21, 2026" or ISO or any JS-parseable format
+    const parsed = new Date(raw);
+    if (!isNaN(parsed.getTime())) return parsed;
+
+    return null;
   }
 
   // ── حساب التوزيع ──────────────────────────────────────────────────────
