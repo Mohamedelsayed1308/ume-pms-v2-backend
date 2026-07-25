@@ -60,7 +60,11 @@ export class ProfitPeriodsService {
     return res.data;
   }
 
-  // ── حساب التوزيع ──────────────────────────────────────────────────────
+  // ── حساب التوزيع (منطق Excel) ─────────────────────────────────────────
+  // توزيع النسب = (إجمالي إيراد - إجمالي إيجار) × ratio%
+  // نتيجة نشاط بدوي  = توزيع_بدوي  - كاش_بدوي  + إيجار_بوسيدون
+  // نتيجة نشاط اتحاد = توزيع_اتحاد - كاش_اتحاد + إيجار_امل + إيجار_دليلة
+  // رصيد مرحّل = رصيد_سابق + نتيجة_نشاط - تحويلات
   calculate(p: ProfitPeriod) {
     const n = (v: any) => Number(v) || 0;
 
@@ -73,22 +77,28 @@ export class ProfitPeriodsService {
     const daleelaRent  = n(p.daleela_revenue) > 0 ? days * DAILY_RATES.daleela : 0;
 
     const totalRevenue = n(p.poseidon_revenue) + n(p.amal_revenue) + n(p.daleela_revenue);
-    const totalVoyages = n(p.poseidon_voyages) + n(p.amal_voyages) + n(p.daleela_voyages);
-    const totalOverPax = n(p.poseidon_over_pax) + n(p.amal_over_pax) + n(p.daleela_over_pax);
-    const totalRent = poseidonRent + amalRent + daleelaRent;
+    const totalRent    = poseidonRent + amalRent + daleelaRent;
+    const totalCommission = n(p.commission_amount);
 
-    // إذا تم جلب العمولة من الشيت → استخدمها مباشرةً؛ وإلا احسبها بالنسبة
-    const commission = n(p.commission_amount) > 0
-      ? n(p.commission_amount)
-      : totalRevenue * (n(p.commission_rate) / 100) + totalVoyages * n(p.per_voyage_fee) + totalOverPax;
-    const netProfit = totalRevenue - totalRent - commission;
+    // الأساس الموزَّع = إيراد - إيجار (العمولة تُطرح وتُضاف → تلغي نفسها)
+    const netForDistribution = totalRevenue - totalRent;
+    const distributionBadawi  = netForDistribution * (n(p.ratio_badawi)  / 100);
+    const distributionIttihad = netForDistribution * (n(p.ratio_ittihad) / 100);
 
-    const shareBadawi = netProfit * (n(p.ratio_badawi) / 100);
-    const shareIttihad = netProfit * (n(p.ratio_ittihad) / 100);
+    // نتيجة نشاط كل طرف = توزيع - كاش + إيجار العبارة الخاصة به
+    const activityBadawi  = distributionBadawi  - n(p.cash_safaga_badawi)  + poseidonRent;
+    const activityIttihad = distributionIttihad - n(p.cash_safaga_ittihad) + amalRent + daleelaRent;
 
-    const balanceBadawi = n(p.balance_prev_badawi) + shareBadawi - n(p.cash_safaga_badawi) - n(p.transfers_badawi);
-    const balanceIttihad = n(p.balance_prev_ittihad) + shareIttihad - n(p.cash_safaga_ittihad) - n(p.transfers_ittihad);
+    const balanceBadawi  = n(p.balance_prev_badawi)  + activityBadawi  - n(p.transfers_badawi);
+    const balanceIttihad = n(p.balance_prev_ittihad) + activityIttihad - n(p.transfers_ittihad);
 
-    return { totalRevenue, totalVoyages, totalOverPax, totalRent, commission, netProfit, shareBadawi, shareIttihad, balanceBadawi, balanceIttihad };
+    return {
+      totalRevenue, totalRent, totalCommission,
+      netForDistribution,
+      distributionBadawi, distributionIttihad,
+      activityBadawi, activityIttihad,
+      balanceBadawi, balanceIttihad,
+      days, poseidonRent, amalRent, daleelaRent,
+    };
   }
 }
