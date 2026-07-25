@@ -68,7 +68,7 @@ export class ProfitPeriodsService {
           headers: { 'User-Agent': 'Mozilla/5.0' },
         });
 
-        const wb = XLSX.read(res.data, { type: 'string', raw: true });
+        const wb = XLSX.read(res.data, { type: 'string', raw: false });
         const sheetKey = Object.keys(wb.Sheets)[0];
         const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[sheetKey], { header: 1, defval: null });
 
@@ -77,6 +77,7 @@ export class ProfitPeriodsService {
         let revenue = 0;
         const voyageRefs = new Set<string>();
         let matchedCount = 0;
+        let voyageRowCount = 0;
 
         for (const row of rows) {
           if (!row || row.length < 4) continue;
@@ -85,6 +86,13 @@ export class ProfitPeriodsService {
           if (rowType !== 'Exp.' && rowType !== 'Imp.') continue;
 
           const rawDate = row[3];
+
+          // Log first 3 voyage rows per vessel to see date format
+          if (voyageRowCount < 3) {
+            voyageRowCount++;
+            console.log(`[fetch] ${vesselName} voyageRow#${voyageRowCount}: type=${rowType} rawDate="${rawDate}" (${typeof rawDate})`);
+          }
+
           if (rawDate === null || rawDate === undefined || rawDate === '') continue;
 
           const rowDate = this.parseDate(String(rawDate).trim());
