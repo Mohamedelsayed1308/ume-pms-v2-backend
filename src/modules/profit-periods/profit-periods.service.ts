@@ -34,10 +34,9 @@ export class ProfitPeriodsService {
     return { deleted: true };
   }
 
-  // ── جلب وتحليل البيانات من Google Sheets (gviz API) ─────────────────────
+  // ── جلب وتحليل البيانات من Google Sheets (Published CSV) ───────────────
   async fetchFromGoogleDrive(fileId: string, dateFrom: string, dateTo: string) {
-    // Original spreadsheet ID (from the edit URL)
-    const SPREADSHEET_ID = '1xBNKsoDdlh2q6uEoKNEf49Q3UdIR6cJz';
+    const PUBLISHED_ID = '2PACX-1vSJmX-7dFDzqZaP38HzRYLy6MqkmJeRscbg7uV2--Pi-92LIbPvYXomvrVZT7U9BA';
 
     const GIDS: Record<string, number> = {
       Poseidon: 1709309661,
@@ -61,8 +60,7 @@ export class ProfitPeriodsService {
     for (const vesselName of vessels) {
       const cfg = VESSEL_CONFIG[vesselName];
       try {
-        // gviz API exports dates as formatted text strings (not serial numbers)
-        const url = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&gid=${GIDS[vesselName]}`;
+        const url = `https://docs.google.com/spreadsheets/d/e/${PUBLISHED_ID}/pub?gid=${GIDS[vesselName]}&single=true&output=csv`;
 
         const res = await axios.get(url, {
           timeout: 30000,
@@ -74,7 +72,7 @@ export class ProfitPeriodsService {
         const sheetKey = Object.keys(wb.Sheets)[0];
         const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[sheetKey], { header: 1, defval: null });
 
-        console.log(`[gviz] ${vesselName} total rows: ${rows.length}`);
+        console.log(`[fetch] ${vesselName} total rows: ${rows.length}`);
 
         let revenue = 0;
         const voyageRefs = new Set<string>();
@@ -94,11 +92,10 @@ export class ProfitPeriodsService {
           if (rowDate < from || rowDate > to) continue;
 
           const net = parseFloat(String(row[cfg.netCol] ?? '').replace(/,/g, '')) || 0;
-          if (net === 0) continue;
 
           matchedCount++;
-          if (matchedCount <= 5) {
-            console.log(`[gviz] ${vesselName} match: type=${rowType} date="${rawDate}" col${cfg.netCol}=${net}`);
+          if (matchedCount <= 8) {
+            console.log(`[fetch] ${vesselName} match#${matchedCount}: type=${rowType} rawDate="${rawDate}" parsedDate=${rowDate.toISOString().slice(0,10)} col${cfg.netCol}=${net} ref=${row[cfg.voyCol]}`);
           }
 
           revenue += net;
@@ -109,13 +106,13 @@ export class ProfitPeriodsService {
           }
         }
 
-        console.log(`[gviz] ${vesselName} → revenue=${revenue}, voyages=${voyageRefs.size}, matched rows=${matchedCount}`);
+        console.log(`[fetch] ${vesselName} → revenue=${revenue}, voyages=${voyageRefs.size}, matched=${matchedCount}`);
         result[vesselName.toLowerCase()] = {
           revenue: Math.round(revenue * 100) / 100,
           voyages: voyageRefs.size,
         };
       } catch (e: any) {
-        console.error(`[gviz] error for ${vesselName}:`, e?.message);
+        console.error(`[fetch] error for ${vesselName}:`, e?.message);
         result[vesselName.toLowerCase()] = { revenue: 0, voyages: 0 };
       }
     }
