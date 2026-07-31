@@ -22,8 +22,28 @@ export class AuthService {
     const token = this.jwt.sign({ sub: user.id, email: user.email, role: user.role, full_name: user.full_name });
     return {
       access_token: token,
-      user: { id: user.id, email: user.email, full_name: user.full_name, role: user.role },
+      user: { id: user.id, email: user.email, full_name: user.full_name, role: user.role, allowed_screens: user.allowed_screens || null },
     };
+  }
+
+  listUsers() {
+    return this.userRepo.find({
+      select: { id: true, email: true, full_name: true, role: true, is_active: true, allowed_screens: true, created_at: true },
+      order: { created_at: 'ASC' },
+    });
+  }
+
+  async setPermissions(id: string, allowed_screens: string[]) {
+    await this.userRepo.update(id, { allowed_screens });
+    return this.userRepo.findOne({
+      where: { id },
+      select: { id: true, email: true, full_name: true, role: true, is_active: true, allowed_screens: true },
+    });
+  }
+
+  async setActive(id: string, is_active: boolean) {
+    await this.userRepo.update(id, { is_active });
+    return { id, is_active };
   }
 
   async createUser(data: { email: string; password: string; full_name: string; role?: string }) {

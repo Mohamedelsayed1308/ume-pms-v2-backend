@@ -20,6 +20,10 @@ export class User {
   @Column({ default: true })
   is_active: boolean;
 
+  // الشاشات المسموح للمستخدم بدخولها (مسارات) — null/فارغ + دور admin = كل الشاشات
+  @Column({ type: 'jsonb', nullable: true })
+  allowed_screens: string[];
+
   @CreateDateColumn()
   created_at: Date;
 }
