@@ -85,6 +85,10 @@ export class Invoice {
   @Column({ type: 'date', nullable: true })
   approval_status_date: Date;
 
+  // عدد شهور إهلاك الأصل — فارغ/1 = تُحمّل كاملة في شهرها
+  @Column({ type: 'int', nullable: true })
+  depreciation_months: number;
+
   @CreateDateColumn()
   created_at: Date;
 
