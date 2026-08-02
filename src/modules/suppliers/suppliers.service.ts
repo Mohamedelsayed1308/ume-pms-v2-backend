@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Supplier } from './supplier.entity';
@@ -7,10 +7,27 @@ import { Supplier } from './supplier.entity';
 export class SuppliersService {
   constructor(@InjectRepository(Supplier) private repo: Repository<Supplier>) {}
 
+  // توحيد الاسم للمقارنة: حروف/أرقام فقط (يتجاهل المسافات وعلامات الترقيم وحالة الأحرف)
+  private norm(s: string): string {
+    return (s || '').toLowerCase().replace(/[^a-z0-9؀-ۿ]/g, '');
+  }
+
+  private async assertUniqueName(name: string, exceptId?: string) {
+    const n = this.norm(name);
+    if (!n) return;
+    const all = await this.repo.find();
+    const dup = all.find((s) => this.norm(s.name) === n && s.id !== exceptId);
+    if (dup) throw new ConflictException(`مورد بنفس الاسم موجود بالفعل: "${dup.name}"`);
+  }
+
   findAll() { return this.repo.find({ order: { name: 'ASC' } }); }
   findOne(id: string) { return this.repo.findOneBy({ id }); }
-  create(data: Partial<Supplier>) { return this.repo.save(data); }
+  async create(data: Partial<Supplier>) {
+    await this.assertUniqueName(data.name || '');
+    return this.repo.save(data);
+  }
   async update(id: string, data: Partial<Supplier>) {
+    if (data.name) await this.assertUniqueName(data.name, id);
     await this.repo.update(id, data);
     return this.findOne(id);
   }
