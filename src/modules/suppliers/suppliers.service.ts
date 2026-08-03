@@ -19,9 +19,12 @@ export class SuppliersService {
     if (!ids.length) return { merged: 0 };
     const keep = await this.repo.findOneBy({ id: keepId });
     if (!keep) throw new ConflictException('المورد الأصلي غير موجود');
-    await this.invoiceRepo.update({ supplier_id: In(ids) }, { supplier_id: keepId });
-    await this.poRepo.update({ supplier_id: In(ids) }, { supplier_id: keepId });
-    await this.repo.delete(ids);
+    // تحويل ثم حذف في معاملة واحدة (كله أو لا شيء)
+    await this.repo.manager.transaction(async (m) => {
+      await m.update(Invoice, { supplier_id: In(ids) }, { supplier_id: keepId });
+      await m.update(PurchaseOrder, { supplier_id: In(ids) }, { supplier_id: keepId });
+      await m.delete(Supplier, ids);
+    });
     return { merged: ids.length };
   }
 
