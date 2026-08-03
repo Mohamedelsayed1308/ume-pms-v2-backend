@@ -26,12 +26,21 @@ export class ItemsService implements OnModuleInit {
   }
 
   async update(id: string, data: Partial<Item>) {
+    if (data.name) {
+      const exists = await this.repo.findOne({ where: { name: data.name.trim() } });
+      if (exists && exists.id !== id) throw new ConflictException('بند بنفس الاسم موجود بالفعل');
+    }
     await this.repo.update(id, { ...data, ...(data.name ? { name: data.name.trim() } : {}) });
     return this.repo.findOneBy({ id });
   }
 
   async remove(id: string) {
-    await this.repo.delete(id);
-    return { deleted: true };
+    try {
+      await this.repo.delete(id);
+      return { deleted: true };
+    } catch (err: any) {
+      if (err?.code === '23503') throw new ConflictException('لا يمكن حذف البند — مستخدم في فواتير. أوقفه بدلاً من الحذف.');
+      throw err;
+    }
   }
 }

@@ -43,7 +43,9 @@ export class InvoicesService {
         const inv = await this.repo.findOne({ where: { id } });
         if (inv) await this.repo.update(id, { status: InvoiceStatus.PAID, paid_amount: inv.total_amount });
       } else {
-        await this.updatePaidAmount(id);
+        const inv = await this.repo.findOne({ where: { id } });
+        // لا تُعِد حساب الحالة إن كانت الفاتورة ملغاة
+        if (inv && inv.status !== InvoiceStatus.CANCELLED) await this.updatePaidAmount(id);
       }
     }
     return this.findOne(id);
@@ -158,6 +160,24 @@ export class InvoicesService {
           currency: pay.currency,
           debit: 0,
           credit: +pay.amount,
+          running_balance,
+        });
+      }
+
+      // سداد معتمد بدون سند دفع (مثلاً حالة الموافقة = Paid): دائن بالفرق حتى يتوازن الكشف
+      const paymentsSum = payments.reduce((s, p) => s + +p.amount, 0);
+      const approvalPaid = +inv.paid_amount - paymentsSum;
+      if (approvalPaid > 0.001) {
+        running_balance -= approvalPaid;
+        transactions.push({
+          date: inv.approval_status_date || inv.invoice_date,
+          type: 'credit',
+          type_ar: 'دائن',
+          description: `سداد معتمد — ${inv.invoice_number}`,
+          invoice_number: inv.invoice_number,
+          currency: inv.currency,
+          debit: 0,
+          credit: approvalPaid,
           running_balance,
         });
       }
