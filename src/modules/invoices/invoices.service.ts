@@ -13,7 +13,7 @@ export class InvoicesService {
 
   findAll() {
     return this.repo.find({
-      relations: { supplier: true, vessel: true, purchase_order: true, payments: true },
+      relations: { supplier: true, vessel: true, purchase_order: true, payments: true, item: true },
       order: { created_at: 'DESC' },
     });
   }
@@ -21,14 +21,31 @@ export class InvoicesService {
   findOne(id: string) {
     return this.repo.findOne({
       where: { id },
-      relations: { supplier: true, vessel: true, purchase_order: true, payments: true },
+      relations: { supplier: true, vessel: true, purchase_order: true, payments: true, item: true },
     });
   }
 
-  create(data: Partial<Invoice>) { return this.repo.save(data); }
+  async create(data: Partial<Invoice>) {
+    const saved = await this.repo.save(data);
+    const row = Array.isArray(saved) ? saved[0] : saved;
+    // اختيار Paid في حالة الموافقة = الفاتورة مدفوعة بالكامل
+    if (data.approval_status === 'paid' && row) {
+      await this.repo.update(row.id, { status: InvoiceStatus.PAID, paid_amount: row.total_amount });
+    }
+    return this.findOne(row.id);
+  }
 
   async update(id: string, data: Partial<Invoice>) {
     await this.repo.update(id, data);
+    // Paid في الموافقة → مدفوعة بالكامل ؛ أي حالة تانية → إعادة الحساب من السدادات الفعلية
+    if (data.approval_status !== undefined) {
+      if (data.approval_status === 'paid') {
+        const inv = await this.repo.findOne({ where: { id } });
+        if (inv) await this.repo.update(id, { status: InvoiceStatus.PAID, paid_amount: inv.total_amount });
+      } else {
+        await this.updatePaidAmount(id);
+      }
+    }
     return this.findOne(id);
   }
 

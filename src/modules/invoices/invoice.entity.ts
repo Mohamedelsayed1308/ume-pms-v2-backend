@@ -3,6 +3,7 @@ import { Supplier } from '../suppliers/supplier.entity';
 import { Vessel } from '../vessels/vessel.entity';
 import { PurchaseOrder } from '../purchase-orders/purchase-order.entity';
 import { Payment } from '../payments/payment.entity';
+import { Item } from '../items/item.entity';
 
 export enum InvoiceType {
   PRELIMINARY = 'preliminary',
@@ -89,6 +90,10 @@ export class Invoice {
   @Column({ type: 'int', nullable: true })
   depreciation_months: number;
 
+  // بند/فئة الفاتورة (Bunker, Vessel Supplies, ...)
+  @Column({ type: 'uuid', nullable: true })
+  item_id: string;
+
   @CreateDateColumn()
   created_at: Date;
 
@@ -106,6 +111,10 @@ export class Invoice {
   @ManyToOne(() => PurchaseOrder, (po) => po.invoices)
   @JoinColumn({ name: 'po_id' })
   purchase_order: PurchaseOrder;
+
+  @ManyToOne(() => Item)
+  @JoinColumn({ name: 'item_id' })
+  item: Item;
 
   @OneToMany(() => Payment, (p) => p.invoice)
   payments: Payment[];

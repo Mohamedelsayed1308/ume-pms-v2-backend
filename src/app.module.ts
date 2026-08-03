@@ -19,6 +19,7 @@ import { ProfitPeriodsModule } from './modules/profit-periods/profit-periods.mod
 import { TasksModule } from './modules/tasks/tasks.module';
 import { VesselProfitModule } from './modules/vessel-profit/vessel-profit.module';
 import { ExchangeRatesModule } from './modules/exchange-rates/exchange-rates.module';
+import { ItemsModule } from './modules/items/items.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { ExchangeRatesModule } from './modules/exchange-rates/exchange-rates.mod
     TasksModule,
     VesselProfitModule,
     ExchangeRatesModule,
+    ItemsModule,
   ],
 })
 export class AppModule {}
