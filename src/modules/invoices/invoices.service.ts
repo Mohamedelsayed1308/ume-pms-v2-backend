@@ -82,7 +82,7 @@ export class InvoicesService {
   findByVessel(vesselId: string) {
     return this.repo.find({
       where: { vessel_id: vesselId },
-      relations: { supplier: true, purchase_order: true, payments: true },
+      relations: { supplier: true, purchase_order: true, payments: true, item: true },
       order: { created_at: 'DESC' },
     });
   }
