@@ -32,8 +32,10 @@ export class InvoiceExtractController {
   "supplier_name": "اسم المورد أو الشركة المُصدِرة للفاتورة",
   "vessel_name": "اسم السفينة أو الباخرة إن وجد أو null",
   "po_number": "رقم أمر الشراء أو Your Reference أو Our Reference أو PO Number إن وجد أو null",
-  "description": "وصف مختصر للفاتورة"
+  "description": "وصف مختصر للفاتورة",
+  "line_items": [ { "name": "اسم البند/السطر", "amount": 0 } ]
 }
+قواعد line_items: استخرج الأسطر التفصيلية للفاتورة كل سطر باسمه ومبلغه. اجمع الأسطر المتشابهة تحت اسم فئة واحد (مثال: كل أسطر "Port General Expenses Voy No" اجمعها في سطر واحد اسمه "Port General Expenses" بمجموع مبالغها؛ و"Amounts Paid On Your Behalf X" سمِّ السطر بالفئة X فقط مثل Supplies أو Medical أو Provision أو Cash To Master أو Car Hire). لا تُدرج سطر الإجمالي. لو الفاتورة صنف/بند واحد فقط اترك line_items = []. مجموع مبالغ line_items يجب أن يساوي total_amount.
 إذا لم تجد قيمة اتركها null. أرجع JSON فقط.`,
       },
     ];
@@ -47,15 +49,14 @@ export class InvoiceExtractController {
     try {
       const response = await client.messages.create({
         model: 'claude-opus-4-8',
-        max_tokens: 1024,
+        max_tokens: 2048,
         messages: [{ role: 'user', content }],
       });
 
       const text = (response.content[0] as any).text.trim();
       console.log('Claude response preview:', text.substring(0, 300));
-      // Extract first complete JSON object
-      const jsonMatch = text.match(/\{[\s\S]*?\}(?=\s*$|\s*```|\s*\n\n)/);
-      const jsonStr = jsonMatch ? jsonMatch[0] : text.match(/\{[\s\S]*\}/)?.[0] || text;
+      // Extract the full JSON object (greedy: first { to last } — يشمل مصفوفة البنود)
+      const jsonStr = text.match(/\{[\s\S]*\}/)?.[0] || text;
       try {
         return JSON.parse(jsonStr);
       } catch {
