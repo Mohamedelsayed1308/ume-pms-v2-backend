@@ -90,9 +90,13 @@ export class Invoice {
   @Column({ type: 'int', nullable: true })
   depreciation_months: number;
 
-  // بند/فئة الفاتورة (Bunker, Vessel Supplies, ...)
+  // بند/فئة الفاتورة (Bunker, Vessel Supplies, ...) — للفاتورة ذات البند الواحد
   @Column({ type: 'uuid', nullable: true })
   item_id: string;
+
+  // بنود متعددة (اختياري): مجموع مبالغها = إجمالي الفاتورة
+  @Column({ type: 'jsonb', nullable: true })
+  line_items: { item_id: string; item_name: string; amount: number }[];
 
   @CreateDateColumn()
   created_at: Date;

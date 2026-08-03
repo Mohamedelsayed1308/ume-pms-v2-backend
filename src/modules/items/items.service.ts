@@ -3,16 +3,23 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Item } from './item.entity';
 
-const DEFAULTS = ['Bunker', 'Vessel Supplies', 'Salaries', 'Provision'];
+const CANONICAL = [
+  'Bunker', 'Vessel Supplies', 'Salaries', 'Provision',
+  'EGY Port Gen Exp', 'Supplies', 'Medical', 'Compensation',
+  'Accommodation', 'Petties', 'Cash to Master', 'Car Hire',
+];
 
 @Injectable()
 export class ItemsService implements OnModuleInit {
   constructor(@InjectRepository(Item) private repo: Repository<Item>) {}
 
-  // بذر الفئات الافتراضية أول مرة فقط
+  // ضمان وجود البنود القياسية (يضيف الناقص فقط — idempotent)
   async onModuleInit() {
-    const count = await this.repo.count();
-    if (count === 0) await this.repo.save(DEFAULTS.map((name) => ({ name })));
+    const norm = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const existing = await this.repo.find();
+    const have = new Set(existing.map((i) => norm(i.name)));
+    const toAdd = CANONICAL.filter((n) => !have.has(norm(n)));
+    if (toAdd.length) await this.repo.save(toAdd.map((name) => ({ name })));
   }
 
   findAll() { return this.repo.find({ order: { name: 'ASC' } }); }
