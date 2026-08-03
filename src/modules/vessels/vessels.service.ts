@@ -1,15 +1,26 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Vessel } from './vessel.entity';
 import { Invoice } from '../invoices/invoice.entity';
 
+// أسطول الشركة — تُنشأ تلقائياً لو غير موجودة (مقارنة بالاسم بدون حساسية للرموز/المسافات)
+const FLEET = ['Poseidon Express', 'Amman', 'Gubal Trader', 'Wasa Express', 'Alcudia Express', 'Bridge', 'Monte Express'];
+
 @Injectable()
-export class VesselsService {
+export class VesselsService implements OnModuleInit {
   constructor(
     @InjectRepository(Vessel) private repo: Repository<Vessel>,
     @InjectRepository(Invoice) private invoiceRepo: Repository<Invoice>,
   ) {}
+
+  async onModuleInit() {
+    const norm = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const existing = await this.repo.find();
+    const have = new Set(existing.map((v) => norm(v.name)));
+    const toAdd = FLEET.filter((n) => !have.has(norm(n)));
+    if (toAdd.length) await this.repo.save(toAdd.map((name) => ({ name })));
+  }
 
   findAll() { return this.repo.find({ relations: { shipping_company: true }, order: { name: 'ASC' } }); }
   findOne(id: string) { return this.repo.findOne({ where: { id }, relations: { shipping_company: true } }); }

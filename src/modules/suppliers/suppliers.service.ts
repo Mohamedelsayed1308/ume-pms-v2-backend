@@ -1,11 +1,29 @@
 import { Injectable, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Supplier } from './supplier.entity';
+import { Invoice } from '../invoices/invoice.entity';
+import { PurchaseOrder } from '../purchase-orders/purchase-order.entity';
 
 @Injectable()
 export class SuppliersService {
-  constructor(@InjectRepository(Supplier) private repo: Repository<Supplier>) {}
+  constructor(
+    @InjectRepository(Supplier) private repo: Repository<Supplier>,
+    @InjectRepository(Invoice) private invoiceRepo: Repository<Invoice>,
+    @InjectRepository(PurchaseOrder) private poRepo: Repository<PurchaseOrder>,
+  ) {}
+
+  // دمج موردين مكررين في مورد واحد: تحويل الفواتير وأوامر الشراء ثم حذف الباقي
+  async merge(keepId: string, removeIds: string[]) {
+    const ids = (removeIds || []).filter((id) => id && id !== keepId);
+    if (!ids.length) return { merged: 0 };
+    const keep = await this.repo.findOneBy({ id: keepId });
+    if (!keep) throw new ConflictException('المورد الأصلي غير موجود');
+    await this.invoiceRepo.update({ supplier_id: In(ids) }, { supplier_id: keepId });
+    await this.poRepo.update({ supplier_id: In(ids) }, { supplier_id: keepId });
+    await this.repo.delete(ids);
+    return { merged: ids.length };
+  }
 
   // توحيد الاسم للمقارنة: حروف/أرقام فقط (يتجاهل المسافات وعلامات الترقيم وحالة الأحرف)
   private norm(s: string): string {
