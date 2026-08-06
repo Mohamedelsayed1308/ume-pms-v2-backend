@@ -20,6 +20,7 @@ import { TasksModule } from './modules/tasks/tasks.module';
 import { VesselProfitModule } from './modules/vessel-profit/vessel-profit.module';
 import { ExchangeRatesModule } from './modules/exchange-rates/exchange-rates.module';
 import { ItemsModule } from './modules/items/items.module';
+import { FleetModule } from './modules/fleet/fleet.module';
 
 @Module({
   imports: [
@@ -56,6 +57,7 @@ import { ItemsModule } from './modules/items/items.module';
     VesselProfitModule,
     ExchangeRatesModule,
     ItemsModule,
+    FleetModule,
   ],
 })
 export class AppModule {}
