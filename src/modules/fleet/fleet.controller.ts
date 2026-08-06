@@ -27,6 +27,19 @@ export class FleetController {
     const data = await this.svc.getDashboard(false);
     const today = new Date().toISOString().slice(0, 10);
 
+    // فلترة البيانات بنفس فلاتر الشاشة قبل إرسالها للنموذج — يحدّ من التوكنز مع كِبَر تاريخ الشيت
+    const f = body?.filters || {};
+    const fromM = typeof f.from === 'string' ? f.from : '';
+    const toM = typeof f.to === 'string' ? f.to : '';
+    const selVessels: string[] | null = Array.isArray(f.vessels) ? f.vessels.slice(0, 20) : null;
+    const monthly = data.monthly.filter(
+      (r) =>
+        (!fromM || r.month >= fromM) &&
+        (!toM || r.month <= toM) &&
+        (!selVessels || selVessels.includes(r.vessel)),
+    );
+    const scoped = monthly.length ? monthly : data.monthly; // fallback لو الفلاتر ما طابقتش شيء
+
     const system =
       `أنت محلل بيانات ملاحي ومساعد ذكي داخل نظام UME Holding PMS، في "لوحة الأسطول التنفيذية".\n` +
       `تاريخ اليوم: ${today}.\n` +
@@ -37,8 +50,8 @@ export class FleetController {
       `- الشهر بصيغة YYYY-MM. المبالغ بالدولار.\n` +
       `- لما تقارن، رتّب من الأعلى للأقل ووضّح الفرق والنسبة.\n\n` +
       `المراكب: ${data.vessels.join(', ')} | الشهور المتاحة: ${data.months.join(', ')}.\n` +
-      (body?.filters ? `الفلاتر الحالية المطبّقة في الشاشة: ${JSON.stringify({ from: body.filters.from, to: body.filters.to, vessels: Array.isArray(body.filters.vessels) ? body.filters.vessels.slice(0, 20) : undefined })}.\n` : '') +
-      `بيانات الأداء الشهري لكل مركب (JSON):\n${JSON.stringify(data.monthly)}`;
+      (fromM || toM || selVessels ? `الفلاتر المطبّقة في الشاشة: ${JSON.stringify({ from: fromM || undefined, to: toM || undefined, vessels: selVessels || undefined })}.\n` : '') +
+      `بيانات الأداء الشهري لكل مركب ضمن الفلاتر (JSON):\n${JSON.stringify(scoped)}`;
 
     const messages: Anthropic.MessageParam[] = [
       ...((body.history || [])

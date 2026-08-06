@@ -31,8 +31,12 @@ const norm = (s: any) =>
   String(s ?? '').replace(/ـ/g, '').replace(/[ً-ْ]/g, '').replace(/\s+/g, ' ').trim();
 const num = (v: any) => {
   if (v == null || v === '') return 0;
-  const n = parseFloat(String(v).replace(/[,٬]/g, '').replace(/[^\d.\-]/g, ''));
-  return isFinite(n) ? n : 0;
+  if (typeof v === 'number') return isFinite(v) ? v : 0;
+  const s = String(v);
+  const neg = /^\s*\(.*\)\s*$/.test(s); // نمط محاسبي: (500) = -500
+  const n = parseFloat(s.replace(/[,٬]/g, '').replace(/[^\d.\-]/g, ''));
+  if (!isFinite(n)) return 0;
+  return neg ? -Math.abs(n) : n;
 };
 // تحويل رقم تسلسلي (Excel) أو تاريخ نصّي إلى YYYY-MM
 function toMonth(v: any): string | null {
