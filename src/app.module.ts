@@ -28,17 +28,31 @@ import { FleetModule } from './modules/fleet/fleet.module';
     ServeStaticModule.forRoot({ rootPath: join(process.cwd(), 'uploads'), serveRoot: '/uploads' }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        type: 'postgres',
-        host: 'aws-0-eu-west-1.pooler.supabase.com',
-        port: 5432,
-        username: 'postgres.euzikjnyoprzkweechky',
-        password: 'mRfDwTNUWn2V1l36',
-        database: 'postgres',
-        ssl: { rejectUnauthorized: false },
-        autoLoadEntities: true,
-        synchronize: true,
-      }),
+      useFactory: (config: ConfigService) => {
+        // يفضّل DATABASE_URL من البيئة (Railway). الـfallback مؤقّت لضمان صفر توقّف
+        // ويُزال بعد تأكيد المتغيّر على Railway وتدوير كلمة المرور في Supabase.
+        const url = config.get<string>('DATABASE_URL');
+        if (url && url.startsWith('postgres')) {
+          return {
+            type: 'postgres' as const,
+            url,
+            ssl: { rejectUnauthorized: false },
+            autoLoadEntities: true,
+            synchronize: true,
+          };
+        }
+        return {
+          type: 'postgres' as const,
+          host: config.get<string>('DB_HOST') || 'aws-0-eu-west-1.pooler.supabase.com',
+          port: Number(config.get('DB_PORT')) || 5432,
+          username: config.get<string>('DB_USER') || 'postgres.euzikjnyoprzkweechky',
+          password: config.get<string>('DB_PASSWORD') || 'mRfDwTNUWn2V1l36',
+          database: config.get<string>('DB_NAME') || 'postgres',
+          ssl: { rejectUnauthorized: false },
+          autoLoadEntities: true,
+          synchronize: true,
+        };
+      },
     }),
     AuthModule,
     CurrenciesModule,
