@@ -29,7 +29,7 @@ Incremental, one-domain-at-a-time hardening on `ume-pms-v2`. Two production depl
 15. **Invoice extraction security** — ✅ JWT + `invoices` screen; 10MB limit; treats document as untrusted; **removed response-preview logging** of extracted content.
 16. **AI write-action safety** — legacy task/invoice assistants can still write (approved existing behavior) but now: authenticated + screen-authorized + field-whitelisted + typed params + no SQL. Ask UME remains **read-only**. Recommendation (documented): add an explicit user-confirmation gate before AI write actions — **future**.
 17. **API authorization audit** — ✅ `FINAL_API_AUTHORIZATION_AUDIT.md` (A/B/C/D). AI endpoints → A. **Centralized `ScreenGuard` + `@RequireScreen` built and applied to `payments` (payments screen) and `tasks` (tasks screen)** — the two most sensitive modules with no cross-fetch conflict (verified: authorized user 200, anon 401). Remaining CRUD → B (JWT-only); blanket enforcement deferred (would break legitimate cross-screen fetches, e.g. Reports loading vessel/supplier name lists). `/api/auth/seed` flagged for review.
-18. **Secrets audit** — ⚠️ **P0 DISCOVERED:** `attachments.service.ts` contains a **hardcoded Supabase `service_role` key** (+ project URL) in source/git history — full DB/storage access, bypasses RLS. Also the known DB password fallback in `app.module.ts`. No `sk-ant`/JWT elsewhere; no `.env` tracked; Anthropic key is `process.env` only.
+18. **Secrets audit** — service_role key: ✅ **RESOLVED** (Part A, `da513ee0`): externalized to `SUPABASE_URL`/`SUPABASE_SERVICE_KEY` env (no fallback), **rotated** to a new `sb_secret_` key, and **legacy JWT API keys disabled in Supabase** → the exposed key is now **dead**. Verified live: attachment upload/delete 201/200 with the new key **after** disabling legacy. Remaining: the DB password fallback in `app.module.ts` (Part B — owner deferred to last). No `sk-ant`/JWT elsewhere; no `.env` tracked; Anthropic key `process.env` only.
 19. **Logging audit** — ✅ removed extract financial-content preview log. No JWT/keys/DB creds logged. Assistant errors log message/status only.
 20. **Dependency review** — backend 3 high; frontend 6 (1 moderate, 5 high, incl. sharp/libvips CVEs). **Not blanket-upgraded** (regression risk on live financial system); documented for a controlled maintenance window.
 21. **Financial workflow debt plan** — ✅ `FINANCIAL_WORKFLOW_REMEDIATION_PLAN.md` (not executed).
@@ -38,7 +38,7 @@ Incremental, one-domain-at-a-time hardening on `ume-pms-v2`. Two production depl
 24. **Ask UME regression** — ✅ still works + permission-safe.
 25. **Financial golden regression** — ✅ unchanged (no business-logic/data change; earlier golden tests still valid).
 26. **Database integrity** — ✅ no schema/data change performed.
-27. **P0** — **2 open:** (a) hardcoded `service_role` key in source/history; (b) hardcoded DB password fallback + un-rotated DB credential.
+27. **P0** — **1 open:** hardcoded DB password fallback + un-rotated DB credential (Part B — owner deferred to last). (Service_role key P0 — ✅ RESOLVED, see #18.)
 28. **P1** — remaining CRUD endpoints authenticated-only (broad module-authz deferred to avoid cross-fetch regressions; centralized guard now available for controlled rollout). (Global JWT inactive-user rejection — now resolved.)
 29. **P2** — dependency vulns (documented); `/api/auth/seed` public.
 30. **P3** — localStorage JWT (accepted/future).
