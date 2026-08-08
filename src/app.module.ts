@@ -21,6 +21,7 @@ import { VesselProfitModule } from './modules/vessel-profit/vessel-profit.module
 import { ExchangeRatesModule } from './modules/exchange-rates/exchange-rates.module';
 import { ItemsModule } from './modules/items/items.module';
 import { FleetModule } from './modules/fleet/fleet.module';
+import { AskUmeModule } from './modules/ask-ume/ask-ume.module';
 
 @Module({
   imports: [
@@ -72,6 +73,7 @@ import { FleetModule } from './modules/fleet/fleet.module';
     ExchangeRatesModule,
     ItemsModule,
     FleetModule,
+    AskUmeModule,
   ],
 })
 export class AppModule {}
