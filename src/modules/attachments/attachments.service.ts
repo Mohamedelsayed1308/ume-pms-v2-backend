@@ -5,10 +5,13 @@ import { Attachment } from './attachment.entity';
 import { createClient } from '@supabase/supabase-js';
 import * as path from 'path';
 
-const supabase = createClient(
-  'https://euzikjnyoprzkweechky.supabase.co',
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1emlram55b3Byemt3ZWVjaGt5Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MTg5MzMxNywiZXhwIjoyMDk3NDY5MzE3fQ.auJCCZ8qIEBPV4zYJGbD_Z0DxQ7MrUj_9x1DKzvzu_U',
-);
+// المفتاح والرابط من البيئة فقط (لا قيمة مكتوبة). يفشل بأمان لو غابا.
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+  throw new Error('SUPABASE_URL and SUPABASE_SERVICE_KEY environment variables are required (no hardcoded fallback).');
+}
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
 const BUCKET = 'ume-attachments';
 
