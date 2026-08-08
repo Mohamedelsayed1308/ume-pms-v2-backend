@@ -1,7 +1,9 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, HttpException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, HttpException, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from '../../common/jwt-auth.guard';
 import { ProfitPeriodsService } from './profit-periods.service';
 
 @Controller('api/profit-periods')
+@UseGuards(JwtAuthGuard)
 export class ProfitPeriodsController {
   constructor(private svc: ProfitPeriodsService) {}
 

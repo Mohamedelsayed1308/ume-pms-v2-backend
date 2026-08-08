@@ -2,10 +2,12 @@ import {
   Controller,
   Post,
   Body,
+  UseGuards,
   BadRequestException,
   InternalServerErrorException,
 } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
+import { JwtAuthGuard } from '../../common/jwt-auth.guard';
 import { TasksService } from './tasks.service';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -86,6 +88,7 @@ const TOOLS: Anthropic.Tool[] = [
 ];
 
 @Controller('api/tasks')
+@UseGuards(JwtAuthGuard)
 export class TasksAssistantController {
   constructor(private svc: TasksService) {}
 
