@@ -6,9 +6,10 @@ import { InvoicesController } from './invoices.controller';
 import { InvoicesService } from './invoices.service';
 import { InvoiceExtractController } from './invoice-extract.controller';
 import { InvoicesAssistantController } from './invoices-assistant.controller';
+import { CommonAuthzModule } from '../../common/common-authz.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Invoice, Attachment])],
+  imports: [TypeOrmModule.forFeature([Invoice, Attachment]), CommonAuthzModule],
   controllers: [InvoicesController, InvoiceExtractController, InvoicesAssistantController],
   providers: [InvoicesService],
   exports: [InvoicesService],

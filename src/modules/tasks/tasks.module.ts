@@ -5,9 +5,10 @@ import { TaskComment } from './task-comment.entity';
 import { TasksService } from './tasks.service';
 import { TasksController } from './tasks.controller';
 import { TasksAssistantController } from './tasks-assistant.controller';
+import { CommonAuthzModule } from '../../common/common-authz.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Task, TaskComment])],
+  imports: [TypeOrmModule.forFeature([Task, TaskComment]), CommonAuthzModule],
   providers: [TasksService],
   controllers: [TasksController, TasksAssistantController],
 })

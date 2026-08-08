@@ -2,12 +2,14 @@ import {
   Controller,
   Post,
   Body,
+  Request,
   UseGuards,
   BadRequestException,
   InternalServerErrorException,
 } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
 import { JwtAuthGuard } from '../../common/jwt-auth.guard';
+import { ScreenAuthzService } from '../../common/screen-authz.service';
 import { InvoicesService } from './invoices.service';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -59,12 +61,14 @@ const TOOLS: Anthropic.Tool[] = [
 @Controller('api/invoices')
 @UseGuards(JwtAuthGuard)
 export class InvoicesAssistantController {
-  constructor(private svc: InvoicesService) {}
+  constructor(private svc: InvoicesService, private authz: ScreenAuthzService) {}
 
   @Post('assistant')
   async assistant(
     @Body() body: { message?: string; history?: { role: 'user' | 'assistant'; content: string }[] },
+    @Request() req: any,
   ) {
+    await this.authz.assert(req.user?.id, '/dashboard/invoices'); // تفويض خادمي
     const message = (body?.message || '').trim();
     if (!message) throw new BadRequestException('message is required');
     if (!process.env.ANTHROPIC_API_KEY)

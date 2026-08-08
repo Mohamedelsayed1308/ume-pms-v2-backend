@@ -1,18 +1,21 @@
-import { Controller, Post, UseInterceptors, UploadedFile, UseGuards, BadRequestException, InternalServerErrorException } from '@nestjs/common';
+import { Controller, Post, Request, UseInterceptors, UploadedFile, UseGuards, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { JwtAuthGuard } from '../../common/jwt-auth.guard';
+import { ScreenAuthzService } from '../../common/screen-authz.service';
 import Anthropic from '@anthropic-ai/sdk';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 @Controller('api/invoices')
 export class InvoiceExtractController {
+  constructor(private authz: ScreenAuthzService) {}
+
   @Post('extract')
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }))
-  async extract(@UploadedFile() file: Express.Multer.File) {
-    console.log('Extract called:', file?.originalname, file?.size, file?.mimetype);
+  async extract(@UploadedFile() file: Express.Multer.File, @Request() req: any) {
+    await this.authz.assert(req.user?.id, '/dashboard/invoices'); // تفويض خادمي
     if (!file || !file.buffer) throw new BadRequestException('No file received');
     if (!process.env.ANTHROPIC_API_KEY) throw new InternalServerErrorException('ANTHROPIC_API_KEY not configured');
 
@@ -54,7 +57,7 @@ export class InvoiceExtractController {
       });
 
       const text = (response.content[0] as any).text.trim();
-      console.log('Claude response preview:', text.substring(0, 300));
+      // (تدقيق اللوجات: أُزيل تسجيل محتوى الاستخراج المالي)
       // Extract the full JSON object (greedy: first { to last } — يشمل مصفوفة البنود)
       const jsonStr = text.match(/\{[\s\S]*\}/)?.[0] || text;
       try {

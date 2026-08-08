@@ -1,5 +1,6 @@
-import { Controller, Get, Post, Body, Query, UseGuards, BadRequestException, InternalServerErrorException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, Request, UseGuards, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/jwt-auth.guard';
+import { ScreenAuthzService } from '../../common/screen-authz.service';
 import Anthropic from '@anthropic-ai/sdk';
 import { FleetService } from './fleet.service';
 
@@ -8,7 +9,7 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 @Controller('api/fleet')
 @UseGuards(JwtAuthGuard)
 export class FleetController {
-  constructor(private svc: FleetService) {}
+  constructor(private svc: FleetService, private authz: ScreenAuthzService) {}
 
   @Get('dashboard')
   dashboard(@Query('refresh') refresh?: string) {
@@ -18,7 +19,9 @@ export class FleetController {
   @Post('assistant')
   async assistant(
     @Body() body: { message?: string; history?: { role: 'user' | 'assistant'; content: string }[]; filters?: any },
+    @Request() req: any,
   ) {
+    await this.authz.assertAny(req.user?.id, ['/dashboard/vessels', '/dashboard/reports']); // تفويض خادمي
     const message = (body?.message || '').trim();
     if (!message) throw new BadRequestException('message is required');
     if (!process.env.ANTHROPIC_API_KEY)
