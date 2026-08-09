@@ -1,0 +1,57 @@
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, Request, UseGuards, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
+import { JwtAuthGuard } from '../../common/jwt-auth.guard';
+import { ScreenGuard } from '../../common/screen.guard';
+import { RequireScreen } from '../../common/require-screen.decorator';
+import { MarketService } from './market.service';
+import { MarketImportService } from './market-import.service';
+import { AgencyService } from './agency.service';
+
+function parseYM(s: string): { y: number; m: number } {
+  const [y, m] = (s || '').split('-').map(Number);
+  if (!y || !m || m < 1 || m > 12) throw new BadRequestException(`فترة غير صالحة: ${s} (استخدم YYYY-MM)`);
+  return { y, m };
+}
+
+@Controller('api/market')
+@UseGuards(JwtAuthGuard, ScreenGuard)
+@RequireScreen('/dashboard/market')
+export class MarketController {
+  constructor(
+    private svc: MarketService,
+    private importSvc: MarketImportService,
+    private agencySvc: AgencyService,
+  ) {}
+
+  @Get('analysis')
+  analysis(@Query('from') from: string, @Query('to') to: string, @Query('agencies') agencies?: string, @Query('ship') ship?: string, @Query('focus') focus?: string) {
+    const a = parseYM(from), b = parseYM(to);
+    return this.svc.analysis({ fromY: a.y, fromM: a.m, toY: b.y, toM: b.m, agencies: agencies ? agencies.split(',').filter(Boolean) : undefined, ship: ship || undefined, focus });
+  }
+
+  @Post('import/preview')
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }))
+  preview(@UploadedFile() file: Express.Multer.File) {
+    if (!file?.buffer) throw new BadRequestException('لم يصل ملف');
+    return this.importSvc.preview(file.buffer);
+  }
+
+  @Post('import')
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }))
+  commit(@UploadedFile() file: Express.Multer.File, @Request() req: any) {
+    if (!file?.buffer) throw new BadRequestException('لم يصل ملف');
+    return this.importSvc.commit(file.buffer, file.originalname, { id: req.user?.id, full_name: req.user?.full_name });
+  }
+
+  @Get('import-logs') importLogs() { return this.importSvc.logs(); }
+
+  // ── إدارة تاريخ الوكالة ──
+  @Get('agency-history') agencyList() { return this.agencySvc.list(); }
+  @Post('agency-history') agencyCreate(@Body() body: any) { return this.agencySvc.upsert(body); }
+  @Put('agency-history/:id') agencyUpdate(@Param('id') id: string, @Body() body: any) { return this.agencySvc.upsert({ ...body, id }); }
+  @Post('agency-history/change') agencyChange(@Body() body: { ship_key: string; agency_key: string; agency_name_ar: string; from_date: string; ship_name_ar?: string }) {
+    return this.agencySvc.changeAgency(body.ship_key, body.agency_key, body.agency_name_ar, body.from_date, body.ship_name_ar);
+  }
+  @Delete('agency-history/:id') agencyDelete(@Param('id') id: string) { return this.agencySvc.remove(id); }
+}
