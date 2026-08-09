@@ -40,12 +40,12 @@ export class MarketController {
   @Get('report/status') reportStatus() { return { enabled: this.reportSvc.aiEnabled() }; }
 
   @Post('report')
-  report(@Body() body: { from: string; to: string; agencies?: string[]; ship?: string; focus?: string; level?: 'executive' | 'detailed'; includeScenarios?: boolean; truckUpliftPct?: number }, @Request() req: any) {
+  report(@Body() body: { from: string; to: string; agencies?: string[]; ship?: string; focus?: string; level?: 'executive' | 'detailed'; includeScenarios?: boolean; truckUpliftPct?: number; includeComparison?: boolean }, @Request() req: any) {
     rateLimit(req.user?.id || 'anon');
     const a = parseYM(body.from), b = parseYM(body.to);
     return this.reportSvc.generate(
       { fromY: a.y, fromM: a.m, toY: b.y, toM: b.m, agencies: body.agencies, ship: body.ship, focus: body.focus },
-      { level: body.level, includeScenarios: body.includeScenarios, truckUpliftPct: body.truckUpliftPct },
+      { level: body.level, includeScenarios: body.includeScenarios, truckUpliftPct: body.truckUpliftPct, includeComparison: body.includeComparison },
       { id: req.user?.id, full_name: req.user?.full_name },
     );
   }
@@ -58,6 +58,13 @@ export class MarketController {
   analysis(@Query('from') from: string, @Query('to') to: string, @Query('agencies') agencies?: string, @Query('ship') ship?: string, @Query('focus') focus?: string) {
     const a = parseYM(from), b = parseYM(to);
     return this.svc.analysis({ fromY: a.y, fromM: a.m, toY: b.y, toM: b.m, agencies: agencies ? agencies.split(',').filter(Boolean) : undefined, ship: ship || undefined, focus });
+  }
+
+  // المقارنة السنوية: الفترة المختارة مقابل نفس الأشهر من العام السابق (إزاحة 12 شهراً)
+  @Get('comparison')
+  comparison(@Query('from') from: string, @Query('to') to: string, @Query('agencies') agencies?: string, @Query('ship') ship?: string, @Query('focus') focus?: string) {
+    const a = parseYM(from), b = parseYM(to);
+    return this.svc.yearComparison({ fromY: a.y, fromM: a.m, toY: b.y, toM: b.m, agencies: agencies ? agencies.split(',').filter(Boolean) : undefined, ship: ship || undefined, focus });
   }
 
   @Post('import/preview')

@@ -6,6 +6,7 @@ import { AgencyService } from './agency.service';
 import {
   METRIC_KEYS, MetricKey, metricOf, ymIndex, monthsInRange, previousPeriod,
   activeMonths, sumMetric, share, aggregateByAgency, productivity, directionBalance,
+  sameMonthsPrevYear, growthOf, shareChangePoints, shipComposition,
 } from './market.calc';
 
 export interface MarketFilter { fromY: number; fromM: number; toY: number; toM: number; agencies?: string[]; ship?: string; focus?: string; }
@@ -38,6 +39,106 @@ export class MarketService {
 
   private metricsOf(rows: any[]): Record<MetricKey, number> {
     const o = zeroMetrics(); for (const k of METRIC_KEYS) o[k] = sumMetric(rows, k); return o;
+  }
+
+  // ── المقارنة السنوية: نفس الأشهر من العام السابق (إزاحة 12 شهراً) ──
+  async yearComparison(f: MarketFilter) {
+    const focus = (f.focus || DEFAULT_FOCUS).toUpperCase();
+    const ref = sameMonthsPrevYear(f.fromY, f.fromM, f.toY, f.toM);
+    const nowRows = await this.loadResolved(f.fromY, f.fromM, f.toY, f.toM);
+    const prevRows = await this.loadResolved(ref.fromY, ref.fromM, ref.toY, ref.toM);
+
+    // أشهر فعلية لكل فترة (بها حركة)
+    const curMonths = monthsInRange(f.fromY, f.fromM, f.toY, f.toM).filter((m) => nowRows.some((r) => r.year === m.year && r.month_number === m.month));
+    const refMonths = monthsInRange(ref.fromY, ref.fromM, ref.toY, ref.toM).filter((m) => prevRows.some((r) => r.year === m.year && r.month_number === m.month));
+
+    // إجمالي السوق للعامين + النمو (المقام دائماً كامل السوق)
+    const market = this.metricsOf(nowRows);
+    const marketPrev = this.metricsOf(prevRows);
+    const marketGrowth = Object.fromEntries(METRIC_KEYS.map((k) => [k, growthOf(market[k], marketPrev[k])])) as Record<MetricKey, ReturnType<typeof growthOf>>;
+
+    // تجميع الوكلاء للعامين
+    const aggNow = aggregateByAgency(nowRows);
+    const aggPrev = aggregateByAgency(prevRows);
+    const agencyKeys = [...new Set([...Object.keys(aggNow), ...Object.keys(aggPrev)])];
+
+    const byAgency = agencyKeys.map((key) => {
+      const cur = aggNow[key] || { trips: 0, trucks: 0, cars: 0, passengers: 0, name: aggPrev[key]?.name || key };
+      const prev = aggPrev[key] || { trips: 0, trucks: 0, cars: 0, passengers: 0, name: cur.name };
+      const curVals: any = {}, prevVals: any = {}, growth: any = {}, sharesCur: any = {}, sharesPrev: any = {}, shareChange: any = {}, contribution: any = {};
+      for (const k of METRIC_KEYS) {
+        curVals[k] = cur[k]; prevVals[k] = prev[k];
+        growth[k] = growthOf(cur[k], prev[k]);
+        sharesCur[k] = share(cur[k], market[k]); sharesPrev[k] = share(prev[k], marketPrev[k]);
+        shareChange[k] = shareChangePoints(sharesCur[k], sharesPrev[k]); // نقاط مئوية
+        const marketAbs = market[k] - marketPrev[k];
+        contribution[k] = { abs: cur[k] - prev[k], pctOfMarketGrowth: marketAbs !== 0 ? ((cur[k] - prev[k]) / marketAbs) * 100 : null };
+      }
+      const agNow = nowRows.filter((r) => r.agency_key === key), agPrev = prevRows.filter((r) => r.agency_key === key);
+      return {
+        key, name: cur.name, current: curVals, previous: prevVals, growth,
+        shares: { current: sharesCur, previous: sharesPrev }, shareChange, contribution,
+        productivity: { current: productivity(agNow), previous: productivity(agPrev) },
+      };
+    }).sort((a, b) => b.current.trips - a.current.trips);
+
+    // ترتيب الوكلاء للعامين (بالرحلات كأساس + كل مؤشر)
+    const rankBy = (agg: Record<string, any>, market: Record<MetricKey, number>) => Object.fromEntries(METRIC_KEYS.map((k) => [k,
+      Object.entries(agg).map(([ak, av]: any) => ({ key: ak, name: av.name, value: av[k], share: share(av[k], market[k]) })).sort((x, y) => y.value - x.value),
+    ])) as Record<MetricKey, any[]>;
+    const ranking = { current: rankBy(aggNow, market), previous: rankBy(aggPrev, marketPrev) };
+
+    // أداء التركيز (بدوي) مقابل السوق
+    const focusGrowth: any = {}, focusShareChange: any = {};
+    for (const k of METRIC_KEYS) {
+      const fg = growthOf(aggNow[focus]?.[k] || 0, aggPrev[focus]?.[k] || 0);
+      const mg = marketGrowth[k];
+      focusGrowth[k] = { focusPct: fg.pct, marketPct: mg.pct, outperformsMarket: fg.pct != null && mg.pct != null ? fg.pct > mg.pct : null, focus: fg };
+      const sc = shareChangePoints(share(aggNow[focus]?.[k] || 0, market[k]), share(aggPrev[focus]?.[k] || 0, marketPrev[k]));
+      focusShareChange[k] = sc; // + مكسب، − خسارة حصة
+    }
+
+    // مساهمة كل سفينة في نمو/تراجع وكالتها (بالرحلات)
+    const shipMap: Record<string, { name: string; agency: string; now: number; prev: number }> = {};
+    nowRows.forEach((r) => { const s = (shipMap[r.ship_key] = shipMap[r.ship_key] || { name: r.ship_name_ar || r.ship_key, agency: r.agency_key, now: 0, prev: 0 }); s.now += metricOf(r, 'trips'); });
+    prevRows.forEach((r) => { const s = (shipMap[r.ship_key] = shipMap[r.ship_key] || { name: r.ship_name_ar || r.ship_key, agency: r.agency_key, now: 0, prev: 0 }); s.prev += metricOf(r, 'trips'); });
+    const shipContribution = Object.entries(shipMap).map(([ship, v]) => ({ ship, name: v.name, agency: v.agency, now: v.now, prev: v.prev, delta: v.now - v.prev })).sort((a, b) => b.delta - a.delta);
+
+    // خط شهري متطابق: كل شهر حالي مقابل نفس الشهر من العام السابق (للتركيز والسوق)
+    const monthlyOverlay = curMonths.map(({ year, month }) => {
+      const curM = nowRows.filter((r) => r.year === year && r.month_number === month);
+      const prevM = prevRows.filter((r) => r.year === year - 1 && r.month_number === month);
+      const mm = (rows: any[]) => this.metricsOf(rows);
+      const focusMetric = (rows: any[], k: MetricKey) => sumMetric(rows.filter((r) => r.agency_key === focus), k);
+      return {
+        month, label: MONTH_AR[month - 1],
+        current: mm(curM), previous: mm(prevM),
+        focusCurrent: Object.fromEntries(METRIC_KEYS.map((k) => [k, focusMetric(curM, k)])),
+        focusPrevious: Object.fromEntries(METRIC_KEYS.map((k) => [k, focusMetric(prevM, k)])),
+      };
+    });
+
+    return {
+      period: {
+        current: { from: { year: f.fromY, month: f.fromM }, to: { year: f.toY, month: f.toM }, months: curMonths.map((m) => ({ ...m, label: monthLabel(m.year, m.month) })) },
+        reference: { from: { year: ref.fromY, month: ref.fromM }, to: { year: ref.toY, month: ref.toM }, months: refMonths.map((m) => ({ ...m, label: monthLabel(m.year, m.month) })) },
+      },
+      focus,
+      market: { current: market, previous: marketPrev }, marketGrowth,
+      marketTrend: METRIC_KEYS.reduce((s, k) => s + (marketGrowth[k].abs || 0), 0) > 0 ? 'growth' : 'contraction',
+      byAgency, ranking,
+      focusPerformance: { growthVsMarket: focusGrowth, shareChange: focusShareChange },
+      shipContribution,
+      composition: shipComposition(nowRows, prevRows),
+      productivity: { market: { current: productivity(nowRows), previous: productivity(prevRows) } },
+      direction: { current: directionBalance(nowRows), previous: directionBalance(prevRows) },
+      monthlyOverlay,
+      recordCounts: { current: nowRows.length, previous: prevRows.length },
+      hasData: nowRows.length > 0 && prevRows.length > 0,
+      agencies: byAgency.map((a) => ({ key: a.key, name: a.name })),
+      ships: Object.entries(shipMap).map(([k, v]) => ({ key: k, name: v.name, agency: v.agency })),
+      selectedAgencies: f.agencies || null, shipFilter: f.ship || null,
+    };
   }
 
   async analysis(f: MarketFilter) {

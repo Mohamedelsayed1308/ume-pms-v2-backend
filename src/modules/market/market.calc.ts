@@ -97,6 +97,61 @@ export function productivity(rows: any[]): { trucksPerTrip: number; carsPerTrip:
   };
 }
 
+// ── المقارنة السنوية (Year-over-Year) ──
+
+// الفترة نفسها من العام السابق بإزاحة 12 شهراً إلى الخلف (يناير–يوليو 2026 → يناير–يوليو 2025).
+export function sameMonthsPrevYear(fromY: number, fromM: number, toY: number, toM: number): { fromY: number; fromM: number; toY: number; toM: number } {
+  const pf = ymIndex(fromY, fromM) - 12;
+  const pt = ymIndex(toY, toM) - 12;
+  return { fromY: Math.floor(pf / 12), fromM: (pf % 12) + 1, toY: Math.floor(pt / 12), toM: (pt % 12) + 1 };
+}
+
+export type GrowthStatus = 'normal' | 'new_activity' | 'contraction_full' | 'no_movement';
+export interface Growth { current: number; previous: number; abs: number; pct: number | null; status: GrowthStatus; direction: 'up' | 'down' | 'flat'; label: string; }
+
+// معادلة النمو/الانكماش مع معالجة الأساس الصفري (لا Infinity، لا اختلاق).
+export function growthOf(current: any, previous: any): Growth {
+  const cur = n(current), prev = n(previous);
+  const abs = cur - prev;
+  if (prev === 0 && cur === 0) return { current: cur, previous: prev, abs: 0, pct: null, status: 'no_movement', direction: 'flat', label: 'لا توجد حركة' };
+  if (prev === 0 && cur > 0) return { current: cur, previous: prev, abs, pct: null, status: 'new_activity', direction: 'up', label: 'نشاط جديد' };
+  if (prev > 0 && cur === 0) return { current: cur, previous: prev, abs, pct: -100, status: 'contraction_full', direction: 'down', label: 'انكماش 100%' };
+  const pct = ((cur - prev) / prev) * 100;
+  return { current: cur, previous: prev, abs, pct, status: 'normal', direction: abs > 0 ? 'up' : abs < 0 ? 'down' : 'flat', label: `${abs > 0 ? '+' : ''}${Math.round(pct * 10) / 10}%` };
+}
+
+// تغيّر الحصة بالنقاط المئوية (لا كنسبة نمو): من 35% إلى 40% = +5 نقاط.
+export function shareChangePoints(currentShare: number, previousShare: number): number {
+  return (n(currentShare) - n(previousShare)) * 100;
+}
+
+// تصنيف تكوين السوق: سفن مستمرة / داخلة / خارجة / صفر حركة في إحدى الفترتين.
+export function shipComposition(nowRows: any[], prevRows: any[]) {
+  const build = (rows: any[]) => {
+    const m = new Map<string, { name: string; agency: string; act: number; trips: number }>();
+    for (const r of rows) {
+      const k = r.ship_key;
+      const o = m.get(k) || { name: r.ship_name_ar || k, agency: r.agency_key, act: 0, trips: 0 };
+      o.act += metricOf(r, 'trips') + metricOf(r, 'trucks') + metricOf(r, 'cars') + metricOf(r, 'passengers');
+      o.trips += metricOf(r, 'trips');
+      m.set(k, o);
+    }
+    return m;
+  };
+  const now = build(nowRows), prev = build(prevRows);
+  const both: any[] = [], entered: any[] = [], exited: any[] = [], zeroInOne: any[] = [];
+  for (const k of new Set([...now.keys(), ...prev.keys()])) {
+    const nA = (now.get(k)?.act || 0) > 0, pA = (prev.get(k)?.act || 0) > 0;
+    const meta = now.get(k) || prev.get(k)!;
+    const entry = { ship: k, name: meta.name, agency: meta.agency, nowTrips: now.get(k)?.trips || 0, prevTrips: prev.get(k)?.trips || 0 };
+    if (nA && pA) both.push(entry);
+    else if (nA && !pA) entered.push(entry);
+    else if (!nA && pA) exited.push(entry);
+    else zeroInOne.push(entry);
+  }
+  return { both, entered, exited, zeroInOne };
+}
+
 // اتزان المغادرة/الوصول (لكشف عدم توازن الاتجاهين).
 export function directionBalance(rows: any[]): { departureTrucks: number; arrivalTrucks: number; departureCars: number; arrivalCars: number; departurePassengers: number; arrivalPassengers: number } {
   const acc = { departureTrucks: 0, arrivalTrucks: 0, departureCars: 0, arrivalCars: 0, departurePassengers: 0, arrivalPassengers: 0 };
