@@ -62,9 +62,18 @@ export class HireInvoicesController {
     });
   }
 
+  // يحوّل النصوص الفارغة في حقول التواريخ/المفاتيح إلى null (عمود date/uuid لا يقبل '')
+  private sanitize(data: any) {
+    for (const f of ['cp_date', 'hire_from', 'hire_to', 'related_invoice_id']) {
+      if (data[f] === '') data[f] = null;
+    }
+    return data;
+  }
+
   @Post()
   async create(@Body() body: any) {
     const { items, ...invoiceData } = body;
+    this.sanitize(invoiceData);
     // الإشعارات لا تخضع لدورة السداد — حالتها «صادر»
     if (invoiceData.doc_type === 'credit_note' || invoiceData.doc_type === 'debit_note') {
       invoiceData.status = 'issued';
@@ -86,6 +95,10 @@ export class HireInvoicesController {
   @Put(':id')
   async update(@Param('id') id: string, @Body() body: any) {
     const { items, ...invoiceData } = body;
+    this.sanitize(invoiceData);
+    if (invoiceData.doc_type === 'credit_note' || invoiceData.doc_type === 'debit_note') {
+      invoiceData.status = 'issued';
+    }
     await this.repo.update(id, invoiceData);
     if (items) {
       await this.itemRepo.delete({ hire_invoice_id: id });
