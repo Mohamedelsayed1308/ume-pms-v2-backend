@@ -134,6 +134,8 @@ export class MarketService {
       optional: { profitability: 'unavailable', capacity: 'unavailable', customers: 'unavailable' },
       selectedAgencies: f.agencies || null, shipFilter: f.ship || null,
       recordCount: rows.length,
+      agencies: byAgency.map((a) => ({ key: a.key, name: a.name })),
+      ships: Object.values(rows.reduce((acc: any, r) => { acc[r.ship_key] = acc[r.ship_key] || { key: r.ship_key, name: r.ship_name_ar || r.ship_key, agency: r.agency_key }; return acc; }, {})),
     };
   }
 }
