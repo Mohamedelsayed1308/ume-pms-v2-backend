@@ -8,12 +8,13 @@ import { MarketController } from './market.controller';
 import { MarketService } from './market.service';
 import { MarketImportService } from './market-import.service';
 import { AgencyService } from './agency.service';
+import { MarketReportService } from './market-report.service';
 import { CommonAuthzModule } from '../../common/common-authz.module';
 
 @Module({
   imports: [TypeOrmModule.forFeature([MarketRecord, AgencyHistory, MarketImportLog, MarketReport]), CommonAuthzModule],
   controllers: [MarketController],
-  providers: [MarketService, MarketImportService, AgencyService],
-  exports: [MarketService, MarketImportService, AgencyService],
+  providers: [MarketService, MarketImportService, AgencyService, MarketReportService],
+  exports: [MarketService, MarketImportService, AgencyService, MarketReportService],
 })
 export class MarketModule {}
