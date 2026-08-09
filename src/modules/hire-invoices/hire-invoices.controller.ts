@@ -16,21 +16,41 @@ export class HireInvoicesController {
   ) {}
 
   @Get()
-  findAll(@Query('status') status?: string) {
+  async findAll(@Query('status') status?: string) {
     const where = status ? { status } : {};
-    return this.repo.find({
+    const rows = await this.repo.find({
       where,
-      relations: { customer: true, vessel: true, shipping_company: true, items: true, payments: true },
+      relations: { customer: true, vessel: true, shipping_company: true, items: true, payments: true, related_invoice: true },
       order: { invoice_date: 'DESC' },
     });
+    return this.attachAdjustments(rows);
   }
 
   @Get('due')
   findDue() {
+    // الإشعارات ليست مستحقات — فقط الفواتير العادية غير المسددة/الجزئية
     return this.repo.find({
-      where: [{ status: 'unpaid' }, { status: 'partial' }],
+      where: [{ status: 'unpaid', doc_type: 'invoice' }, { status: 'partial', doc_type: 'invoice' }],
       relations: { customer: true, vessel: true, shipping_company: true },
       order: { invoice_date: 'ASC' },
+    });
+  }
+
+  // يحسب صافي المتبقّي لكل فاتورة بعد خصم الإشعارات الدائنة وإضافة المدينة (الفاتورة الأصلية تبقى ثابتة)
+  private attachAdjustments(rows: HireInvoice[]) {
+    const notes = rows.filter((r) => r.doc_type === 'credit_note' || r.doc_type === 'debit_note');
+    const byInvoice: Record<string, { credit: number; debit: number }> = {};
+    for (const nt of notes) {
+      if (!nt.related_invoice_id) continue;
+      const b = (byInvoice[nt.related_invoice_id] ||= { credit: 0, debit: 0 });
+      if (nt.doc_type === 'credit_note') b.credit += +nt.total_amount;
+      else b.debit += +nt.total_amount;
+    }
+    return rows.map((r) => {
+      if (r.doc_type !== 'invoice') return { ...r, credit_total: 0, debit_total: 0, net_outstanding: null };
+      const adj = byInvoice[r.id] || { credit: 0, debit: 0 };
+      const net = +r.total_amount + adj.debit - adj.credit - +r.paid_amount;
+      return { ...r, credit_total: adj.credit, debit_total: adj.debit, net_outstanding: +net.toFixed(2) };
     });
   }
 
@@ -38,13 +58,17 @@ export class HireInvoicesController {
   findOne(@Param('id') id: string) {
     return this.repo.findOne({
       where: { id },
-      relations: { customer: true, vessel: true, shipping_company: true, items: true, payments: true },
+      relations: { customer: true, vessel: true, shipping_company: true, items: true, payments: true, related_invoice: true },
     });
   }
 
   @Post()
   async create(@Body() body: any) {
     const { items, ...invoiceData } = body;
+    // الإشعارات لا تخضع لدورة السداد — حالتها «صادر»
+    if (invoiceData.doc_type === 'credit_note' || invoiceData.doc_type === 'debit_note') {
+      invoiceData.status = 'issued';
+    }
     const invoice = this.repo.create(invoiceData);
     const saved = await this.repo.save(invoice) as unknown as HireInvoice;
     if (items?.length) {

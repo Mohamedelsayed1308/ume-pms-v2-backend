@@ -40,6 +40,14 @@ export class HireInvoice {
   @Column({ length: 10, default: 'EUR' })
   currency: string;
 
+  // نوع المستند: فاتورة | إشعار دائن | إشعار مدين
+  @Column({ length: 20, default: 'invoice' })
+  doc_type: string;
+
+  // الفاتورة الأصلية التي يعدّلها الإشعار (فارغ للفواتير العادية)
+  @Column({ type: 'uuid', nullable: true })
+  related_invoice_id: string;
+
   @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
   total_amount: number;
 
@@ -69,6 +77,11 @@ export class HireInvoice {
   @ManyToOne(() => ShippingCompany)
   @JoinColumn({ name: 'shipping_company_id' })
   shipping_company: ShippingCompany;
+
+  // الفاتورة الأصلية (للإشعارات) — علاقة ذاتية اختيارية
+  @ManyToOne(() => HireInvoice, { nullable: true })
+  @JoinColumn({ name: 'related_invoice_id' })
+  related_invoice: HireInvoice;
 
   @OneToMany(() => HireInvoiceItem, (item) => item.hire_invoice, { cascade: true })
   items: HireInvoiceItem[];
