@@ -2,9 +2,18 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import * as XLSX from 'xlsx';
+import * as crypto from 'crypto';
 import { MarketRecord } from './market-record.entity';
 import { MarketImportLog } from './market-import-log.entity';
+import { AgencyHistory } from './agency-history.entity';
 import { TRUCK_CATS, computeTripCount, computeTrucksTotal, computeDepartureTrucks, computeArrivalTrucks } from './market.calc';
+
+const toDate = (v: any): string | null => {
+  if (v == null || v === '') return null;
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  const s = String(v).slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+};
 
 const NUM_FIELDS = [
   'departure_voyages', 'arrival_voyages',
@@ -41,8 +50,22 @@ export class MarketImportService {
   constructor(
     @InjectRepository(MarketRecord) private recRepo: Repository<MarketRecord>,
     @InjectRepository(MarketImportLog) private logRepo: Repository<MarketImportLog>,
+    @InjectRepository(AgencyHistory) private agencyRepo: Repository<AgencyHistory>,
     private ds: DataSource,
   ) {}
+
+  // يقرأ شيت Agency_History (اختياري) → صفوف تاريخ الوكالة
+  parseAgencyHistory(buffer: Buffer): any[] {
+    let wb: XLSX.WorkBook;
+    try { wb = XLSX.read(buffer, { type: 'buffer', cellDates: true }); } catch { return []; }
+    const ws = wb.Sheets['Agency_History'];
+    if (!ws) return [];
+    return XLSX.utils.sheet_to_json(ws, { defval: null }).map((r: any) => ({
+      ship_key: (r.Ship_Key || '').toString().trim().toUpperCase(),
+      ship_name_ar: r.Ship_Name_AR, agency_key: (r.Agency_Key || '').toString().trim().toUpperCase(),
+      agency_name_ar: r.Agency_Name_AR, valid_from: toDate(r.Valid_From), valid_to: toDate(r.Valid_To), notes: r.Notes,
+    })).filter((r) => r.ship_key && r.agency_key && r.valid_from);
+  }
 
   // يحوّل ملف Excel → سجلات مُتحقَّقة + قائمة رفض + اختلافات القيم المحسوبة عن الملف
   parseAndValidate(buffer: Buffer): ImportResult {
@@ -108,28 +131,43 @@ export class MarketImportService {
   }
 
   // معاينة فقط (بدون حفظ)
-  preview(buffer: Buffer): ImportResult { return this.parseAndValidate(buffer); }
+  preview(buffer: Buffer): ImportResult & { agencyHistory: any[]; file_hash: string } {
+    const r = this.parseAndValidate(buffer);
+    const period = r.accepted.length
+      ? { from: r.accepted.reduce((a, x) => Math.min(a, x.year * 12 + x.month_number), Infinity), to: r.accepted.reduce((a, x) => Math.max(a, x.year * 12 + x.month_number), 0) }
+      : null;
+    return { ...r, agencyHistory: this.parseAgencyHistory(buffer), file_hash: crypto.createHash('sha256').update(buffer).digest('hex'), period } as any;
+  }
 
-  // حفظ Upsert داخل Transaction واحدة + سجل تدقيق
-  async commit(buffer: Buffer, filename: string, user: { id?: string; full_name?: string }): Promise<{ log: MarketImportLog; result: ImportResult }> {
+  // حفظ Upsert داخل Transaction واحدة + بذر تاريخ الوكالة + سجل تدقيق
+  async commit(buffer: Buffer, filename: string, user: { id?: string; full_name?: string }): Promise<{ log: MarketImportLog; result: ImportResult; agencySeeded: number }> {
     const result = this.parseAndValidate(buffer);
     if (!result.accepted.length) throw new BadRequestException('لا توجد صفوف صالحة للحفظ');
     const batch = `imp-${Date.now()}`;
+    const hash = crypto.createHash('sha256').update(buffer).digest('hex');
+    const agencyRows = this.parseAgencyHistory(buffer);
+    let agencySeeded = 0;
 
     await this.ds.transaction(async (m) => {
+      // upsert سجلات السوق بالمفتاح year+month+ship_key
       for (const a of result.accepted) {
         const existing = await m.findOne(MarketRecord, { where: { year: a.year, month_number: a.month_number, ship_key: a.ship_key } });
         if (existing) await m.update(MarketRecord, existing.id, { ...a, import_batch: batch });
         else await m.save(MarketRecord, m.create(MarketRecord, { ...a, import_batch: batch }));
       }
+      // بذر تاريخ الوكالة (idempotent: لا تكرار بنفس ship+agency+valid_from)
+      for (const h of agencyRows) {
+        const dup = await m.findOne(AgencyHistory, { where: { ship_key: h.ship_key, agency_key: h.agency_key, valid_from: h.valid_from } });
+        if (!dup) { await m.save(AgencyHistory, m.create(AgencyHistory, h)); agencySeeded++; }
+      }
     });
 
     const log = await this.logRepo.save(this.logRepo.create({
-      filename, uploaded_by: user.full_name, uploaded_by_id: user.id,
+      filename, file_hash: hash, uploaded_by: user.full_name, uploaded_by_id: user.id,
       rows_total: result.rows_total, rows_accepted: result.rows_accepted, rows_rejected: result.rows_rejected,
       rejects: result.rejects, mismatches: result.mismatches, status: 'committed',
     }));
-    return { log, result };
+    return { log, result, agencySeeded };
   }
 
   logs() { return this.logRepo.find({ order: { created_at: 'DESC' }, take: 50 }); }

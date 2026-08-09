@@ -6,6 +6,7 @@ export class MarketImportLog {
   @PrimaryGeneratedColumn('uuid') id: string;
 
   @Column({ length: 260, nullable: true }) filename: string;
+  @Column({ length: 64, nullable: true }) file_hash: string; // sha256
   @Column({ length: 120, nullable: true }) uploaded_by: string;
   @Column({ length: 60, nullable: true }) uploaded_by_id: string;
 
