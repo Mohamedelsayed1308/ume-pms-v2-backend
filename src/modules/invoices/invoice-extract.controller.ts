@@ -16,11 +16,22 @@ export class InvoiceExtractController {
   @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }))
   async extract(@UploadedFile() file: Express.Multer.File, @Request() req: any) {
     await this.authz.assert(req.user?.id, '/dashboard/invoices'); // تفويض خادمي
-    if (!file || !file.buffer) throw new BadRequestException('No file received');
-    if (!process.env.ANTHROPIC_API_KEY) throw new InternalServerErrorException('ANTHROPIC_API_KEY not configured');
+    if (!file || !file.buffer) throw new BadRequestException('لم يصل ملف');
+    if (!process.env.ANTHROPIC_API_KEY) throw new InternalServerErrorException('خدمة الاستخراج غير مفعّلة');
 
-    const base64 = file.buffer.toString('base64');
-    const isPdf = file.mimetype === 'application/pdf';
+    const isPdf = file.mimetype === 'application/pdf' || /\.pdf$/i.test(file.originalname || '');
+    let buf = file.buffer;
+    if (isPdf) {
+      // إصلاح تلقائي: بعض الملفات تُحفظ بترويسات HTTP/إيميل قبل %PDF — نقصّ أي بايتات قبل بداية الـPDF
+      if (buf.subarray(0, 5).toString('latin1') !== '%PDF-') {
+        const idx = buf.indexOf('%PDF-');
+        if (idx > 0) buf = buf.subarray(idx);
+      }
+      if (buf.subarray(0, 5).toString('latin1') !== '%PDF-') {
+        throw new BadRequestException('الملف ليس PDF صالحاً (قد يكون تالفاً أو محمياً بكلمة مرور). جرّب ملفاً آخر أو ارفع صورة واضحة (JPG/PNG).');
+      }
+    }
+    const base64 = buf.toString('base64');
 
     const content: any[] = [
       {
@@ -69,8 +80,13 @@ export class InvoiceExtractController {
         throw new Error('Could not parse JSON from Claude response: ' + text.substring(0, 100));
       }
     } catch (err: any) {
-      console.error('Claude error:', err?.message, err?.status);
-      throw new InternalServerErrorException(err?.message || 'Claude API failed');
+      console.error('Extract error:', err?.status, err?.message?.slice?.(0, 80));
+      const raw = String(err?.message || '');
+      // خطأ ملف غير صالح من المزوّد → رسالة عربية واضحة (400) بدل خطأ خام (500)
+      if (err?.status === 400 || /not valid|invalid|could not|unsupported|pdf/i.test(raw)) {
+        throw new BadRequestException('تعذّر قراءة الملف — تأكد أنه فاتورة PDF صالحة وغير محمية بكلمة مرور، أو ارفع صورة واضحة (JPG/PNG) بدلاً منه.');
+      }
+      throw new InternalServerErrorException('تعذّر استخراج البيانات، حاول مرة أخرى.');
     }
   }
 }
