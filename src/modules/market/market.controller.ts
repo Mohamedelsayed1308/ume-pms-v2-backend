@@ -60,6 +60,22 @@ export class MarketController {
     return this.svc.analysis({ fromY: a.y, fromM: a.m, toY: b.y, toM: b.m, agencies: agencies ? agencies.split(',').filter(Boolean) : undefined, ship: ship || undefined, focus });
   }
 
+  // العرض التنفيذي: بيانات شلال النمو + مصفوفة النمو والحصة + تطوّر الحصص
+  @Get('executive')
+  executive(@Query('from') from: string, @Query('to') to: string, @Query('agencies') agencies?: string, @Query('ship') ship?: string, @Query('focus') focus?: string) {
+    const a = parseYM(from), b = parseYM(to);
+    return this.svc.executive({ fromY: a.y, fromM: a.m, toY: b.y, toM: b.m, agencies: agencies ? agencies.split(',').filter(Boolean) : undefined, ship: ship || undefined, focus });
+  }
+
+  // شرح الأشكال بالذكاء الاصطناعي (تفسير فقط — الأرقام محسوبة خادمياً ومُتحقَّق منها)
+  @Post('executive/narrate')
+  narrate(@Body() body: { from: string; to: string; metric?: string; agencies?: string[]; ship?: string; focus?: string }, @Request() req: any) {
+    rateLimit(req.user?.id || 'anon', 10);
+    const a = parseYM(body.from), b = parseYM(body.to);
+    const metric = ['trips', 'trucks', 'cars', 'passengers'].includes(body.metric || '') ? body.metric! : 'trips';
+    return this.reportSvc.narrateExecutive({ fromY: a.y, fromM: a.m, toY: b.y, toM: b.m, agencies: body.agencies, ship: body.ship, focus: body.focus }, metric);
+  }
+
   // المقارنة السنوية: الفترة المختارة مقابل نفس الأشهر من العام السابق (إزاحة 12 شهراً)
   @Get('comparison')
   comparison(@Query('from') from: string, @Query('to') to: string, @Query('agencies') agencies?: string, @Query('ship') ship?: string, @Query('focus') focus?: string) {

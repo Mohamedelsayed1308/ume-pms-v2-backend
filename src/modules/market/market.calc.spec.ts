@@ -1,6 +1,7 @@
 import {
   computeTripCount, computeTrucksTotal, computeDepartureTrucks, computeArrivalTrucks,
   sameMonthsPrevYear, growthOf, shareChangePoints, shipComposition, share, aggregateByAgency, productivity,
+  growthWaterfall, classifyQuadrant,
 } from './market.calc';
 
 describe('market.calc — قواعد الحساب الأساسية', () => {
@@ -99,6 +100,59 @@ describe('shipComposition — اختلاف تكوين السوق بين العا
     expect(c.both.map((s) => s.ship)).toContain('ALCUDIA');
     expect(c.entered.map((s) => s.ship)).toContain('SINAA');
     expect(c.exited.map((s) => s.ship)).toContain('OLD_SHIP');
+  });
+});
+
+describe('growthWaterfall — شلال مصادر النمو', () => {
+  const prev = { BADAWY: { trips: 100, name: 'بدوي' }, ETIHAD: { trips: 80, name: 'الاتحاد' }, TRIMOV: { trips: 60, name: 'تريموف' } };
+  const now = { BADAWY: { trips: 140, name: 'بدوي' }, ETIHAD: { trips: 70, name: 'الاتحاد' }, AL_QAHERA: { trips: 30, name: 'القاهرة' } };
+
+  it('البداية والنهاية = إجمالي السوق في الفترتين', () => {
+    const w = growthWaterfall(now, prev, 'trips');
+    expect(w.start).toBe(240); // 100+80+60
+    expect(w.end).toBe(240);   // 140+70+30
+    expect(w.netChange).toBe(0);
+  });
+
+  it('مجموع مساهمات الوكلاء = صافي تغيّر السوق (ثابتة رياضية)', () => {
+    const w = growthWaterfall(now, prev, 'trips');
+    const sum = w.steps.reduce((s, x) => s + x.delta, 0);
+    expect(sum).toBe(w.netChange);
+    expect(w.balanced).toBe(true);
+  });
+
+  it('يشمل الوكيل الداخل والخارج ويرتّب تنازلياً بالمساهمة', () => {
+    const w = growthWaterfall(now, prev, 'trips', 'BADAWY');
+    expect(w.steps[0].key).toBe('BADAWY');          // +40 الأكبر
+    expect(w.steps.at(-1)!.key).toBe('TRIMOV');      // −60 الأصغر
+    expect(w.steps.find((s) => s.key === 'AL_QAHERA')!.delta).toBe(30); // داخل جديد
+    expect(w.steps.find((s) => s.key === 'TRIMOV')!.to).toBe(0);        // خارج
+    expect(w.steps.find((s) => s.key === 'BADAWY')!.isFocus).toBe(true);
+  });
+
+  it('يتوازن أيضاً عند نمو حقيقي', () => {
+    const w = growthWaterfall({ A: { trips: 514 } }, { A: { trips: 390 } }, 'trips');
+    expect(w.netChange).toBe(124);
+    expect(w.balanced).toBe(true);
+  });
+});
+
+describe('classifyQuadrant — مصفوفة النمو والحصة', () => {
+  const avg = 25, marketGrowth = 30;
+  it('حصة كبيرة ونمو أسرع من السوق = قائد', () => {
+    expect(classifyQuadrant(40, 45, avg, marketGrowth)).toBe('leader');
+  });
+  it('حصة صغيرة ونمو أسرع = صاعد', () => {
+    expect(classifyQuadrant(10, 60, avg, marketGrowth)).toBe('riser');
+  });
+  it('حصة كبيرة ونمو أبطأ = متراجع (يفقد حصة رغم نمو حجمه)', () => {
+    expect(classifyQuadrant(40, 12, avg, marketGrowth)).toBe('laggard');
+  });
+  it('حصة صغيرة ونمو أبطأ = هامشي', () => {
+    expect(classifyQuadrant(5, -10, avg, marketGrowth)).toBe('marginal');
+  });
+  it('النشاط الجديد (بلا أساس) يُعامل كنمو أسرع', () => {
+    expect(classifyQuadrant(5, null, avg, marketGrowth)).toBe('riser');
   });
 });
 

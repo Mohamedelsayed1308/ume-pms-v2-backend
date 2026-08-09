@@ -125,6 +125,36 @@ export function shareChangePoints(currentShare: number, previousShare: number): 
   return (n(currentShare) - n(previousShare)) * 100;
 }
 
+// شلال مصادر النمو: من إجمالي الفترة المرجعية → مساهمة كل وكيل (+/−) → إجمالي الفترة الحالية.
+// ثابتة رياضية: مجموع مساهمات الوكلاء = صافي تغيّر السوق (لأن السوق = مجموع الوكلاء).
+export function growthWaterfall(
+  now: Record<string, any>, prev: Record<string, any>, k: MetricKey, focus?: string,
+): { start: number; end: number; netChange: number; balanced: boolean; steps: { key: string; name: string; from: number; to: number; delta: number; isFocus: boolean }[] } {
+  const keys = [...new Set([...Object.keys(now), ...Object.keys(prev)])];
+  const steps = keys.map((key) => {
+    const to = n(now[key]?.[k]), from = n(prev[key]?.[k]);
+    return { key, name: now[key]?.name || prev[key]?.name || key, from, to, delta: to - from, isFocus: key === focus };
+  }).filter((s) => s.from > 0 || s.to > 0).sort((a, b) => b.delta - a.delta);
+
+  const start = keys.reduce((s, key) => s + n(prev[key]?.[k]), 0);
+  const end = keys.reduce((s, key) => s + n(now[key]?.[k]), 0);
+  const netChange = end - start;
+  const stepsSum = steps.reduce((s, x) => s + x.delta, 0);
+  return { start, end, netChange, balanced: Math.abs(stepsSum - netChange) < 0.0001, steps };
+}
+
+// تصنيف موضع الوكيل في مصفوفة النمو والحصة (حصة أعلى/أقل من المتوسط × نمو أسرع/أبطأ من السوق).
+export type QuadrantKey = 'leader' | 'riser' | 'laggard' | 'marginal';
+export function classifyQuadrant(sharePct: number, growthPct: number | null, avgSharePct: number, marketGrowthPct: number | null): QuadrantKey {
+  const bigShare = n(sharePct) >= n(avgSharePct);
+  // بلا أساس للمقارنة (نشاط جديد) يُعامل كنمو أسرع من السوق
+  const fast = growthPct == null ? true : marketGrowthPct == null ? n(growthPct) > 0 : n(growthPct) >= n(marketGrowthPct);
+  if (bigShare && fast) return 'leader';
+  if (!bigShare && fast) return 'riser';
+  if (bigShare && !fast) return 'laggard';
+  return 'marginal';
+}
+
 // تصنيف تكوين السوق: سفن مستمرة / داخلة / خارجة / صفر حركة في إحدى الفترتين.
 export function shipComposition(nowRows: any[], prevRows: any[]) {
   const build = (rows: any[]) => {

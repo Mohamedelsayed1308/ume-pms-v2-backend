@@ -6,7 +6,7 @@ import { AgencyService } from './agency.service';
 import {
   METRIC_KEYS, MetricKey, metricOf, ymIndex, monthsInRange, previousPeriod,
   activeMonths, sumMetric, share, aggregateByAgency, productivity, directionBalance,
-  sameMonthsPrevYear, growthOf, shareChangePoints, shipComposition,
+  sameMonthsPrevYear, growthOf, shareChangePoints, shipComposition, growthWaterfall, classifyQuadrant,
 } from './market.calc';
 
 export interface MarketFilter { fromY: number; fromM: number; toY: number; toM: number; agencies?: string[]; ship?: string; focus?: string; }
@@ -39,6 +39,87 @@ export class MarketService {
 
   private metricsOf(rows: any[]): Record<MetricKey, number> {
     const o = zeroMetrics(); for (const k of METRIC_KEYS) o[k] = sumMetric(rows, k); return o;
+  }
+
+  // ── العرض التنفيذي: بيانات ثلاثة أشكال (شلال النمو · مصفوفة النمو والحصة · تطوّر الحصص) ──
+  // كل الأرقام تُحسب هنا خادمياً؛ الواجهة ترسم فقط، والنموذج (إن استُخدم) يفسّر فقط.
+  async executive(f: MarketFilter) {
+    const focus = (f.focus || DEFAULT_FOCUS).toUpperCase();
+    const ref = sameMonthsPrevYear(f.fromY, f.fromM, f.toY, f.toM);
+    const nowRows = await this.loadResolved(f.fromY, f.fromM, f.toY, f.toM);
+    const prevRows = await this.loadResolved(ref.fromY, ref.fromM, ref.toY, ref.toM);
+    const curMonths = monthsInRange(f.fromY, f.fromM, f.toY, f.toM).filter((m) => nowRows.some((r) => r.year === m.year && r.month_number === m.month));
+
+    const market = this.metricsOf(nowRows);
+    const marketPrev = this.metricsOf(prevRows);
+    const aggNow = aggregateByAgency(nowRows);
+    const aggPrev = aggregateByAgency(prevRows);
+    const keys = [...new Set([...Object.keys(aggNow), ...Object.keys(aggPrev)])];
+    const nameOf = (k: string) => aggNow[k]?.name || aggPrev[k]?.name || k;
+
+    const curLabel = curMonths.length ? `${monthLabel(curMonths[0].year, curMonths[0].month)} → ${monthLabel(curMonths[curMonths.length - 1].year, curMonths[curMonths.length - 1].month)}` : '—';
+    const refLabel = `${monthLabel(ref.fromY, ref.fromM)} → ${monthLabel(ref.toY, ref.toM)}`;
+
+    const metrics: any = {};
+    for (const k of METRIC_KEYS) {
+      // 1) شلال مصادر النمو (دالة نقية + تحقّق ذاتي: مجموع الخطوات = صافي تغيّر السوق)
+      const waterfall = { ...growthWaterfall(aggNow, aggPrev, k, focus), startLabel: refLabel, endLabel: curLabel };
+
+      // 2) مصفوفة النمو والحصة: كل وكيل = حصته الحالية × نموّه، وحجمه = حجم نشاطه
+      const mg = growthOf(market[k], marketPrev[k]);
+      const avgSharePct = keys.length ? 100 / keys.length : 0;
+      const quadrant = {
+        marketGrowthPct: mg.pct, marketGrowthStatus: mg.status,
+        // خط الحصة المرجعي = الحصة المتوسطة لو تساوى الوكلاء
+        avgSharePct,
+        agencies: keys.map((key) => {
+          const cur = aggNow[key]?.[k] || 0, prv = aggPrev[key]?.[k] || 0;
+          const sCur = share(cur, market[k]), sPrev = share(prv, marketPrev[k]);
+          const ag = growthOf(cur, prv);
+          return {
+            key, name: nameOf(key), isFocus: key === focus, value: cur, previous: prv,
+            sharePct: sCur * 100, prevSharePct: sPrev * 100,
+            shareChangePoints: shareChangePoints(sCur, sPrev),
+            growthPct: ag.pct, growthStatus: ag.status, growthLabel: ag.label,
+            quadrant: classifyQuadrant(sCur * 100, ag.pct, avgSharePct, mg.pct),
+            // مقارنة النمو بالسوق تفصل بين نمو الحجم وتغيّر الحصة
+            vsMarket: ag.pct != null && mg.pct != null ? (ag.pct > mg.pct ? 'faster' : ag.pct < mg.pct ? 'slower' : 'same') : null,
+          };
+        }).filter((a) => a.value > 0 || a.previous > 0),
+      };
+
+      // 3) تطوّر الحصص شهرياً (مقام كل شهر = إجمالي السوق لذلك الشهر)
+      const shareEvolution = curMonths.map(({ year, month }) => {
+        const mRows = nowRows.filter((r) => r.year === year && r.month_number === month);
+        const total = sumMetric(mRows, k);
+        const mAgg = aggregateByAgency(mRows);
+        return {
+          year, month, label: MONTH_AR[month - 1], total,
+          byAgency: Object.fromEntries(keys.map((key) => {
+            const v = mAgg[key]?.[k] || 0;
+            return [key, { value: v, sharePct: share(v, total) * 100 }];
+          })),
+        };
+      });
+
+      metrics[k] = { waterfall, quadrant, shareEvolution };
+    }
+
+    return {
+      period: {
+        current: { from: { year: f.fromY, month: f.fromM }, to: { year: f.toY, month: f.toM }, label: curLabel, months: curMonths.map((m) => ({ ...m, label: monthLabel(m.year, m.month) })) },
+        reference: { from: { year: ref.fromY, month: ref.fromM }, to: { year: ref.toY, month: ref.toM }, label: refLabel },
+      },
+      focus, focusName: nameOf(focus),
+      market: { current: market, previous: marketPrev },
+      marketGrowth: Object.fromEntries(METRIC_KEYS.map((k) => [k, growthOf(market[k], marketPrev[k])])),
+      agencies: keys.map((k) => ({ key: k, name: nameOf(k) })),
+      metrics,
+      hasData: nowRows.length > 0,
+      hasReference: prevRows.length > 0,
+      recordCounts: { current: nowRows.length, previous: prevRows.length },
+      optional: { profitability: 'unavailable', capacity: 'unavailable', customers: 'unavailable' },
+    };
   }
 
   // ── المقارنة السنوية: نفس الأشهر من العام السابق (إزاحة 12 شهراً) ──
