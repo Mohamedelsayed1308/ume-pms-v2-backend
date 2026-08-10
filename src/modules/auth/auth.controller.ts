@@ -1,9 +1,15 @@
-import { Controller, Post, Put, Body, Get, Param, UseGuards, Request, ForbiddenException } from '@nestjs/common';
+import { Controller, Post, Put, Body, Get, Param, UseGuards, Request, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from '../../common/jwt-auth.guard';
 
 function ensureAdmin(req: any) {
   if (req.user?.role !== 'admin') throw new ForbiddenException('صلاحيات الأدمن مطلوبة');
+}
+
+// fail-closed: يُعتبر إنتاجاً ما لم تُعلَن البيئة صراحةً كتطوير/اختبار.
+// (NODE_ENV غير مضبوط ⇒ إنتاج ⇒ نقاط التهيئة معطّلة)
+function isNonProduction(): boolean {
+  return ['development', 'test', 'local'].includes((process.env.NODE_ENV || '').trim().toLowerCase());
 }
 
 @Controller('api/auth')
@@ -15,8 +21,13 @@ export class AuthController {
     return this.authService.login(body.email, body.password);
   }
 
+  // تهيئة أدمن افتراضي — أداة تطوير فقط.
+  // الإنتاج: غير موجودة (404). خارج الإنتاج: تتطلب JWT + دور admin.
   @Get('seed')
-  seed() {
+  @UseGuards(JwtAuthGuard)
+  seed(@Request() req: any) {
+    if (!isNonProduction()) throw new NotFoundException();
+    ensureAdmin(req);
     return this.authService.seedAdmin();
   }
 

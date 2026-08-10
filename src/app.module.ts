@@ -22,6 +22,7 @@ import { ExchangeRatesModule } from './modules/exchange-rates/exchange-rates.mod
 import { ItemsModule } from './modules/items/items.module';
 import { FleetModule } from './modules/fleet/fleet.module';
 import { MarketModule } from './modules/market/market.module';
+import { AuditModule } from './modules/audit/audit.module';
 import { AskUmeModule } from './modules/ask-ume/ask-ume.module';
 
 @Module({
@@ -75,6 +76,7 @@ import { AskUmeModule } from './modules/ask-ume/ask-ume.module';
     ItemsModule,
     FleetModule,
     MarketModule,
+    AuditModule,
     AskUmeModule,
   ],
 })
