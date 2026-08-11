@@ -147,8 +147,15 @@ export class AskUmeService {
         'هذا المستند إشعار دائن ضمن دفعة استيراد تاريخي: يخفّض التزاماً ولا يمثّل سداداً. ' +
         'Do not describe it as a payment.',
       );
-    } else if (inv.status === 'paid' && paymentRows === 0) {
-      limitations.push('Invoice is marked paid but NO actual payment transaction is recorded (approval-paid). This is unevidenced - do not state a payment date.');
+    } else if (paymentRows === 0 && (inv.status === 'paid' || inv.approval_status === 'paid')) {
+      // R3B: approval_status='paid' تعني «معتمد للصرف» — ليست دليل سداد إطلاقاً.
+      limitations.push(
+        'No actual payment record exists for this invoice inside PMS. ' +
+        (inv.approval_status === 'paid'
+          ? 'approval_status="paid" means APPROVED FOR PAYMENT, which is not evidence of payment. '
+          : '') +
+        'Do not state a payment date, bank reference or payment method: none exists in the system.',
+      );
     }
     return {
       source: 'Invoices',
@@ -165,7 +172,9 @@ export class AskUmeService {
         invoice_number: inv.invoice_number, supplier: inv.supplier?.name || null, vessel: inv.vessel?.name || null,
         po_number: (inv as any).purchase_order?.po_number || null, currency: inv.currency,
         total_amount: n(inv.total_amount), paid_amount: n(inv.paid_amount), outstanding,
-        invoice_payment_status: inv.status, approval_status: inv.approval_status,
+        invoice_payment_status: inv.status,
+        approval_status: inv.approval_status,
+        approval_status_meaning: inv.approval_status === 'paid' ? 'APPROVED FOR PAYMENT - not evidence of payment' : null,
         data_origin: (inv as any).data_origin || null,
         settlement_basis: (inv as any).settlement_basis || null,
         actual_payment_transactions: paymentRows,

@@ -39,3 +39,36 @@ export function stripFinancialControlFields<T extends Record<string, any>>(data:
   delete clean.import_batch;
   return clean as T;
 }
+
+/**
+ * ── R3B · حقول يتحكّم بها النظام ────────────────────────────────────────────
+ *
+ * حالة السداد والمبلغ المسدَّد مشتقّان من سجلات الدفع، ولا يجوز لأي عميل تعيينهما.
+ * قبولهما من الطلب يعيد فتح الباب نفسه الذي أنتج 128 فاتورة «مدفوعة» بلا سند.
+ *
+ * approval_status ليس منها: يبقى مسموحاً حسب الصلاحيات القائمة — لكنه لم يعد
+ * يؤثر على حالة السداد إطلاقاً بعد R3B.
+ */
+export const SYSTEM_CONTROLLED_FIELDS = ['paid_amount', 'status'] as const;
+
+/** كل الحقول التي لا تُكتب من مسارات الفواتير العادية. */
+const ALL_PROTECTED = [...FINANCIAL_CONTROL_FIELDS, ...SYSTEM_CONTROLLED_FIELDS] as readonly string[];
+
+/** الرفض لا التجريد الصامت — محاولة التلاعب إشارة رقابية يجب أن تُرى. */
+export function rejectSystemControlledFields(body: any): void {
+  if (!body || typeof body !== 'object') return;
+  const found = ALL_PROTECTED.filter((f) => f in body);
+  if (found.length) {
+    throw new BadRequestException(
+      `الحقول التالية يتحكّم بها النظام ولا تُرسَل من مسارات الفواتير: ${found.join(', ')}. ` +
+      'حالة السداد والمبلغ المسدَّد يُشتقّان من سجلات الدفع الفعلية حصراً.',
+    );
+  }
+}
+
+export function stripSystemControlledFields<T extends Record<string, any>>(data: T): T {
+  if (!data || typeof data !== 'object') return data;
+  const clean: Record<string, any> = { ...stripFinancialControlFields(data) };
+  for (const f of SYSTEM_CONTROLLED_FIELDS) delete clean[f];
+  return clean as T;
+}

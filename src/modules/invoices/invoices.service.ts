@@ -3,7 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { LessThanOrEqual, Not, Repository } from 'typeorm';
 import { Invoice, InvoiceStatus } from './invoice.entity';
 import { Attachment } from '../attachments/attachment.entity';
-import { stripFinancialControlFields } from '../../common/financial-control-fields';
+import { stripSystemControlledFields } from '../../common/financial-control-fields';
+import { derivePaymentState, isLegacySettled } from '../../common/payment-derivation';
 
 // ملخّص كشف الحساب لعملة واحدة — لا يُجمع أبداً مع عملة أخرى
 export interface CurrencySummary { total_debit: number; total_credit: number; balance: number; }
@@ -43,31 +44,24 @@ export class InvoicesService {
     });
   }
 
+  // ── R3B · فصل الموافقة عن السداد ───────────────────────────────────────────
+  // approval_status سير عمل إداري بحت. `paid` فيه تعني «معتمد للصرف» لا «سُدِّد».
+  // لا يكتب حالة سداد ولا paid_amount ولا يُنشئ سجل دفع — مهما كانت قيمته.
+  // حالة السداد تُشتقّ حصراً من سجلات الدفع الفعلية عبر updatePaidAmount.
+  //
+  // كان الاقتران هنا هو ما أنتج 128 فاتورة «مدفوعة» بلا سند دفع.
   async create(data: Partial<Invoice>) {
-    data = stripFinancialControlFields(data);   // الطبقة 2 — دفاع عميق
+    data = stripSystemControlledFields(data);   // الطبقة 2 — دفاع عميق
     const saved = await this.repo.save(data);
     const row = Array.isArray(saved) ? saved[0] : saved;
-    // اختيار Paid في حالة الموافقة = الفاتورة مدفوعة بالكامل
-    if (data.approval_status === 'paid' && row) {
-      await this.repo.update(row.id, { status: InvoiceStatus.PAID, paid_amount: row.total_amount });
-    }
     return this.findOne(row.id);
   }
 
   async update(id: string, data: Partial<Invoice>) {
-    data = stripFinancialControlFields(data);   // الطبقة 2 — دفاع عميق
+    data = stripSystemControlledFields(data);   // الطبقة 2 — دفاع عميق
     await this.repo.update(id, data);
-    // Paid في الموافقة → مدفوعة بالكامل ؛ أي حالة تانية → إعادة الحساب من السدادات الفعلية
-    if (data.approval_status !== undefined) {
-      if (data.approval_status === 'paid') {
-        const inv = await this.repo.findOne({ where: { id } });
-        if (inv) await this.repo.update(id, { status: InvoiceStatus.PAID, paid_amount: inv.total_amount });
-      } else {
-        const inv = await this.repo.findOne({ where: { id } });
-        // لا تُعِد حساب الحالة إن كانت الفاتورة ملغاة
-        if (inv && inv.status !== InvoiceStatus.CANCELLED) await this.updatePaidAmount(id);
-      }
-    }
+    // لا أثر لتغيير الموافقة على حالة السداد — لا كتابة ولا إعادة اشتقاق.
+    // السجلات القائمة لا تُعاد كتابتها تلقائياً.
     return this.findOne(id);
   }
 
@@ -77,20 +71,20 @@ export class InvoicesService {
     return { deleted: true };
   }
 
+  /**
+   * المسار المشروع **الوحيد** الذي يكتب paid_amount وstatus.
+   * paid_amount حقل مشتقّ (cache) لا مصدر حقيقة — مصدرها سجلات الدفع.
+   */
   async updatePaidAmount(invoiceId: string) {
     const invoice = await this.repo.findOne({
       where: { id: invoiceId },
       relations: { payments: true },
     });
     if (!invoice) return;
+    if (isLegacySettled(invoice)) return;   // ← لا تلمس تسوية تاريخية
 
-    const totalPaid = invoice.payments.reduce((sum, p) => sum + +p.amount, 0);
-    const status =
-      totalPaid <= 0 ? InvoiceStatus.UNPAID
-      : totalPaid >= +invoice.total_amount ? InvoiceStatus.PAID
-      : InvoiceStatus.PARTIAL;
-
-    await this.repo.update(invoiceId, { paid_amount: totalPaid, status });
+    const { paidAmount, status } = derivePaymentState(invoice as any, invoice.payments || []);
+    await this.repo.update(invoiceId, { paid_amount: paidAmount, status });
   }
 
   findBySupplier(supplierId: string) {
@@ -203,18 +197,24 @@ export class InvoicesService {
         });
       }
 
-      // سداد معتمد بلا سند دفع — دائن بالفرق (بعملة الفاتورة)
+      // ── R3B · فرق بلا سند دفع داخل PMS ──────────────────────────────────
+      // يُقيَّد دائناً لأن الرصيد مغلق فعلاً، لكن الوصف يجب ألا يوهم بوجود سداد.
+      // بعد فكّ الاقتران لن ينشأ هذا الفرق للفواتير التشغيلية الجديدة أصلاً؛
+      // ما يبقى هو التسويات التاريخية الموسومة في R3A.
       const paymentsSum = payments.reduce((s, p) => s + +p.amount, 0);
       const approvalPaid = +inv.paid_amount - paymentsSum;
       if (approvalPaid > 0.001) {
+        const legacy = isLegacySettled(inv as any);
         transactions.push({
           date: inv.approval_status_date || inv.invoice_date,
           created_at: inv.updated_at,
           id: `apv:${inv.id}`,
           type: 'credit',
-          kind: 'approval_settlement',
+          kind: legacy ? 'legacy_settlement' : 'unevidenced_settlement',
           type_ar: 'دائن',
-          description: `سداد معتمد — ${inv.invoice_number}`,
+          description: legacy
+            ? `تسوية تاريخية قبل النظام — ${inv.invoice_number}`
+            : `إغلاق بلا سند دفع داخل النظام — ${inv.invoice_number}`,
           reference: inv.invoice_number,
           invoiceId: inv.id,
           invoiceNumber: inv.invoice_number,
