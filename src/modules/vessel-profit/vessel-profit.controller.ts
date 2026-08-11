@@ -1,9 +1,12 @@
 import { Controller, Get, Put, Param, Body, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/jwt-auth.guard';
+import { ScreenGuard } from '../../common/screen.guard';
+import { RequireScreen } from '../../common/require-screen.decorator';
 import { VesselProfitService } from './vessel-profit.service';
 
 @Controller('api/vessel-profit')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, ScreenGuard)
+@RequireScreen('/dashboard/reports')
 export class VesselProfitController {
   constructor(private svc: VesselProfitService) {}
 
@@ -12,6 +15,7 @@ export class VesselProfitController {
     return this.svc.get(vessel);
   }
 
+  @RequireScreen('/dashboard/reports')
   @Put(':vessel')
   save(@Param('vessel') vessel: string, @Body() body: { voyages?: any; manual?: any }) {
     return this.svc.save(vessel, body || {});

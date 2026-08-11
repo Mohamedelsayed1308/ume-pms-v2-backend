@@ -5,9 +5,12 @@ import { HireInvoice } from './hire-invoice.entity';
 import { HireInvoiceItem } from './hire-invoice-item.entity';
 import { HirePayment } from './hire-payment.entity';
 import { JwtAuthGuard } from '../../common/jwt-auth.guard';
+import { ScreenGuard } from '../../common/screen.guard';
+import { RequireScreen } from '../../common/require-screen.decorator';
 
 @Controller('api/hire-invoices')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, ScreenGuard)
+@RequireScreen('/dashboard/hire-invoices')
 export class HireInvoicesController {
   constructor(
     @InjectRepository(HireInvoice) private repo: Repository<HireInvoice>,

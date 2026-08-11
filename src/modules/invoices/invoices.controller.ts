@@ -1,9 +1,12 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
 import { InvoicesService } from './invoices.service';
 import { JwtAuthGuard } from '../../common/jwt-auth.guard';
+import { ScreenGuard } from '../../common/screen.guard';
+import { RequireScreen } from '../../common/require-screen.decorator';
 
 @Controller('api/invoices')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, ScreenGuard)
+@RequireScreen('/dashboard/invoices', '/dashboard/reports')
 export class InvoicesController {
   constructor(private svc: InvoicesService) {}
 
@@ -19,9 +22,12 @@ export class InvoicesController {
   @Get('report/by-user') reportByUser() { return this.svc.reportByUser(); }
   @Get('report/department-delays') reportDepartmentDelays() { return this.svc.reportDepartmentDelays(); }
   @Get(':id') findOne(@Param('id') id: string) { return this.svc.findOne(id); }
+  @RequireScreen('/dashboard/invoices')
   @Post() create(@Body() body: any, @Request() req: any) {
     return this.svc.create({ ...body, created_by_id: req.user?.id, created_by_name: req.user?.full_name || req.user?.email });
   }
+  @RequireScreen('/dashboard/invoices')
   @Put(':id') update(@Param('id') id: string, @Body() body: any) { return this.svc.update(id, body); }
+  @RequireScreen('/dashboard/invoices')
   @Delete(':id') remove(@Param('id') id: string) { return this.svc.remove(id); }
 }

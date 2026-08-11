@@ -4,9 +4,12 @@ import { Repository } from 'typeorm';
 import { ManagementInvoice } from './management-invoice.entity';
 import { ManagementPayment } from './management-payment.entity';
 import { JwtAuthGuard } from '../../common/jwt-auth.guard';
+import { ScreenGuard } from '../../common/screen.guard';
+import { RequireScreen } from '../../common/require-screen.decorator';
 
 @Controller('api/management-invoices')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, ScreenGuard)
+@RequireScreen('/dashboard/management-invoices')
 export class ManagementInvoicesController {
   constructor(
     @InjectRepository(ManagementInvoice) private repo: Repository<ManagementInvoice>,

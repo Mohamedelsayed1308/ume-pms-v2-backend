@@ -3,9 +3,12 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { AttachmentsService } from './attachments.service';
 import { JwtAuthGuard } from '../../common/jwt-auth.guard';
+import { ScreenGuard } from '../../common/screen.guard';
+import { RequireScreen } from '../../common/require-screen.decorator';
 
 @Controller('api/attachments')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, ScreenGuard)
+@RequireScreen('/dashboard/invoices', '/dashboard/payments', '/dashboard/reports')
 export class AttachmentsController {
   constructor(private svc: AttachmentsService) {}
 

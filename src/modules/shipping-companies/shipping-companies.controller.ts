@@ -3,9 +3,12 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ShippingCompany } from './shipping-company.entity';
 import { JwtAuthGuard } from '../../common/jwt-auth.guard';
+import { ScreenGuard } from '../../common/screen.guard';
+import { RequireScreen } from '../../common/require-screen.decorator';
 
 @Controller('api/shipping-companies')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, ScreenGuard)
+@RequireScreen('/dashboard/shipping-companies', '/dashboard/hire-invoices', '/dashboard/vessels')
 export class ShippingCompaniesController {
   constructor(@InjectRepository(ShippingCompany) private repo: Repository<ShippingCompany>) {}
 

@@ -1,9 +1,12 @@
 import { Controller, Get, Put, Param, Body, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/jwt-auth.guard';
+import { ScreenGuard } from '../../common/screen.guard';
+import { RequireScreen } from '../../common/require-screen.decorator';
 import { ExchangeRatesService } from './exchange-rates.service';
 
 @Controller('api/exchange-rates')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, ScreenGuard)
+@RequireScreen('/dashboard/reports')
 export class ExchangeRatesController {
   constructor(private readonly service: ExchangeRatesService) {}
 
@@ -19,6 +22,7 @@ export class ExchangeRatesController {
   }
 
   // body = { rates: { EGP: 50, SAR: 3.75, ... } } أو الأسعار مباشرة
+  @RequireScreen('/dashboard/reports')
   @Put(':month')
   save(@Param('month') month: string, @Body() body: any) {
     const rates = body && body.rates ? body.rates : body;

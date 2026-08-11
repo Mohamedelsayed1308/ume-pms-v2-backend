@@ -1,9 +1,12 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards } from '@nestjs/common';
 import { PurchaseOrdersService } from './purchase-orders.service';
 import { JwtAuthGuard } from '../../common/jwt-auth.guard';
+import { ScreenGuard } from '../../common/screen.guard';
+import { RequireScreen } from '../../common/require-screen.decorator';
 
 @Controller('api/purchase-orders')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, ScreenGuard)
+@RequireScreen('/dashboard/purchase-orders', '/dashboard/invoices', '/dashboard/suppliers', '/dashboard/vessels')
 export class PurchaseOrdersController {
   constructor(private svc: PurchaseOrdersService) {}
 
