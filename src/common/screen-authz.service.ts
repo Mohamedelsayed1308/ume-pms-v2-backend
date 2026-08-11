@@ -12,9 +12,11 @@ export class ScreenAuthzService {
   async can(userId: string, href: string): Promise<boolean> {
     const user = userId ? await this.userRepo.findOne({ where: { id: userId } }) : null;
     if (!user || (user as any).is_active === false) return false; // محذوف/معطّل
-    if (user.role === 'admin') return true;
-    const allowed = Array.isArray((user as any).allowed_screens) ? ((user as any).allowed_screens as string[]) : null;
-    return allowed === null || allowed.includes(href); // null = بلا قيود (توافق رجعي)
+    if (user.role === 'admin') return true;                        // الأدمن يتجاوز قوائم الشاشات
+    // غير الأدمن: يلزم قائمة صريحة تحتوي الشاشة. الغياب = منع (deny-by-default).
+    const allowed = (user as any).allowed_screens;
+    if (!Array.isArray(allowed)) return false;
+    return allowed.includes(href);
   }
 
   // يسمح إذا كان لدى المستخدم أيٌّ من الشاشات المعطاة
