@@ -131,3 +131,92 @@ describe('11-15 · حالات حدّية', () => {
     expect(a).toEqual(b);
   });
 });
+
+// ── R2.6A · اكتمال إحصاءات المورد (فواتير بأمر شراء وبدونه) ──
+describe('R2.6A · اكتمال مصدر فواتير المورد', () => {
+  // المصدر الصحيح = invoice.supplier_id (لا وجود أمر شراء)
+  const withPo = { id: 'a', po_id: 'po1', currency: 'USD', total_amount: 1000, paid_amount: 400 };
+  const noPo1  = { id: 'b', po_id: null,  currency: 'USD', total_amount: 500,  paid_amount: 0 };
+  const noPo2  = { id: 'c', po_id: null,  currency: 'EUR', total_amount: 800,  paid_amount: 800 };
+  const note   = { id: 'd', po_id: null,  currency: 'EUR', total_amount: -300, paid_amount: 0 };
+
+  it('6. فاتورة بأمر شراء مُدرَجة', () => {
+    const t = totalsByCurrency([withPo]);
+    expect(of(t, 'USD').invoiced).toBe(1000);
+  });
+
+  it('7. فاتورة بلا أمر شراء مُدرَجة', () => {
+    const t = totalsByCurrency([noPo1]);
+    expect(of(t, 'USD').invoiced).toBe(500);
+  });
+
+  it('8. الاثنتان مُدرَجتان مرة واحدة بالضبط', () => {
+    const t = totalsByCurrency([withPo, noPo1]);
+    expect(of(t, 'USD').invoiced).toBe(1500);
+    expect(of(t, 'USD').invoiceCount).toBe(2);
+  });
+
+  it('9. لا تكرار — كل فاتورة تُحسب مرة واحدة مهما تكرر أمر الشراء', () => {
+    // استعلام مباشر على supplier_id لا يمكن أن يُنتج نفس الصف مرتين
+    const rows = [withPo, noPo1, noPo2];
+    const t = totalsByCurrency(rows);
+    const totalCount = t.reduce((s, x) => s + x.invoiceCount, 0);
+    expect(totalCount).toBe(rows.length);
+  });
+
+  it('10. مورد متعدد العملات يبقى مفصولاً بعد الإصلاح', () => {
+    const t = totalsByCurrency([withPo, noPo1, noPo2]);
+    expect(t.map((x) => x.currency)).toEqual(['EUR', 'USD']);
+    expect(of(t, 'USD').invoiced).toBe(1500);
+    expect(of(t, 'EUR').invoiced).toBe(800);
+  });
+
+  it('11. المدفوع والمتبقي صحيحان لكل عملة', () => {
+    const t = totalsByCurrency([withPo, noPo1, noPo2]);
+    expect(of(t, 'USD')).toMatchObject({ paid: 400, outstanding: 1100 });
+    expect(of(t, 'EUR')).toMatchObject({ paid: 800, outstanding: 0 });
+  });
+
+  it('12. الإشعار الدائن يبقى في عملته', () => {
+    const t = totalsByCurrency([withPo, noPo2, note]);
+    expect(of(t, 'EUR').invoiced).toBe(500);      // 800 − 300
+    expect(of(t, 'USD').invoiced).toBe(1000);     // لم يتأثر
+  });
+
+  it('13. الأرصدة الصفرية آمنة', () => {
+    const t = totalsByCurrency([noPo2]);
+    expect(of(t, 'EUR').outstanding).toBe(0);
+  });
+});
+
+// ── R2.6A · إجمالي الدفعات المحدَّدة في الواجهة (نفس منطق sumByCurrency) ──
+describe('R2.6A · إجمالي المدفوعات المحدَّدة', () => {
+  const pick = (rows: { amount: string; currency: string }[]) =>
+    rows.reduce((acc: Record<string, number>, r) => {
+      const c = (r.currency || 'USD').toUpperCase();
+      acc[c] = round2((acc[c] || 0) + (+r.amount || 0));
+      return acc;
+    }, {});
+
+  it('1. اختيار بالدولار فقط', () => {
+    expect(pick([{ amount: '10000', currency: 'USD' }, { amount: '5000', currency: 'USD' }])).toEqual({ USD: 15000 });
+  });
+
+  it('2. اختيار باليورو فقط', () => {
+    expect(pick([{ amount: '4500', currency: 'EUR' }])).toEqual({ EUR: 4500 });
+  });
+
+  it('3. اختيار بالدولار واليورو ⇒ مفتاحان منفصلان', () => {
+    expect(pick([{ amount: '15000', currency: 'USD' }, { amount: '4500', currency: 'EUR' }])).toEqual({ USD: 15000, EUR: 4500 });
+  });
+
+  it('4. لا إجمالي موحّد عند تعدّد العملات', () => {
+    const m = pick([{ amount: '15000', currency: 'USD' }, { amount: '4500', currency: 'EUR' }, { amount: '2000', currency: 'SAR' }]);
+    expect(Object.values(m)).not.toContain(21500);
+    expect(Object.keys(m).length).toBe(3);
+  });
+
+  it('5. اختيار فارغ آمن', () => {
+    expect(pick([])).toEqual({});
+  });
+});

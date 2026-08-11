@@ -58,12 +58,18 @@ export class SuppliersService {
   async getStats(supplierId: string) {
     const supplier = await this.repo.findOne({
       where: { id: supplierId },
-      relations: { purchase_orders: { invoices: true } },
+      relations: { purchase_orders: true },
     });
     if (!supplier) return null;
 
     const pos = supplier.purchase_orders || [];
-    const invoices = pos.flatMap((po) => po.invoices || []);
+    // مصدر الحقيقة للعلاقة المالية = invoice.supplier_id، لا وجود أمر شراء.
+    // أمر الشراء علاقة تشغيلية؛ ربط التجميع به كان يُسقط كل فاتورة بلا أمر شراء.
+    // استعلام مباشر واحد ⇒ لا تكرار ناتج عن JOIN.
+    const invoices = await this.invoiceRepo.find({
+      where: { supplier_id: supplierId },
+      select: { id: true, currency: true, total_amount: true, paid_amount: true },
+    });
     // دفتر مستقل لكل عملة — لا يُجمع مبلغان بعملتين مختلفتين
     const totals = totalsByCurrency(invoices as any);
     const legacy = legacyTotals(totals);
