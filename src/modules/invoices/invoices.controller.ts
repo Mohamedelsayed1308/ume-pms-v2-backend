@@ -3,6 +3,7 @@ import { InvoicesService } from './invoices.service';
 import { JwtAuthGuard } from '../../common/jwt-auth.guard';
 import { ScreenGuard } from '../../common/screen.guard';
 import { RequireScreen } from '../../common/require-screen.decorator';
+import { rejectFinancialControlFields } from '../../common/financial-control-fields';
 
 @Controller('api/invoices')
 @UseGuards(JwtAuthGuard, ScreenGuard)
@@ -24,10 +25,14 @@ export class InvoicesController {
   @Get(':id') findOne(@Param('id') id: string) { return this.svc.findOne(id); }
   @RequireScreen('/dashboard/invoices')
   @Post() create(@Body() body: any, @Request() req: any) {
+    rejectFinancialControlFields(body);   // الطبقة 1 — رفض عند الحدّ
     return this.svc.create({ ...body, created_by_id: req.user?.id, created_by_name: req.user?.full_name || req.user?.email });
   }
   @RequireScreen('/dashboard/invoices')
-  @Put(':id') update(@Param('id') id: string, @Body() body: any) { return this.svc.update(id, body); }
+  @Put(':id') update(@Param('id') id: string, @Body() body: any) {
+    rejectFinancialControlFields(body);   // الطبقة 1 — رفض عند الحدّ
+    return this.svc.update(id, body);
+  }
   @RequireScreen('/dashboard/invoices')
   @Delete(':id') remove(@Param('id') id: string) { return this.svc.remove(id); }
 }

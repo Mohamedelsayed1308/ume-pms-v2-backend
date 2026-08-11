@@ -66,9 +66,15 @@ export class SuppliersService {
     // مصدر الحقيقة للعلاقة المالية = invoice.supplier_id، لا وجود أمر شراء.
     // أمر الشراء علاقة تشغيلية؛ ربط التجميع به كان يُسقط كل فاتورة بلا أمر شراء.
     // استعلام مباشر واحد ⇒ لا تكرار ناتج عن JOIN.
+    // R3A: نحتاج settlement_basis وسجلات السداد لفصل «مدفوع داخل PMS» عن
+    // «مُسوّى قبل النظام» — بلا هذين لا يمكن التمييز، ويُعرض الاثنان تحت عنوان واحد مضلِّل.
     const invoices = await this.invoiceRepo.find({
       where: { supplier_id: supplierId },
-      select: { id: true, currency: true, total_amount: true, paid_amount: true },
+      select: {
+        id: true, currency: true, total_amount: true, paid_amount: true,
+        settlement_basis: true, data_origin: true,
+      },
+      relations: { payments: true },
     });
     // دفتر مستقل لكل عملة — لا يُجمع مبلغان بعملتين مختلفتين
     const totals = totalsByCurrency(invoices as any);

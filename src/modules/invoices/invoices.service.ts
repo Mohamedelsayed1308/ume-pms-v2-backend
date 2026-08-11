@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { LessThanOrEqual, Not, Repository } from 'typeorm';
 import { Invoice, InvoiceStatus } from './invoice.entity';
 import { Attachment } from '../attachments/attachment.entity';
+import { stripFinancialControlFields } from '../../common/financial-control-fields';
 
 // ملخّص كشف الحساب لعملة واحدة — لا يُجمع أبداً مع عملة أخرى
 export interface CurrencySummary { total_debit: number; total_credit: number; balance: number; }
@@ -43,6 +44,7 @@ export class InvoicesService {
   }
 
   async create(data: Partial<Invoice>) {
+    data = stripFinancialControlFields(data);   // الطبقة 2 — دفاع عميق
     const saved = await this.repo.save(data);
     const row = Array.isArray(saved) ? saved[0] : saved;
     // اختيار Paid في حالة الموافقة = الفاتورة مدفوعة بالكامل
@@ -53,6 +55,7 @@ export class InvoicesService {
   }
 
   async update(id: string, data: Partial<Invoice>) {
+    data = stripFinancialControlFields(data);   // الطبقة 2 — دفاع عميق
     await this.repo.update(id, data);
     // Paid في الموافقة → مدفوعة بالكامل ؛ أي حالة تانية → إعادة الحساب من السدادات الفعلية
     if (data.approval_status !== undefined) {

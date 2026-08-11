@@ -131,8 +131,25 @@ export class AskUmeService {
     if (!inv) return { source: 'Invoices', facts: [], limitations: [`No invoice found matching "${invoiceNumber}".`], actions: [{ label: 'Open invoices', route: SCREEN.invoices }], data: { queryType: 'invoice_summary', found: false } };
     const outstanding = +(n(inv.total_amount) - n(inv.paid_amount)).toFixed(2);
     const paymentRows = await this.paymentRepo.count({ where: { invoice_id: inv.id } });
+    // ── R3A · التمييز بين تسوية تاريخية موثَّقة وسداد داخل PMS ────────────────
+    // يُمنع منعاً باتاً توليد «تم الدفع بتاريخ كذا» لفاتورة بلا سجل سداد:
+    // وقت التسوية غير معروف داخل النظام أصلاً، فذكره اختلاق.
+    const basis = (inv as any).settlement_basis;
     const limitations: string[] = [];
-    if (inv.status === 'paid' && paymentRows === 0) limitations.push('Invoice is marked paid but NO actual payment transaction is recorded (approval-paid).');
+    if (basis === 'pre_system_settled') {
+      limitations.push(
+        'الفاتورة مسجَّلة كتسوية تاريخية قبل PMS بموجب دفعة استيراد معتمدة من الإدارة. ' +
+        'لا يوجد داخل النظام سند دفع تشغيلي لهذه التسوية، ولا تاريخ سداد. ' +
+        'لا تُحتسب ضمن مدفوعات PMS ولا الحركة البنكية. Do not state a payment date for this invoice.',
+      );
+    } else if (basis === 'credit_note') {
+      limitations.push(
+        'هذا المستند إشعار دائن ضمن دفعة استيراد تاريخي: يخفّض التزاماً ولا يمثّل سداداً. ' +
+        'Do not describe it as a payment.',
+      );
+    } else if (inv.status === 'paid' && paymentRows === 0) {
+      limitations.push('Invoice is marked paid but NO actual payment transaction is recorded (approval-paid). This is unevidenced - do not state a payment date.');
+    }
     return {
       source: 'Invoices',
       facts: [
@@ -149,8 +166,11 @@ export class AskUmeService {
         po_number: (inv as any).purchase_order?.po_number || null, currency: inv.currency,
         total_amount: n(inv.total_amount), paid_amount: n(inv.paid_amount), outstanding,
         invoice_payment_status: inv.status, approval_status: inv.approval_status,
+        data_origin: (inv as any).data_origin || null,
+        settlement_basis: (inv as any).settlement_basis || null,
         actual_payment_transactions: paymentRows,
-        note: 'Outstanding = total_amount - paid_amount (stored). approval_status, payment status, and actual payment transactions are distinct.',
+        note: 'Outstanding = total_amount - paid_amount (stored). approval_status, payment status, and actual payment transactions are distinct. ' +
+              'settlement_basis=pre_system_settled means the invoice was settled before PMS existed: closed, zero outstanding, but NOT a PMS payment and with no known payment date.',
       },
     };
   }

@@ -53,19 +53,39 @@ export class VesselsService implements OnModuleInit {
     if (!head) return null;
 
     // التجميع مُجمَّع في SQL لكن **مفصولاً بالعملة** — كل صف عملة مستقلة
+    // R3A: «مدفوع داخل PMS» يُحسب من سجلات السداد بعملة الفاتورة حصراً،
+    // و«مُسوّى قبل النظام» من التصنيف — لا يُجمعان تحت عنوان واحد.
     const rows = await this.invoiceRepo
       .createQueryBuilder('inv')
       .select('inv.currency', 'currency')
       .addSelect('COUNT(inv.id)', 'invoice_count')
       .addSelect('COALESCE(SUM(inv.total_amount), 0)', 'invoiced')
       .addSelect('COALESCE(SUM(inv.paid_amount), 0)', 'paid')
+      .addSelect(
+        'COALESCE(SUM((SELECT COALESCE(SUM(p.amount),0) FROM payments p' +
+        ' WHERE p.invoice_id = inv.id AND UPPER(TRIM(p.currency)) = UPPER(TRIM(inv.currency)))), 0)',
+        'paid_via_pms')
+      .addSelect(
+        "COALESCE(SUM(CASE WHEN inv.settlement_basis = 'pre_system_settled' THEN inv.paid_amount ELSE 0 END), 0)",
+        'settled_pre_system')
+      .addSelect(
+        "COALESCE(SUM(CASE WHEN inv.settlement_basis = 'credit_note' THEN inv.paid_amount ELSE 0 END), 0)",
+        'credit_note_offset')
       .where('inv.vessel_id = :id', { id: vesselId })
       .groupBy('inv.currency')
       .getRawMany();
 
     const totals = rows.map((r) => {
       const invoiced = round2(Number(r.invoiced)), paid = round2(Number(r.paid));
-      return { currency: normalizeCurrency(r.currency), invoiced, paid, outstanding: round2(invoiced - paid), invoiceCount: Number(r.invoice_count) };
+      const paidViaPms = round2(Number(r.paid_via_pms));
+      const settledPreSystem = round2(Number(r.settled_pre_system));
+      const creditNoteOffset = round2(Number(r.credit_note_offset));
+      return {
+        currency: normalizeCurrency(r.currency), invoiced, paid,
+        outstanding: round2(invoiced - paid), invoiceCount: Number(r.invoice_count),
+        paidViaPms, settledPreSystem, creditNoteOffset,
+        unevidencedResidual: round2(paid - paidViaPms - settledPreSystem - creditNoteOffset),
+      };
     }).sort((a, b) => a.currency.localeCompare(b.currency));
 
     return { ...head, totalsByCurrency: totals, ...legacyTotals(totals) };
