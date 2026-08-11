@@ -47,6 +47,8 @@ export class VesselsService implements OnModuleInit {
       .addSelect('COUNT(DISTINCT po.supplier_id)', 'total_suppliers')
       .addSelect('COUNT(DISTINCT inv.id)', 'total_invoices')
       .where('v.id = :id', { id: vesselId })
+      .groupBy('v.id')          // مطلوب في Postgres مع الدوال التجميعية — كان مفقوداً فيفشل الاستعلام بـ500
+      .addGroupBy('v.name')
       .getRawOne();
     if (!head) return null;
 
