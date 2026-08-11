@@ -32,28 +32,22 @@ import { AskUmeModule } from './modules/ask-ume/ask-ume.module';
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
-        // يفضّل DATABASE_URL من البيئة (Railway). الـfallback مؤقّت لضمان صفر توقّف
-        // ويُزال بعد تأكيد المتغيّر على Railway وتدوير كلمة المرور في Supabase.
-        const url = config.get<string>('DATABASE_URL');
-        if (url && url.startsWith('postgres')) {
-          return {
-            type: 'postgres' as const,
-            url,
-            ssl: { rejectUnauthorized: false },
-            autoLoadEntities: true,
-            synchronize: true,
-          };
+        // مصدر الاتصال الوحيد = DATABASE_URL من البيئة. لا تُضمَّن أي بيانات اعتماد في الكود.
+        // غياب المتغيّر أو عدم صلاحيته ⇒ توقّف فوري (fail-fast) بدل الرجوع لقيم مضمّنة.
+        const url = (config.get<string>('DATABASE_URL') || '').trim();
+        if (!url) {
+          throw new Error('DATABASE_URL is not set. The application will not start without it; no database credentials are embedded in source.');
+        }
+        if (!/^postgres(ql)?:\/\/.+/.test(url)) {
+          // لا تُطبع القيمة إطلاقاً — الرسالة تصف الشكل المتوقّع فقط
+          throw new Error('DATABASE_URL is not a valid PostgreSQL connection string. Expected format: postgresql://USER:PASSWORD@HOST:PORT/DATABASE');
         }
         return {
           type: 'postgres' as const,
-          host: config.get<string>('DB_HOST') || 'aws-0-eu-west-1.pooler.supabase.com',
-          port: Number(config.get('DB_PORT')) || 5432,
-          username: config.get<string>('DB_USER') || 'postgres.euzikjnyoprzkweechky',
-          password: config.get<string>('DB_PASSWORD') || 'mRfDwTNUWn2V1l36',
-          database: config.get<string>('DB_NAME') || 'postgres',
-          ssl: { rejectUnauthorized: false },
+          url,                                 // Session Pooler · المنفذ يأتي من الرابط (5432)
+          ssl: { rejectUnauthorized: false },  // كما هو — دون تغيير
           autoLoadEntities: true,
-          synchronize: true,
+          synchronize: true,                   // كما هو — التحويل إلى هجرات خارج نطاق هذا الإصدار
         };
       },
     }),
