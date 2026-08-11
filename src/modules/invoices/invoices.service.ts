@@ -4,6 +4,23 @@ import { LessThanOrEqual, Not, Repository } from 'typeorm';
 import { Invoice, InvoiceStatus } from './invoice.entity';
 import { Attachment } from '../attachments/attachment.entity';
 
+// ملخّص كشف الحساب لعملة واحدة — لا يُجمع أبداً مع عملة أخرى
+export interface CurrencySummary { total_debit: number; total_credit: number; balance: number; }
+
+// دفتر مستقل لكل عملة: كل عملة Ledger قائم بذاته بلا أي تحويل أو إجمالي موحّد
+export interface CurrencyLedger {
+  currency: string;
+  openingBalance: number;   // 0 دائماً — الكشف لا يدعم فترة زمنية (يشمل كل التاريخ)
+  invoicesTotal: number;
+  paymentsTotal: number;
+  creditsTotal: number;     // الإشعارات الدائنة (فواتير بمبلغ سالب)
+  closingBalance: number;
+  transactions: any[];
+}
+
+export const normalizeCurrency = (c?: string | null) => (c || 'USD').trim().toUpperCase();
+export const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+
 @Injectable()
 export class InvoicesService {
   constructor(
@@ -111,6 +128,8 @@ export class InvoicesService {
     });
   }
 
+  // كشف حساب المورد — دفتر مستقل لكل عملة. لا تُجمع عملتان في أي رقم، ولا يوجد إجمالي موحّد.
+  // ملاحظة نطاق: لا يدعم فترة زمنية (يشمل كل التاريخ)، لذا openingBalance = 0 لكل عملة.
   async getSupplierStatement(supplierId: string) {
     const invoices = await this.repo.find({
       where: { supplier_id: supplierId },
@@ -118,84 +137,147 @@ export class InvoicesService {
       order: { invoice_date: 'ASC' },
     });
 
-    if (!invoices.length) return { supplier: null, transactions: [], summary: { total_debit: 0, total_credit: 0, balance: 0 } };
+    const empty = {
+      supplier: null,
+      statementPeriod: { from: null as string | null, to: null as string | null },
+      currencies: [] as CurrencyLedger[],
+      transactions: [] as any[],
+      summary_by_currency: {} as Record<string, CurrencySummary>,
+      summary: { total_debit: 0, total_credit: 0, balance: 0, currency: null as string | null, mixed_currency: false },
+    };
+    if (!invoices.length) return empty;
 
     const supplier = invoices[0].supplier;
     const transactions: any[] = [];
-    let running_balance = 0;
 
     for (const inv of invoices) {
-      // الفاتورة = مدين
-      running_balance += +inv.total_amount;
+      const ccy = normalizeCurrency(inv.currency);
+      const amount = +inv.total_amount;
+      // فاتورة بمبلغ سالب = إشعار دائن ⇒ تُقيَّد دائناً بقيمتها المطلقة (تقلّل التزام المورد، ولا تُعكس إشارتها)
+      const isCreditNote = amount < 0;
       transactions.push({
         date: inv.invoice_date,
-        type: 'debit',
-        type_ar: 'مدين',
-        description: `فاتورة رقم ${inv.invoice_number}`,
-        invoice_number: inv.invoice_number,
+        created_at: inv.created_at,
+        id: `inv:${inv.id}`,
+        type: isCreditNote ? 'credit' : 'debit',
+        kind: isCreditNote ? 'credit_note' : 'invoice',
+        type_ar: isCreditNote ? 'إشعار دائن' : 'مدين',
+        description: `${isCreditNote ? 'إشعار دائن' : 'فاتورة'} رقم ${inv.invoice_number}`,
+        reference: inv.invoice_number,
+        invoiceId: inv.id,
+        invoiceNumber: inv.invoice_number,
+        invoice_number: inv.invoice_number,        // توافق رجعي
         invoice_type: inv.type,
         vessel: inv.vessel?.name ?? null,
         po_number: inv.purchase_order?.po_number ?? null,
-        currency: inv.currency,
-        debit: +inv.total_amount,
-        credit: 0,
-        running_balance,
+        currency: ccy,
+        debit: isCreditNote ? 0 : amount,
+        credit: isCreditNote ? Math.abs(amount) : 0,
         status: inv.status,
       });
 
-      // كل دفعة = دائن
-      const payments = (inv.payments || []).sort(
+      // كل دفعة = دائن، وتبقى في عملتها الأصلية دون أي تحويل
+      const payments = [...(inv.payments || [])].sort(
         (a, b) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime()
       );
       for (const pay of payments) {
-        running_balance -= +pay.amount;
         transactions.push({
           date: pay.payment_date,
+          created_at: pay.created_at,
+          id: `pay:${pay.id}`,
           type: 'credit',
+          kind: 'payment',
           type_ar: 'دائن',
           description: `سداد — ${inv.invoice_number}`,
+          reference: pay.reference ?? null,
+          invoiceId: inv.id,
+          invoiceNumber: inv.invoice_number,
           invoice_number: inv.invoice_number,
           payment_method: pay.payment_method,
-          reference: pay.reference ?? null,
-          currency: pay.currency,
+          currency: normalizeCurrency(pay.currency),
           debit: 0,
           credit: +pay.amount,
-          running_balance,
         });
       }
 
-      // سداد معتمد بدون سند دفع (مثلاً حالة الموافقة = Paid): دائن بالفرق حتى يتوازن الكشف
+      // سداد معتمد بلا سند دفع — دائن بالفرق (بعملة الفاتورة)
       const paymentsSum = payments.reduce((s, p) => s + +p.amount, 0);
       const approvalPaid = +inv.paid_amount - paymentsSum;
       if (approvalPaid > 0.001) {
-        running_balance -= approvalPaid;
         transactions.push({
           date: inv.approval_status_date || inv.invoice_date,
+          created_at: inv.updated_at,
+          id: `apv:${inv.id}`,
           type: 'credit',
+          kind: 'approval_settlement',
           type_ar: 'دائن',
           description: `سداد معتمد — ${inv.invoice_number}`,
+          reference: inv.invoice_number,
+          invoiceId: inv.id,
+          invoiceNumber: inv.invoice_number,
           invoice_number: inv.invoice_number,
-          currency: inv.currency,
+          currency: ccy,
           debit: 0,
           credit: approvalPaid,
-          running_balance,
         });
       }
     }
 
-    transactions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    // ترتيب حتمي: التاريخ ثم الإنشاء ثم المعرّف — حتى لا يتغيّر الرصيد المتراكم عشوائياً
+    const key = (t: any) => [
+      new Date(t.date || 0).getTime(),
+      new Date(t.created_at || 0).getTime() || 0,
+      String(t.id),
+    ];
+    transactions.sort((a, b) => {
+      const [ad, ac, ai] = key(a), [bd, bc, bi] = key(b);
+      return (ad as number) - (bd as number) || (ac as number) - (bc as number) || String(ai).localeCompare(String(bi));
+    });
 
-    const total_debit = transactions.reduce((s, t) => s + t.debit, 0);
-    const total_credit = transactions.reduce((s, t) => s + t.credit, 0);
+    // دفتر مستقل لكل عملة — الرصيد المتراكم داخل نفس العملة فقط
+    const ledgers = new Map<string, CurrencyLedger>();
+    for (const t of transactions) {
+      let L = ledgers.get(t.currency);
+      if (!L) {
+        L = { currency: t.currency, openingBalance: 0, invoicesTotal: 0, paymentsTotal: 0, creditsTotal: 0, closingBalance: 0, transactions: [] };
+        ledgers.set(t.currency, L);
+      }
+      if (t.kind === 'invoice') L.invoicesTotal = round2(L.invoicesTotal + t.debit);
+      else if (t.kind === 'credit_note') L.creditsTotal = round2(L.creditsTotal + t.credit);
+      else L.paymentsTotal = round2(L.paymentsTotal + t.credit);
 
+      L.closingBalance = round2(L.closingBalance + t.debit - t.credit);
+      t.balance = L.closingBalance;          // رصيد متراكم داخل العملة
+      t.running_balance = L.closingBalance;  // توافق رجعي
+      L.transactions.push(t);
+    }
+
+    const currencies = [...ledgers.values()].sort((a, b) => a.currency.localeCompare(b.currency));
+
+    // مُلخّص لكل عملة (توافق رجعي) — لا يُجمع أبداً عبر العملات
+    const summary_by_currency: Record<string, CurrencySummary> = {};
+    for (const L of currencies) {
+      summary_by_currency[L.currency] = {
+        total_debit: L.invoicesTotal,
+        total_credit: round2(L.paymentsTotal + L.creditsTotal),
+        balance: L.closingBalance,
+      };
+    }
+
+    // الحقل القديم: أرقام حقيقية لمورد أحادي العملة فقط، وأصفار + mixed_currency عند التعدّد
+    const only = currencies.length === 1 ? currencies[0] : null;
+    const summary = only
+      ? { ...summary_by_currency[only.currency], currency: only.currency, mixed_currency: false }
+      : { total_debit: 0, total_credit: 0, balance: 0, currency: null, mixed_currency: currencies.length > 1 };
+
+    const dates = transactions.map((t) => t.date).filter(Boolean).sort();
     return {
       supplier: { id: supplier.id, name: supplier.name },
+      statementPeriod: { from: dates[0] ?? null, to: dates[dates.length - 1] ?? null },
+      currencies,
       transactions,
-      summary: {
-        total_debit,
-        total_credit,
-        balance: total_debit - total_credit,
-      },
+      summary_by_currency,
+      summary,
     };
   }
 
