@@ -10,7 +10,7 @@ import { Payment } from '../payments/payment.entity';
  * كل الأرقام تُحسب من سجلات الدفع الفعلية، ولا تُجمع عملتان مختلفتان أبداً.
  */
 
-export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'informational';
+export type Severity = 'critical' | 'high' | 'medium' | 'low';
 
 const TOL = 0.01; // تفاوت التقريب النقدي
 const n = (v: any) => Number(v || 0);
@@ -38,8 +38,6 @@ const RULES: RuleMeta[] = [
   { key: 'supplier_currency_mixing', title: 'مورد يتعامل بأكثر من عملة (مؤشّر رقابي)', severity: 'low', controlFlag: true, action: 'التأكد أن كل عرض/تقرير يفصل العملات ولا يجمعها' },
   { key: 'duplicate_payment_low', title: 'سداد متشابه — ثقة منخفضة (نفس المبلغ والعملة فقط)', severity: 'low', action: 'مراجعة عند الحاجة' },
   { key: 'zero_payment', title: 'سداد بقيمة صفر', severity: 'low', action: 'حذف أو توثيق السبب' },
-  { key: 'legacy_settled', title: 'تسوية تاريخية سابقة للنظام (موثَّقة)', severity: 'informational', action: 'لا إجراء — مصنَّفة ضمن دفعة استيراد معتمدة، والتعرُّض صفر' },
-  { key: 'legacy_credit_note', title: 'إشعار دائن ضمن دفعة استيراد تاريخي', severity: 'informational', action: 'لا إجراء — يخفّض التزاماً ولا يمثّل سداداً' },
   { key: 'invoice_without_vessel', title: 'فاتورة بلا مركب', severity: 'low', action: 'استكمال البيانات لتحسين تقارير المراكب' },
 ];
 
@@ -99,34 +97,12 @@ export class AuditService {
         status: inv.status || null, approvalStatus: inv.approval_status || null,
       };
 
-      // ── R3A · تفسير التصنيف التاريخي ─────────────────────────────────────
-      // مصدر الحقيقة هو حقول التحكّم المالي بعد الهجرة — لا قائمة معرّفات في الكود
-      // ولا أي استدلال بتاريخ أو مورد.
-      //
-      // السجل الموسوم «تسوية سابقة للنظام» ليس خللاً: غياب سند الدفع داخل PMS
-      // متوقَّع ومُوثَّق، والتعرُّض صفر. لذلك يخرج من قواعد الأدلة الثلاث
-      // (paid_without_payments · approval_paid_no_evidence · paid_amount_mismatch)
-      // ويظهر بدلاً منها كملاحظة معلوماتية.
-      //
-      // أما الفاتورة التشغيلية المُعلَّمة مدفوعة بلا سداد فتبقى **حرجة** كما هي.
-      // R3A لا يعالج السبب الجذري ولا يُخفيه.
-      const basis = (inv as any).settlement_basis;
-      const isLegacySettled = basis === 'pre_system_settled';
-      const isLegacyCreditNote = basis === 'credit_note';
-      const isLegacy = isLegacySettled || isLegacyCreditNote;
-
-      if (isLegacySettled) {
-        add({ ...ctx, ruleKey: 'legacy_settled', exposure: 0 });
-      } else if (isLegacyCreditNote) {
-        add({ ...ctx, ruleKey: 'legacy_credit_note', exposure: 0 });
-      }
-
       // 1) مُعلَّمة مدفوعة بلا أي سداد
-      if (!isLegacy && inv.status === 'paid' && pays.length === 0) {
+      if (inv.status === 'paid' && pays.length === 0) {
         add({ ...ctx, ruleKey: 'paid_without_payments', exposure: r2(Math.abs(stored)) });
       }
       // 13) حالة الموافقة paid بلا دليل كافٍ
-      if (!isLegacy && inv.approval_status === 'paid' && actual + TOL < total) {
+      if (inv.approval_status === 'paid' && actual + TOL < total) {
         add({ ...ctx, ruleKey: 'approval_paid_no_evidence', exposure: r2(total - actual) });
       }
       // 2) المسدَّد المخزَّن > الإجمالي
@@ -142,8 +118,7 @@ export class AuditService {
         add({ ...ctx, ruleKey: 'negative_paid_amount', exposure: r2(Math.abs(stored)) });
       }
       // 8) المخزَّن ≠ مجموع السدادات الفعلية
-      // في السجل التاريخي الفارق هو التسوية السابقة للنظام نفسها — متوقَّع بالتصميم لا خلل.
-      if (!isLegacy && Math.abs(stored - actual) > TOL) {
+      if (Math.abs(stored - actual) > TOL) {
         add({ ...ctx, ruleKey: 'paid_amount_mismatch', exposure: r2(Math.abs(stored - actual)) });
       }
       // 7) عملة سداد مخالفة
@@ -298,7 +273,7 @@ export class AuditService {
       };
     }).filter((r) => r.count > 0);
 
-    const bySeverity = (['critical', 'high', 'medium', 'low', 'informational'] as Severity[]).reduce((acc: any, s) => {
+    const bySeverity = (['critical', 'high', 'medium', 'low'] as Severity[]).reduce((acc: any, s) => {
       const list = findings.filter((f) => f.severity === s);
       acc[s] = { count: list.length, exposureByCurrency: expDeduped(list) };
       return acc;
@@ -308,7 +283,7 @@ export class AuditService {
     const affectedPayments = new Set(findings.filter((f) => f.paymentId).map((f) => f.paymentId));
 
     // أعلى التعرّضات — مجمَّعة لكل (فاتورة × عملة): تعرُّض صافٍ واحد + كل القواعد التي أُطلقت
-    const sevRank: Record<Severity, number> = { critical: 0, high: 1, medium: 2, low: 3, informational: 4 };
+    const sevRank: Record<Severity, number> = { critical: 0, high: 1, medium: 2, low: 3 };
     const expoMap: Record<string, any> = {};
     for (const f of findings) {
       const k = `${f.invoiceId || f.paymentId || 'x'}|${f.currency}`;
@@ -338,34 +313,9 @@ export class AuditService {
         return acc;
       }, {});
 
-    // ── R3A · قسم التسويات التاريخية ─────────────────────────────────────────
-    // كل رقم هنا مُشتقّ من البيانات لحظة التشغيل. لا عدد مكتوب في الكود.
-    // التعرُّض صفر بحكم التصنيف نفسه — لا يُجمَع ولا يُقارَن بأي عملة.
-    const legacyInvoices = invoices.filter((i: any) =>
-      i.settlement_basis === 'pre_system_settled' || i.settlement_basis === 'credit_note');
-    const legacyByCurrency = legacyInvoices.reduce((acc: Record<string, { count: number; invoicedAbs: number }>, i: any) => {
-      const c = ccy(i.currency);
-      const e = (acc[c] = acc[c] || { count: 0, invoicedAbs: 0 });
-      e.count++; e.invoicedAbs = r2(e.invoicedAbs + Math.abs(n(i.total_amount)));
-      return acc;
-    }, {});
-    const legacy = {
-      settledRecords: legacyInvoices.filter((i: any) => i.settlement_basis === 'pre_system_settled').length,
-      creditNotes: legacyInvoices.filter((i: any) => i.settlement_basis === 'credit_note').length,
-      total: legacyInvoices.length,
-      // صفر لكل عملة — التصنيف نفسه يقرّر ذلك، ولا يُشتقّ من مبلغ
-      exposureByCurrency: {} as Record<string, number>,
-      byCurrency: legacyByCurrency,
-      batches: [...new Set(legacyInvoices.map((i: any) => i.import_batch_id).filter(Boolean))].length,
-      withPmsPayments: legacyInvoices.filter((i: any) => (i.payments || []).length > 0).length,
-      note: 'سجلات مسوّاة قبل PMS بتأكيد الإدارة. لا سند دفع تشغيلي داخل النظام ولم يُنشأ أي سجل دفع. ' +
-            'مستحقّها صفر، ولا تدخل في إجمالي مدفوعات PMS ولا الحركة البنكية.',
-    };
-
     return {
       mode: 'read-only',
       generated_at: new Date().toISOString(),
-      legacy,
       summary: {
         invoicesScanned: invoices.length,
         paymentsScanned: payments.length,
