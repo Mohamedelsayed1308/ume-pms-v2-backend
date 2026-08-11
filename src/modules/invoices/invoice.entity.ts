@@ -1,9 +1,16 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, OneToMany, JoinColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, OneToMany, JoinColumn, Check } from 'typeorm';
 import { Supplier } from '../suppliers/supplier.entity';
 import { Vessel } from '../vessels/vessel.entity';
 import { PurchaseOrder } from '../purchase-orders/purchase-order.entity';
 import { Payment } from '../payments/payment.entity';
 import { Item } from '../items/item.entity';
+import { ImportBatch } from './import-batch.entity';
+import {
+  CHK_DATA_ORIGIN, CHK_DATA_ORIGIN_EXPR,
+  CHK_SETTLEMENT_BASIS, CHK_SETTLEMENT_BASIS_EXPR,
+  CHK_PRESYSTEM_REQUIRES_BATCH, CHK_PRESYSTEM_REQUIRES_BATCH_EXPR,
+  FK_IMPORT_BATCH,
+} from '../../migrations/r3a-legacy-2026-08';
 
 export enum InvoiceType {
   PRELIMINARY = 'preliminary',
@@ -27,7 +34,11 @@ export enum ApprovalStatus {
   PAID = 'paid',
 }
 
+// ⚠️ synchronize يُسقِط أي CHECK/FK لا يجده هنا بالاسم. لا تحذف هذه المعرّفات.
 @Entity('invoices')
+@Check(CHK_DATA_ORIGIN, CHK_DATA_ORIGIN_EXPR)
+@Check(CHK_SETTLEMENT_BASIS, CHK_SETTLEMENT_BASIS_EXPR)
+@Check(CHK_PRESYSTEM_REQUIRES_BATCH, CHK_PRESYSTEM_REQUIRES_BATCH_EXPR)
 export class Invoice {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -97,6 +108,22 @@ export class Invoice {
   // بنود متعددة (اختياري): مجموع مبالغها = إجمالي الفاتورة
   @Column({ type: 'jsonb', nullable: true })
   line_items: { item_id: string; item_name: string; amount: number }[];
+
+  // ── R3A · بيانات تحكّم مالي ────────────────────────────────────────────────
+  // تُكتب حصراً من الهجرة المعتمدة. مجرَّدة ومرفوضة في مسارات CRUD العادية.
+  @Column({ type: 'varchar', length: 20, default: 'operational' })
+  data_origin: string;
+
+  // none = غير مصنَّفة صراحةً ⇒ اشتقّ من سجلات السداد. ليست نفياً للتسوية.
+  @Column({ type: 'varchar', length: 30, default: 'none' })
+  settlement_basis: string;
+
+  @Column({ type: 'uuid', nullable: true })
+  import_batch_id: string | null;
+
+  @ManyToOne(() => ImportBatch, { nullable: true, onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'import_batch_id', foreignKeyConstraintName: FK_IMPORT_BATCH })
+  import_batch: ImportBatch | null;
 
   @CreateDateColumn()
   created_at: Date;
