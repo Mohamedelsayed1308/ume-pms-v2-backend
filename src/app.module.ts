@@ -25,6 +25,7 @@ import { MarketModule } from './modules/market/market.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AskUmeModule } from './modules/ask-ume/ask-ume.module';
 import { R3aRunnerModule } from './migrations/r3a-runner.module';
+import { shouldSynchronize, assertNoAutoDdlInProduction } from './common/schema-policy';
 
 @Module({
   imports: [
@@ -43,12 +44,20 @@ import { R3aRunnerModule } from './migrations/r3a-runner.module';
           // لا تُطبع القيمة إطلاقاً — الرسالة تصف الشكل المتوقّع فقط
           throw new Error('DATABASE_URL is not a valid PostgreSQL connection string. Expected format: postgresql://USER:PASSWORD@HOST:PORT/DATABASE');
         }
+        // ── R3A.1 · سلامة المخطط ────────────────────────────────────────────
+        // الإنتاج لا يعدّل مخططه تلقائياً. القرار صريح من NODE_ENV، وfail-closed:
+        // البيئة غير المعلَنة تُعامَل إنتاجاً. حدث فقدان بيانات فعلي بالسلوك القديم.
+        const nodeEnv = config.get<string>('NODE_ENV');
+        const synchronize = shouldSynchronize(nodeEnv);
+        assertNoAutoDdlInProduction(nodeEnv, synchronize);   // حاجز — يمنع أي تسرّب مستقبلي
+
         return {
           type: 'postgres' as const,
           url,                                 // Session Pooler · المنفذ يأتي من الرابط (5432)
           ssl: { rejectUnauthorized: false },  // كما هو — دون تغيير
           autoLoadEntities: true,
-          synchronize: true,                   // كما هو — التحويل إلى هجرات خارج نطاق هذا الإصدار
+          synchronize,                         // إنتاج ⇒ false · تطوير/اختبار ⇒ true
+          migrationsRun: false,                // لا تُشغَّل هجرات عند الإقلاع — تنفيذ صريح فقط
         };
       },
     }),
