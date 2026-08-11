@@ -14,7 +14,8 @@ export class User {
   @Column({ length: 100 })
   full_name: string;
 
-  @Column({ default: 'admin' })
+  // الافتراضي الآمن = user. لا يصبح أي مستخدم أدمن إلا بتعيين صريح.
+  @Column({ default: 'user' })
   role: string;
 
   @Column({ default: true })

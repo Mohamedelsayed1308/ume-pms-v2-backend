@@ -58,4 +58,13 @@ export class AuthController {
     ensureAdmin(req);
     return this.authService.setActive(id, body.is_active);
   }
+
+  // تغيير الدور — أدمن فقط خادمياً (لا يُعتمد على إخفاء زر في الواجهة).
+  // تحويل admin → user يتطلب allowed_screens صريحة في نفس الطلب (يُفرض في الخدمة).
+  @Put('users/:id/role')
+  @UseGuards(JwtAuthGuard)
+  setRole(@Param('id') id: string, @Body() body: { role: string; allowed_screens?: string[] }, @Request() req: any) {
+    ensureAdmin(req);
+    return this.authService.setRole(id, body?.role, body?.allowed_screens);
+  }
 }
