@@ -6,6 +6,7 @@ import { ManagementPayment } from './management-payment.entity';
 import { JwtAuthGuard } from '../../common/jwt-auth.guard';
 import { ScreenGuard } from '../../common/screen.guard';
 import { RequireScreen } from '../../common/require-screen.decorator';
+import { ManagementPaymentsService } from './management-payments.service';
 
 @Controller('api/management-invoices')
 @UseGuards(JwtAuthGuard, ScreenGuard)
@@ -14,6 +15,7 @@ export class ManagementInvoicesController {
   constructor(
     @InjectRepository(ManagementInvoice) private repo: Repository<ManagementInvoice>,
     @InjectRepository(ManagementPayment) private payRepo: Repository<ManagementPayment>,
+    private payments: ManagementPaymentsService,
   ) {}
 
   @Get()
@@ -53,28 +55,15 @@ export class ManagementInvoicesController {
     return { success: true };
   }
 
+  // ── R3C · السداد — نفس محرّك دفتر الإيجار، بإعداد مختلف لا بكود مكرَّر ──
   @Post(':id/payments')
   async addPayment(@Param('id') id: string, @Body() body: any) {
-    const payment = this.payRepo.create({ ...body, management_invoice_id: id });
-    await this.payRepo.save(payment);
-    const invoice = await this.repo.findOne({ where: { id }, relations: { payments: true } });
-    if (invoice) {
-      const totalPaid = invoice.payments.reduce((s, p) => s + +p.amount, 0);
-      const status = totalPaid >= +invoice.amount ? 'paid' : totalPaid > 0 ? 'partial' : 'unpaid';
-      await this.repo.update(id, { paid_amount: totalPaid, status });
-    }
+    await this.payments.addPayment(id, body);
     return this.repo.findOne({ where: { id }, relations: { vessel: true, payments: true } });
   }
 
   @Delete(':id/payments/:paymentId')
-  async removePayment(@Param('id') id: string, @Param('paymentId') paymentId: string) {
-    await this.payRepo.delete(paymentId);
-    const invoice = await this.repo.findOne({ where: { id }, relations: { payments: true } });
-    if (invoice) {
-      const totalPaid = invoice.payments.reduce((s, p) => s + +p.amount, 0);
-      const status = totalPaid >= +invoice.amount ? 'paid' : totalPaid > 0 ? 'partial' : 'unpaid';
-      await this.repo.update(id, { paid_amount: totalPaid, status });
-    }
-    return { success: true };
+  removePayment(@Param('id') id: string, @Param('paymentId') paymentId: string) {
+    return this.payments.removePayment(id, paymentId);
   }
 }
