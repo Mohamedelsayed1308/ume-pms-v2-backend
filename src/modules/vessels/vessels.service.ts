@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Vessel } from './vessel.entity';
 import { Invoice } from '../invoices/invoice.entity';
+import { totalsByCurrency, legacyTotals, normalizeCurrency, round2 } from '../../common/currency-totals';
 
 // أسطول الشركة — تُنشأ تلقائياً لو غير موجودة (مقارنة بالاسم بدون حساسية للرموز/المسافات)
 const FLEET = ['Poseidon Express', 'Amman', 'Gubal Trader', 'Wasa Express', 'Alcudia Express', 'Bridge', 'Monte Express'];
@@ -35,8 +36,9 @@ export class VesselsService implements OnModuleInit {
   }
   async remove(id: string) { await this.repo.delete(id); return { deleted: true }; }
 
+  // إحصاءات المركب — التجميع المالي مفصول لكل عملة (لا SUM عبر العملات)
   async getStats(vesselId: string) {
-    const result = await this.repo
+    const head = await this.repo
       .createQueryBuilder('v')
       .leftJoin('v.purchase_orders', 'po')
       .leftJoin('po.invoices', 'inv')
@@ -44,26 +46,59 @@ export class VesselsService implements OnModuleInit {
       .addSelect('v.name', 'name')
       .addSelect('COUNT(DISTINCT po.supplier_id)', 'total_suppliers')
       .addSelect('COUNT(DISTINCT inv.id)', 'total_invoices')
-      .addSelect('SUM(inv.total_amount)', 'total_invoiced')
-      .addSelect('SUM(inv.paid_amount)', 'total_paid')
       .where('v.id = :id', { id: vesselId })
       .getRawOne();
-    return result;
+    if (!head) return null;
+
+    // التجميع مُجمَّع في SQL لكن **مفصولاً بالعملة** — كل صف عملة مستقلة
+    const rows = await this.invoiceRepo
+      .createQueryBuilder('inv')
+      .select('inv.currency', 'currency')
+      .addSelect('COUNT(inv.id)', 'invoice_count')
+      .addSelect('COALESCE(SUM(inv.total_amount), 0)', 'invoiced')
+      .addSelect('COALESCE(SUM(inv.paid_amount), 0)', 'paid')
+      .where('inv.vessel_id = :id', { id: vesselId })
+      .groupBy('inv.currency')
+      .getRawMany();
+
+    const totals = rows.map((r) => {
+      const invoiced = round2(Number(r.invoiced)), paid = round2(Number(r.paid));
+      return { currency: normalizeCurrency(r.currency), invoiced, paid, outstanding: round2(invoiced - paid), invoiceCount: Number(r.invoice_count) };
+    }).sort((a, b) => a.currency.localeCompare(b.currency));
+
+    return { ...head, totalsByCurrency: totals, ...legacyTotals(totals) };
   }
 
+  // موردو المركب — لكل مورد دفاتر منفصلة بالعملة.
+  // الترتيب: عدد الفواتير تنازلياً ثم الاسم (Option A) — لأن الترتيب بمجموع مختلط
+  // العملات يجعل مورداً بعملة أضعف يبدو أكبر. عدد الفواتير محايد عملياً ومستقر.
   async getSuppliersByVessel(vesselId: string) {
-    return this.invoiceRepo
+    const rows = await this.invoiceRepo
       .createQueryBuilder('inv')
       .leftJoin('inv.supplier', 's')
       .select('s.id', 'supplier_id')
       .addSelect('s.name', 'supplier_name')
-      .addSelect('COUNT(DISTINCT inv.id)', 'total_invoices')
-      .addSelect('COALESCE(SUM(inv.total_amount), 0)', 'total_amount')
-      .addSelect('COALESCE(SUM(inv.paid_amount), 0)', 'paid_amount')
+      .addSelect('inv.currency', 'currency')
+      .addSelect('COUNT(inv.id)', 'invoice_count')
+      .addSelect('COALESCE(SUM(inv.total_amount), 0)', 'invoiced')
+      .addSelect('COALESCE(SUM(inv.paid_amount), 0)', 'paid')
       .where('inv.vessel_id = :id', { id: vesselId })
       .andWhere('s.id IS NOT NULL')
-      .groupBy('s.id, s.name')
-      .orderBy('SUM(inv.total_amount)', 'DESC')
+      .groupBy('s.id, s.name, inv.currency')
       .getRawMany();
+
+    const bySupplier = new Map<string, any>();
+    for (const r of rows) {
+      let e = bySupplier.get(r.supplier_id);
+      if (!e) { e = { supplier_id: r.supplier_id, supplier_name: r.supplier_name, total_invoices: 0, totalsByCurrency: [] as any[] }; bySupplier.set(r.supplier_id, e); }
+      const invoiced = round2(Number(r.invoiced)), paid = round2(Number(r.paid));
+      e.totalsByCurrency.push({ currency: normalizeCurrency(r.currency), invoiced, paid, outstanding: round2(invoiced - paid), invoiceCount: Number(r.invoice_count) });
+      e.total_invoices += Number(r.invoice_count);
+    }
+
+    return [...bySupplier.values()].map((e) => {
+      e.totalsByCurrency.sort((a: any, b: any) => a.currency.localeCompare(b.currency));
+      return { ...e, ...legacyTotals(e.totalsByCurrency) };
+    }).sort((a, b) => b.total_invoices - a.total_invoices || String(a.supplier_name).localeCompare(String(b.supplier_name)));
   }
 }

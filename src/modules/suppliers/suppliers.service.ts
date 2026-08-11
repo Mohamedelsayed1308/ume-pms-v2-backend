@@ -4,6 +4,7 @@ import { In, Repository } from 'typeorm';
 import { Supplier } from './supplier.entity';
 import { Invoice } from '../invoices/invoice.entity';
 import { PurchaseOrder } from '../purchase-orders/purchase-order.entity';
+import { totalsByCurrency, legacyTotals } from '../../common/currency-totals';
 
 @Injectable()
 export class SuppliersService {
@@ -63,17 +64,17 @@ export class SuppliersService {
 
     const pos = supplier.purchase_orders || [];
     const invoices = pos.flatMap((po) => po.invoices || []);
-    const total_invoiced = invoices.reduce((s, i) => s + +i.total_amount, 0);
-    const total_paid = invoices.reduce((s, i) => s + +i.paid_amount, 0);
+    // دفتر مستقل لكل عملة — لا يُجمع مبلغان بعملتين مختلفتين
+    const totals = totalsByCurrency(invoices as any);
+    const legacy = legacyTotals(totals);
 
     return {
       id: supplier.id,
       name: supplier.name,
       total_pos: pos.length,
       total_invoices: invoices.length,
-      total_invoiced,
-      total_paid,
-      total_outstanding: total_invoiced - total_paid,
+      totalsByCurrency: totals,
+      ...legacy, // currency · mixed_currency · total_invoiced/paid/outstanding (null عند التعدّد)
     };
   }
 }
