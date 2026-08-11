@@ -24,6 +24,7 @@ import { FleetModule } from './modules/fleet/fleet.module';
 import { MarketModule } from './modules/market/market.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AskUmeModule } from './modules/ask-ume/ask-ume.module';
+import { R3aRunnerModule } from './migrations/r3a-runner.module';
 
 @Module({
   imports: [
@@ -72,6 +73,7 @@ import { AskUmeModule } from './modules/ask-ume/ask-ume.module';
     MarketModule,
     AuditModule,
     AskUmeModule,
+    R3aRunnerModule,
   ],
 })
 export class AppModule {}
