@@ -125,9 +125,13 @@ export class R3aRunnerService {
         if (!g.signatureMatch) throw new BadRequestException(`ABORT: بصمة R1 غير مطابقة ${JSON.stringify(g.signature)}`);
 
         // ── STEP D · التوسيم ──
-        const tagged = await m.query(TAG_UPDATE, [batchId]);
-        report.taggedNow = tagged.length;   // 0 عند إعادة التشغيل — متكرّرة الأمان
-        report.steps.push('tagging');
+        // TypeORM يُعيد [rows, rowCount] لعبارات UPDATE ⇒ الطول هو 2 دائماً لا عدد الصفوف.
+        // نستخرج الصفوف الفعلية صراحةً حتى لا يحمل تقرير التدقيق رقماً مضلِّلاً.
+        const tagRes = await m.query(TAG_UPDATE, [batchId]);
+        const taggedRows = Array.isArray(tagRes?.[0]) ? tagRes[0] : tagRes;
+        report.taggedNow = Array.isArray(taggedRows) ? taggedRows.length : 0;
+        report.taggedAffected = Array.isArray(tagRes) && typeof tagRes[1] === 'number' ? tagRes[1] : null;
+        report.steps.push('tagging');   // 0 عند إعادة التشغيل — متكرّرة الأمان
 
         // ── التحقق اللاحق ──
         const v: any = {};
