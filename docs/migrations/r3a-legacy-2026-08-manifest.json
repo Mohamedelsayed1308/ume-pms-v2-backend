@@ -1,0 +1,1099 @@
+{
+  "manifest_version": "1.0",
+  "batch_code": "LEGACY-2026-08",
+  "generated_at": "2026-08-11",
+  "source": "R1 signature reconstruction",
+  "provenance": {
+    "method": "مجموعة مُعاد بناؤها من لقطة الإنتاج الحالية، مُتحقَّق منها بمطابقة تامة مع بصمة تدقيق R1 المالية",
+    "note": "قائمة المعرّفات الأصلية لتدقيق R1 لم تُحفظ؛ هذه المجموعة مُعاد بناؤها لا مُستعادة",
+    "r1_signature": {
+      "paid_without_payments": {
+        "count": 128,
+        "exposure": {
+          "EUR": 190928.04,
+          "SAR": 3919.89,
+          "USD": 3343933.27
+        }
+      },
+      "paid_amount_mismatch": {
+        "count": 128,
+        "exposure": {
+          "EUR": 190928.04,
+          "SAR": 3919.89,
+          "USD": 3343933.27
+        }
+      },
+      "approval_paid_no_evidence": {
+        "count": 124,
+        "exposure": {
+          "EUR": 187378.04,
+          "SAR": 3919.89,
+          "USD": 3314028.52
+        }
+      },
+      "invoices_scanned": 230,
+      "payments_scanned": 17,
+      "total_findings": 389
+    },
+    "heuristic_used": false,
+    "date_or_cutoff_used": false
+  },
+  "expected_count": 128,
+  "classification_counts": {
+    "pre_system_settled": 123,
+    "credit_note": 5
+  },
+  "totals_by_currency": {
+    "signed": {
+      "USD": 3280363.77,
+      "EUR": 183828.04,
+      "SAR": 3919.89
+    },
+    "absolute": {
+      "USD": 3343933.27,
+      "EUR": 190928.04,
+      "SAR": 3919.89
+    }
+  },
+  "records": [
+    {
+      "invoice_id": "000e3170-b43d-407e-9e28-0dd840ff5396",
+      "invoice_number": "500-105951",
+      "supplier": "Lloyd's Register Egypt LLC",
+      "currency": "USD",
+      "amount": 709,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "011066e8-2108-4351-86c3-24d9189bb8d1",
+      "invoice_number": "LC053420",
+      "supplier": "Fluid Control Services, Inc.",
+      "currency": "USD",
+      "amount": 4037,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "03ee700f-f0bc-4c81-9f3f-9cd10aaeec0a",
+      "invoice_number": "CD5125063480",
+      "supplier": "El-Mohandes Jotun (S.A.E)",
+      "currency": "USD",
+      "amount": 3967.01,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "03eef1a2-c3a7-42e8-be19-1f0932d052d2",
+      "invoice_number": "104338673",
+      "supplier": "Wärtsilä Polska Sp. z.o.o.",
+      "currency": "EUR",
+      "amount": 652.41,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "05b30180-6a8d-41a8-9458-1862a31832f8",
+      "invoice_number": "80330084825",
+      "supplier": "Soya Group AB",
+      "currency": "USD",
+      "amount": 9458,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "06bc98a0-66f9-4bcd-a97e-0460cb98849e",
+      "invoice_number": "INV/3294/1",
+      "supplier": "Republic of Cyprus - Shipping Deputy Ministry",
+      "currency": "EUR",
+      "amount": 4274.18,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "078530aa-ef09-4d7d-91f0-4251651c17fa",
+      "invoice_number": "INVOV1111",
+      "supplier": "LINEFACE SERVICES FZ-LLC",
+      "currency": "EUR",
+      "amount": 27831.5,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "09358103-9ba7-45ba-8f01-f68143fbd877",
+      "invoice_number": "AL/D-26-01-30",
+      "supplier": "Badawi Shipping Agency",
+      "currency": "USD",
+      "amount": 23308.54,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "0b23e972-2dfb-414b-9382-2743785dddd7",
+      "invoice_number": "80330075567",
+      "supplier": "Soya Group AB",
+      "currency": "USD",
+      "amount": 4658,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "0dc99396-e538-4fcf-8368-9573e0ccc122",
+      "invoice_number": "826000815",
+      "supplier": "Marioff Corporation Oy",
+      "currency": "EUR",
+      "amount": 3124,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "1012e17b-7070-459a-bcf5-286d16a28688",
+      "invoice_number": "420260433",
+      "supplier": "TMS Hamburg Technical Marine Services GmbH",
+      "currency": "EUR",
+      "amount": 320,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "128baf10-fd17-4a00-95e4-19ee64f550e9",
+      "invoice_number": "261756",
+      "supplier": "J. & E. PAPADOPOULOS SA",
+      "currency": "EUR",
+      "amount": 726.4,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "14e93778-eea2-47b8-99cd-a9d3bfc310cd",
+      "invoice_number": "80330082837",
+      "supplier": "Soya Group AB",
+      "currency": "USD",
+      "amount": 9458,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "1590e849-b7f5-4bdd-9b0d-ef8e6a0f69b4",
+      "invoice_number": "AL/D-26-02-31",
+      "supplier": "Badawi Shipping Agency",
+      "currency": "USD",
+      "amount": 1151.64,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "15b60d11-f0b4-492a-974e-a52db58f548d",
+      "invoice_number": "AL/D-26-03-33",
+      "supplier": "Badawi Shipping Agency",
+      "currency": "USD",
+      "amount": 1752.65,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "16f109d0-9fc9-4865-8616-fb0f0254a69a",
+      "invoice_number": "228/1",
+      "supplier": "Chem Service Egypt",
+      "currency": "USD",
+      "amount": 15079.87,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "1789d408-6625-4904-9606-6ed8116d06b2",
+      "invoice_number": "CH-26-03-03",
+      "supplier": "UME Shipping DMCC",
+      "currency": "USD",
+      "amount": 15000,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "1a883660-3897-4ffd-a8d0-544f539f483e",
+      "invoice_number": "1026507",
+      "supplier": "Baluco Ltd",
+      "currency": "USD",
+      "amount": 352,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "201feeb3-fedf-4d55-9f3c-e446a5f701e7",
+      "invoice_number": "DT26 100300",
+      "supplier": "Cathelco Middle East L.L.C- FZ",
+      "currency": "USD",
+      "amount": 4989.5,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "203c9b4c-c05a-4501-8ea0-cb008de2caf1",
+      "invoice_number": "242",
+      "supplier": "Chem Service Egypt",
+      "currency": "EUR",
+      "amount": 19325.92,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "25a2d0cd-9da1-43f8-8c5c-07617685092d",
+      "invoice_number": "PF 2026A17/1162",
+      "supplier": "Ertecna - Empresa de Revestimentos Técnicos, Lda",
+      "currency": "EUR",
+      "amount": 3648.86,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "268570eb-161d-4a7f-bc30-4756e27b5657",
+      "invoice_number": "AL/D-26-01-29",
+      "supplier": "Badawi Shipping Agency",
+      "currency": "USD",
+      "amount": 11640.78,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "27eceae2-d7e2-4b9e-8627-055df6f8542b",
+      "invoice_number": "500-105993",
+      "supplier": "Lloyd's Register Egypt LLC",
+      "currency": "USD",
+      "amount": 2720,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "29ea9847-0719-485d-93ea-b106282693e3",
+      "invoice_number": "2025-58271",
+      "supplier": "Hanseaticsoft GmbH",
+      "currency": "EUR",
+      "amount": 1944.54,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "2b0fe03d-cfca-4a7f-b92c-10d32cdc9ef2",
+      "invoice_number": "B-26042",
+      "supplier": "GULF AGENCY CO. (EGYPT) LTD.",
+      "currency": "USD",
+      "amount": 13743.04,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "302f76c5-3398-4ff2-aa16-928f591032b1",
+      "invoice_number": "215/1",
+      "supplier": "Chem Service Egypt",
+      "currency": "USD",
+      "amount": 1068.26,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "311000a8-f40c-46f7-a7d1-e33d95c63823",
+      "invoice_number": "10567-1-2026",
+      "supplier": "Fairwater Energy AB",
+      "currency": "USD",
+      "amount": 120110,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "34bdb70e-869a-4762-a875-11ed1d63f1e7",
+      "invoice_number": "2024221",
+      "supplier": "UME Shipping AB",
+      "currency": "USD",
+      "amount": 31350,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "3665237e-b432-4caf-9af1-721fdf167f6a",
+      "invoice_number": "INVOV956",
+      "supplier": "LINEFACE SERVICES FZ-LLC",
+      "currency": "EUR",
+      "amount": 2732.2,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "372a9f0b-1a28-46dc-b3a8-056c9c5c8058",
+      "invoice_number": "CN-26-04-01",
+      "supplier": "HansaScan Trading DMCC",
+      "currency": "USD",
+      "amount": -31131.75,
+      "settlement_basis": "credit_note"
+    },
+    {
+      "invoice_id": "38bcecb0-a807-4b47-86af-f520d8fe7e04",
+      "invoice_number": "205/1",
+      "supplier": "Chem Service Egypt",
+      "currency": "USD",
+      "amount": 1480,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "399cd449-4da6-4780-a653-254ed9d804b9",
+      "invoice_number": "104338282",
+      "supplier": "Wärtsilä Polska Sp. z.o.o.",
+      "currency": "EUR",
+      "amount": 7219.52,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "39cc8cd5-c7b3-48e9-8c3c-bf56b75defd8",
+      "invoice_number": "10504-1-2026",
+      "supplier": "Fairwater Energy AB",
+      "currency": "EUR",
+      "amount": 32860,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "3a60cdf7-780f-402c-9e61-494c531e7f97",
+      "invoice_number": "105302046",
+      "supplier": "Wärtsilä Ships Repairing & Maintenance LLC",
+      "currency": "USD",
+      "amount": 1441.5,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "3d01b4ee-ad04-48f2-9899-3969708abcbd",
+      "invoice_number": "B-26068",
+      "supplier": "GULF AGENCY CO. (EGYPT) LTD.",
+      "currency": "USD",
+      "amount": 48700.07,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "3d34d507-8fda-41da-9966-9260f56597f6",
+      "invoice_number": "0000012659",
+      "supplier": "CHRYSSES DEMETRIADES & CO. LLC",
+      "currency": "EUR",
+      "amount": 150,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "3ec60461-fc7c-4cd2-a5b9-eba04e3a18fa",
+      "invoice_number": "SMINV-250560-PI",
+      "supplier": "Sphinx Marine",
+      "currency": "USD",
+      "amount": 3000,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "4142d356-650d-4631-adb8-92399dcd4c08",
+      "invoice_number": "325115",
+      "supplier": "Sperre Air Power AS",
+      "currency": "EUR",
+      "amount": 4606.22,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "4149cb26-9bbc-454b-bbf1-5b5ee0abef0b",
+      "invoice_number": "105302049",
+      "supplier": "Wärtsilä Ships Repairing & Maintenance LLC",
+      "currency": "USD",
+      "amount": 16102.02,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "42fe7561-bb1a-4fdf-9b40-ef2829684009",
+      "invoice_number": "204/1",
+      "supplier": "Chem Service Egypt",
+      "currency": "USD",
+      "amount": 2065,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "4476465a-304a-4bcf-bbb7-c426272fa75e",
+      "invoice_number": "AL/D-26-01-36",
+      "supplier": "Badawi Shipping Agency",
+      "currency": "USD",
+      "amount": 1565.68,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "4c3e988c-d299-4191-adf5-aab1d27314fc",
+      "invoice_number": "104338481",
+      "supplier": "Wärtsilä Polska Sp. z.o.o.",
+      "currency": "EUR",
+      "amount": 527.25,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "4ee2ea86-dedb-4297-820b-c51e716a7cd9",
+      "invoice_number": "500C100471",
+      "supplier": "Lloyd's Register Egypt LLC",
+      "currency": "USD",
+      "amount": -583,
+      "settlement_basis": "credit_note"
+    },
+    {
+      "invoice_id": "4ff21793-5d33-4c47-bfc6-bf45837113f5",
+      "invoice_number": "105301938",
+      "supplier": "Wärtsilä Ships Repairing & Maintenance LLC",
+      "currency": "USD",
+      "amount": 21858.41,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "52f4e645-f3cc-4496-8a54-e5fe8d2090d0",
+      "invoice_number": "AL/D-26-05-27",
+      "supplier": "Badawi Shipping Agency",
+      "currency": "USD",
+      "amount": 46908.52,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "5530ccba-483f-4462-8d30-22d12ae80227",
+      "invoice_number": "CH-26-06-03",
+      "supplier": "UME Shipping DMCC",
+      "currency": "USD",
+      "amount": 15000,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "568d75be-0e11-4e6a-bd7d-67d18b2a78a3",
+      "invoice_number": "90134052",
+      "supplier": "Turbo Systems Egypt for Turbocharging LLC",
+      "currency": "USD",
+      "amount": 4420.8,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "5837dff2-de56-4c23-be04-e32a8d1b6c15",
+      "invoice_number": "AL/D-26-05-23",
+      "supplier": "Badawi Shipping Agency",
+      "currency": "USD",
+      "amount": 15547.72,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "58c15547-381c-4f74-adc0-98621d1fbb0b",
+      "invoice_number": "CD5126026951",
+      "supplier": "El-Mohandes Jotun (S.A.E)",
+      "currency": "USD",
+      "amount": 24450.29,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "5f0feacf-b028-4639-b14b-5e0296193617",
+      "invoice_number": "FZ-SVE-CN-00000157",
+      "supplier": "ELCOME MARINE EGYPT - FREE ZONE",
+      "currency": "USD",
+      "amount": -70,
+      "settlement_basis": "credit_note"
+    },
+    {
+      "invoice_id": "5fffbd94-29ed-426c-80ed-3eb1e4e4ccda",
+      "invoice_number": "B-26032",
+      "supplier": "GULF AGENCY CO. (EGYPT) LTD.",
+      "currency": "USD",
+      "amount": 163514.12,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "6229ce07-333d-4e8d-80e8-b476f7983a86",
+      "invoice_number": "104338397",
+      "supplier": "Wärtsilä Polska Sp. z.o.o.",
+      "currency": "EUR",
+      "amount": 1831.27,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "66726726-2d7d-4bb4-9e05-77662c1b2009",
+      "invoice_number": "2026-60331",
+      "supplier": "Hanseaticsoft GmbH",
+      "currency": "EUR",
+      "amount": 1944.54,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "68cbb0b7-778e-4573-bad1-3abf2f68d243",
+      "invoice_number": "IWMSEG04CD970010955",
+      "supplier": "Wilhelmsen Ships Service LLC - Free Zone",
+      "currency": "USD",
+      "amount": 18817.61,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "6957dd7f-c850-441f-836d-d99fdeaeee35",
+      "invoice_number": "AL/D-26-01-33",
+      "supplier": "Badawi Shipping Agency",
+      "currency": "USD",
+      "amount": 90678.3,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "6958f20a-8278-4727-ad12-75ed674f26f0",
+      "invoice_number": "80330081128",
+      "supplier": "Soya Group AB",
+      "currency": "USD",
+      "amount": 9458,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "702b701d-8b9b-4ed4-af08-8115ca95b032",
+      "invoice_number": "2026-10011",
+      "supplier": "BGM Trading GmbH",
+      "currency": "EUR",
+      "amount": 862.6,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "723e18c1-dba7-4a92-9fab-667e774694fa",
+      "invoice_number": "SMINV-260131-PI",
+      "supplier": "Sphinx Marine",
+      "currency": "USD",
+      "amount": 3500,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "7517f1bb-69f0-4946-8f6d-298f6da339bc",
+      "invoice_number": "904116314",
+      "supplier": "Weilbach Egypt Ltd.",
+      "currency": "USD",
+      "amount": 1105,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "757dfb08-d706-40ae-acbf-39266d6e92b7",
+      "invoice_number": "AL/D-26-03-27",
+      "supplier": "Badawi Shipping Agency",
+      "currency": "USD",
+      "amount": 17368.64,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "75a20f4b-48a0-4db0-b047-58c50a42074e",
+      "invoice_number": "WS/1768/26",
+      "supplier": "Western Fuel Supply for Petroleum Products Company Limited - Jeddah",
+      "currency": "USD",
+      "amount": 501376,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "762e528c-53e5-43de-96d8-cd127d49b216",
+      "invoice_number": "10144-1-2025",
+      "supplier": "Fairwater Energy AB",
+      "currency": "EUR",
+      "amount": 16000,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "7c48f232-0340-4950-84ff-569dfe271e4a",
+      "invoice_number": "113/1",
+      "supplier": "Chem Service Egypt",
+      "currency": "USD",
+      "amount": 1265,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "82836c56-f746-44da-8964-1e6bf4ba8425",
+      "invoice_number": "AL/D-26-03-31",
+      "supplier": "Badawi Shipping Agency",
+      "currency": "USD",
+      "amount": 104469.93,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "83bb51a7-1f44-40d2-a08b-a1cc2527f414",
+      "invoice_number": "CH-26-07-03",
+      "supplier": "UME Shipping DMCC",
+      "currency": "USD",
+      "amount": 15000,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "85fd2094-5eab-455d-a15e-65bfb987cf90",
+      "invoice_number": "AL/D-26-04-23",
+      "supplier": "Badawi Shipping Agency",
+      "currency": "USD",
+      "amount": 54206.48,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "8a672bac-c1f8-4d42-b696-3ee25a0e1b21",
+      "invoice_number": "401",
+      "supplier": "Smart Fleet Marine",
+      "currency": "SAR",
+      "amount": 3919.89,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "8eb60598-b090-4b8f-8d46-6596ab41a8c1",
+      "invoice_number": "1025663",
+      "supplier": "Baluco Ltd",
+      "currency": "USD",
+      "amount": 544,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "91da7302-de72-4ee9-a7ce-bec16e640999",
+      "invoice_number": "2024307",
+      "supplier": "UME Shipping AB",
+      "currency": "EUR",
+      "amount": -1775,
+      "settlement_basis": "credit_note"
+    },
+    {
+      "invoice_id": "9257388f-4ec8-4442-965a-800bbde027a5",
+      "invoice_number": "80330072515",
+      "supplier": "Soya Group AB",
+      "currency": "USD",
+      "amount": 27346,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "953d4235-9a7d-4470-a2f3-68d26ea91de3",
+      "invoice_number": "AL/D-26-02-25",
+      "supplier": "Badawi Shipping Agency",
+      "currency": "USD",
+      "amount": 15716.86,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "97de92e8-a3d5-4ba7-8c53-8f7dc7b34965",
+      "invoice_number": "26-06-03-",
+      "supplier": "UME Shipping DMCC",
+      "currency": "USD",
+      "amount": 2300,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "9a166b90-1f6d-4349-8fed-efc152099c2d",
+      "invoice_number": "B – 32",
+      "supplier": "C.T.E. PERDIKARIS ENGINEERING, ARCHITECTURAL & TECHNICAL SERVICES PRIVATE COMPANY",
+      "currency": "EUR",
+      "amount": 7100,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "9bec7763-3294-4cee-9fa9-92a16cff57c6",
+      "invoice_number": "T202682370",
+      "supplier": "GW SPRINKLER A/S",
+      "currency": "EUR",
+      "amount": 4506.48,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "9dc81750-8fcc-4a3d-8024-fa9ac05ac28a",
+      "invoice_number": "AL/D-26-05-24",
+      "supplier": "Badawi Shipping Agency",
+      "currency": "USD",
+      "amount": 17714.99,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "9e2292f6-a7cf-42a6-94b2-c16c795475fc",
+      "invoice_number": "26-04-11",
+      "supplier": "HansaScan Trading DMCC",
+      "currency": "USD",
+      "amount": 619521.83,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "9ee305ac-77ea-426c-bd65-df39dcb2801e",
+      "invoice_number": "SMINV-260132-PI",
+      "supplier": "Sphinx Marine",
+      "currency": "USD",
+      "amount": 4450,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "a0617181-5f15-4088-a675-9e4400c47ea2",
+      "invoice_number": "104338488",
+      "supplier": "Wärtsilä Polska Sp. z.o.o.",
+      "currency": "EUR",
+      "amount": 94.14,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "a3fbb1c1-121d-4911-9e4d-116a57375f71",
+      "invoice_number": "SMINV-250528-PI",
+      "supplier": "Sphinx Marine",
+      "currency": "USD",
+      "amount": 720,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "a5154990-9b4a-49e6-ace6-76b1d6abe579",
+      "invoice_number": "B-26007",
+      "supplier": "GULF AGENCY CO. (EGYPT) LTD.",
+      "currency": "USD",
+      "amount": 40381.7,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "a6f06e37-968a-4b50-a3db-a2c3dd81769d",
+      "invoice_number": "01909/02200/06390/2025/MW",
+      "supplier": "BALTIC SPARES SERVICE SPÓŁKA Z O. O.",
+      "currency": "EUR",
+      "amount": 5142,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "a79164d2-4714-468f-8ee4-bddfddd42d26",
+      "invoice_number": "CH-26-05-03",
+      "supplier": "UME Shipping DMCC",
+      "currency": "USD",
+      "amount": 15000,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "a9d5646e-7278-41d7-9568-f3c6d5a84786",
+      "invoice_number": "FZ-SVE-IN-00000468",
+      "supplier": "ELCOME MARINE EGYPT - FREE ZONE",
+      "currency": "USD",
+      "amount": 2550,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "aa0aac6e-f91b-4aa1-bfb9-a09fe0808653",
+      "invoice_number": "500-105877",
+      "supplier": "Lloyd's Register Egypt LLC",
+      "currency": "USD",
+      "amount": 2329,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "aa16b3ba-132f-42da-a9c9-70e4c13ad360",
+      "invoice_number": "AL/D-26-04-25",
+      "supplier": "Badawi Shipping Agency",
+      "currency": "USD",
+      "amount": 1518.62,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "aa887f2f-ccbf-47a8-9197-39210fd42159",
+      "invoice_number": "10369-1-2026",
+      "supplier": "Fairwater Energy AB",
+      "currency": "USD",
+      "amount": 185000,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "ab1e8465-7191-4189-9d41-1d51f2deb334",
+      "invoice_number": "B-26034",
+      "supplier": "GULF AGENCY CO. (EGYPT) LTD.",
+      "currency": "USD",
+      "amount": 82253.85,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "ac6fd659-82f7-4705-b283-88f532856d5d",
+      "invoice_number": "9101130844",
+      "supplier": "Elektror airsystems GmbH",
+      "currency": "EUR",
+      "amount": 50,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "ae29f795-0944-4fd0-a440-2f46cda09be0",
+      "invoice_number": "80330071137",
+      "supplier": "Soya Group AB",
+      "currency": "USD",
+      "amount": 4658,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "b1083045-0ec4-4fbc-8fd3-b2524013b3e6",
+      "invoice_number": "80330077274",
+      "supplier": "Soya Group AB",
+      "currency": "USD",
+      "amount": 9458,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "b13292cf-df17-4fcf-bedf-e53701806803",
+      "invoice_number": "CH-26-02-03",
+      "supplier": "UME Shipping DMCC",
+      "currency": "USD",
+      "amount": 15000,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "b13d0228-ae75-4859-a74b-37ab28217384",
+      "invoice_number": "INVOV1378",
+      "supplier": "LINEFACE SERVICES FZ-LLC",
+      "currency": "USD",
+      "amount": 2140.12,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "b17bd91a-e96b-4353-baaf-9901952c11c1",
+      "invoice_number": "500-106203",
+      "supplier": "Lloyd's Register Egypt LLC",
+      "currency": "USD",
+      "amount": 1330,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "b3dde820-de73-407a-b302-7cb6ecd80f99",
+      "invoice_number": "B-26040",
+      "supplier": "GULF AGENCY CO. (EGYPT) LTD.",
+      "currency": "USD",
+      "amount": 41647.8,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "b874937b-b4c2-4e4d-ad6f-9835f4de1f54",
+      "invoice_number": "500-106109",
+      "supplier": "Lloyd's Register Egypt LLC",
+      "currency": "USD",
+      "amount": 840,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "bd4863e1-b51f-49e7-88b9-ae6d058f74e4",
+      "invoice_number": "CH-26-04-03",
+      "supplier": "UME Shipping DMCC",
+      "currency": "USD",
+      "amount": 15000,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "bf8847e6-fd0e-4ad8-970a-15b764639db4",
+      "invoice_number": "80330079155",
+      "supplier": "Soya Group AB",
+      "currency": "USD",
+      "amount": 9458,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "c0c0ef0b-e962-4ffd-b10a-118e07030050",
+      "invoice_number": "AL/D-26-04-19",
+      "supplier": "Badawi Shipping Agency",
+      "currency": "USD",
+      "amount": 12496.56,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "c1963d33-f45f-48e9-b2da-8f7ad17d015a",
+      "invoice_number": "2024220",
+      "supplier": "UME Shipping AB",
+      "currency": "USD",
+      "amount": 31350,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "c47391ac-78a7-4acd-b117-41485f3add88",
+      "invoice_number": "114",
+      "supplier": "Chem Service Egypt",
+      "currency": "USD",
+      "amount": 5087.44,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "c5bd9d38-c61b-46b5-b016-ae36789d8c91",
+      "invoice_number": "10506-1-2026",
+      "supplier": "Fairwater Energy AB",
+      "currency": "EUR",
+      "amount": 6616,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "c9163b5a-e3de-4f9c-9a26-6b024ee672ec",
+      "invoice_number": "AL/D-26-02-28",
+      "supplier": "Badawi Shipping Agency",
+      "currency": "USD",
+      "amount": 37620.84,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "cd85bf23-a4cb-4973-8ceb-628d64216e53",
+      "invoice_number": "AL/D-26-02-24",
+      "supplier": "Badawi Shipping Agency",
+      "currency": "USD",
+      "amount": 20019.79,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "cf926845-412c-4939-b1cf-ec36834a6029",
+      "invoice_number": "M43/70106327",
+      "supplier": "Neuver Maritime AS",
+      "currency": "EUR",
+      "amount": 19239.68,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "d25da52b-06ce-4724-9415-aa447a88dc7f",
+      "invoice_number": "AL/D-26-02-30",
+      "supplier": "Badawi Shipping Agency",
+      "currency": "USD",
+      "amount": 1876.99,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "d4291be2-32dd-4cd2-969b-82730c39ecea",
+      "invoice_number": "AL/D-26-06-21",
+      "supplier": "Badawi Shipping Agency",
+      "currency": "USD",
+      "amount": 16367.74,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "d44b4892-be04-4308-abda-f48e01d400c8",
+      "invoice_number": "80330073125",
+      "supplier": "Soya Group AB",
+      "currency": "USD",
+      "amount": 4658,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "d6b28c48-0bc6-4ab6-afda-1b127c1d3738",
+      "invoice_number": "F-26006",
+      "supplier": "GULF AGENCY CO. (EGYPT) LTD.",
+      "currency": "USD",
+      "amount": 363277.68,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "d81c5c8d-d819-4674-87a6-e7bab72ed45f",
+      "invoice_number": "104338281",
+      "supplier": "Wärtsilä Polska Sp. z.o.o.",
+      "currency": "EUR",
+      "amount": 4363.36,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "d850a127-b6eb-4aa9-b520-1d1740b47980",
+      "invoice_number": "CH-26-01-03",
+      "supplier": "UME Shipping DMCC",
+      "currency": "USD",
+      "amount": 15000,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "dd28acba-0599-4fd2-91f3-2b251b3f3430",
+      "invoice_number": "AL/D-26-06-22",
+      "supplier": "Badawi Shipping Agency",
+      "currency": "USD",
+      "amount": 16126.53,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "deb2651d-741b-4755-b077-cf17f0ad4b89",
+      "invoice_number": "139666",
+      "supplier": "Dr. E. Horn GmbH & Co. KG",
+      "currency": "EUR",
+      "amount": 2662,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "df0d12a6-4252-4854-8ce1-cbe306d69cbd",
+      "invoice_number": "AL/D-26-04-20",
+      "supplier": "Badawi Shipping Agency",
+      "currency": "USD",
+      "amount": 12989.72,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "dfb49347-4ab4-4cbe-a28c-c94a2b48f1b6",
+      "invoice_number": "AL/D-26-03-28",
+      "supplier": "Badawi Shipping Agency",
+      "currency": "USD",
+      "amount": 16548.28,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "e1230d92-b48b-4cd3-823f-b7f2c310a02a",
+      "invoice_number": "262035",
+      "supplier": "EMPSE GROUP SL",
+      "currency": "EUR",
+      "amount": 3202.6,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "e3c127e1-0c51-4f7e-9ad7-a745f43adc69",
+      "invoice_number": "INV-2026-63540",
+      "supplier": "Hanseaticsoft GmbH",
+      "currency": "EUR",
+      "amount": 1944.54,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "e677e168-1a79-432b-b366-5e634d025d98",
+      "invoice_number": "S2014765",
+      "supplier": "INSATECH A/S",
+      "currency": "EUR",
+      "amount": 1546.78,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "e807c348-be8c-4673-a876-3a22dbae7446",
+      "invoice_number": "2024222",
+      "supplier": "UME Shipping AB",
+      "currency": "USD",
+      "amount": 31350,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "edfb6119-1a48-4012-a6fb-ac627945a5c7",
+      "invoice_number": "105302048",
+      "supplier": "Wärtsilä Ships Repairing & Maintenance LLC",
+      "currency": "USD",
+      "amount": 7824.07,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "f20b0747-96a9-4128-a3c1-4decadda6b05",
+      "invoice_number": "AL/D-26-01-35",
+      "supplier": "Badawi Shipping Agency",
+      "currency": "USD",
+      "amount": 1326.27,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "f21aa4d7-1905-4361-8bd2-5ca5a8ec82b6",
+      "invoice_number": "2024314",
+      "supplier": "UME Shipping AB",
+      "currency": "EUR",
+      "amount": -1775,
+      "settlement_basis": "credit_note"
+    },
+    {
+      "invoice_id": "f21b262e-c662-4bf1-969b-3bb035422664",
+      "invoice_number": "104339005",
+      "supplier": "Wärtsilä Polska Sp. z.o.o.",
+      "currency": "EUR",
+      "amount": 279.05,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "f22c2302-4554-41bf-9ea7-efdc05187a67",
+      "invoice_number": "824179",
+      "supplier": "International Marine Purchasing Association Ltd",
+      "currency": "EUR",
+      "amount": 50,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "f430f929-0607-4114-a287-912b35bd338f",
+      "invoice_number": "IWMSEG04CD970010811",
+      "supplier": "Wilhelmsen Ships Service LLC - Free Zone",
+      "currency": "USD",
+      "amount": 5749.85,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "f66ecbdd-b4c8-4ae6-a6cc-effac6c38c95",
+      "invoice_number": "B-26036",
+      "supplier": "GULF AGENCY CO. (EGYPT) LTD.",
+      "currency": "USD",
+      "amount": 82394.9,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "f8a2c2f6-f123-429c-b2e0-973747b788f4",
+      "invoice_number": "90131747",
+      "supplier": "Turbo Systems Egypt for Turbocharging LLC",
+      "currency": "USD",
+      "amount": 4637.52,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "fe91df05-6578-4068-bf75-eeeb499c8f58",
+      "invoice_number": "AL/D-26-03-34",
+      "supplier": "Badawi Shipping Agency",
+      "currency": "USD",
+      "amount": 1319.54,
+      "settlement_basis": "pre_system_settled"
+    },
+    {
+      "invoice_id": "ff2e942b-6033-4fcc-bfdd-c604c7c1c2ac",
+      "invoice_number": "AL/D-26-06-25",
+      "supplier": "Badawi Shipping Agency",
+      "currency": "USD",
+      "amount": 49395.65,
+      "settlement_basis": "pre_system_settled"
+    }
+  ],
+  "classification_approval": {
+    "approved_classification": "123 pre_system_settled + 5 credit_note",
+    "approved_on": "2026-08-11",
+    "approval_reference": null,
+    "approved_by_name": null,
+    "accounting_rationale": "الإشعار الدائن لا يمثل سداداً بل تخفيضاً للالتزام، ولذلك لا يجوز وسمه pre_system_settled.",
+    "credit_note_invoices": [
+      "2024307",
+      "2024314",
+      "500C100471",
+      "CN-26-04-01",
+      "FZ-SVE-CN-00000157"
+    ],
+    "batch_membership_note": "الخمس السالبة تبقى داخل نفس دفعة LEGACY-2026-08 — مصدر البيانات ومبرّر الإغلاق محوران مستقلان."
+  }
+}
