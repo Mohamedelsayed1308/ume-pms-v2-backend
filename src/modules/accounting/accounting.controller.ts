@@ -69,6 +69,12 @@ export class AccountingController {
   @RequireScreen(SCREEN_ACCOUNTING_SETUP)
   createFxRate(@Body() body: any, @Req() req: any) { return this.svc.createFxRate(body, this.uid(req)); }
 
+  // الإنشاء على شاشة الإعداد والاعتماد على شاشة الترحيل — فصل الواجبات بالشاشات
+  // القائمة، ويُشدَّد فوقه فصلٌ على مستوى المستخدم داخل الخدمة.
+  @Post('fx-rates/:id/approve')
+  @RequireScreen(SCREEN_ACCOUNTING_POSTING)
+  approveFxRate(@Param('id') id: string, @Req() req: any) { return this.svc.approveFxRate(id, this.uid(req)); }
+
   // ── القيود ────────────────────────────────────────────────────────────────
   @Get('entries')
   @RequireScreen(SCREEN_ACCOUNTING, SCREEN_ACCOUNTING_JOURNALS, SCREEN_ACCOUNTING_POSTING)
