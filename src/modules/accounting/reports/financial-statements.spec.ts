@@ -11,7 +11,7 @@ const JULY: AccountBalance[] = [
   a('5120', 'Communications', 'expense', 'VESSEL_OPEX', 229.68, 0),
   a('6030', 'Professional Fees', 'expense', 'ADMIN', 487.20, 0),
   a('6050', 'Software', 'expense', 'ADMIN', 2081.25, 0),
-  a('7110', 'Realized FX Gain', 'expense', 'FINANCE', 0, 56.40),
+  a('7110', 'Realized FX Gain', 'revenue', 'FINANCE', 0, 56.40),
   a('1600', 'Related Party Receivable', 'asset', 'RELATED_PARTY', 1176898.84, 0),
   a('1200', 'Prepayments', 'asset', 'PREPAYMENTS', 1692.00, 0),
   a('1015', 'Bank — USD', 'asset', 'BANK', 0, 1635.60),
@@ -23,8 +23,9 @@ const JULY: AccountBalance[] = [
 describe('قائمة الدخل', () => {
   it('1. الإيراد يُعرَض بطبيعته الدائنة موجباً', () => {
     const r = buildIncomeStatement(JULY);
-    expect(r.total_revenue).toBe(155000);
-    expect(r.sections[0].lines[0].amount).toBe(155000);
+    const charter = r.sections[0].lines.find((l) => l.code === '4010')!;
+    expect(charter.amount).toBe(155000);
+    expect(r.total_revenue).toBe(155056.40);   // ومعه مكسب الصرف 56.40
   });
 
   it('2. مصروفات التشغيل تُفصَل عن الإدارية', () => {
@@ -35,16 +36,18 @@ describe('قائمة الدخل', () => {
     expect(admin.total).toBe(2568.45);   // 487.20 + 2081.25
   });
 
-  it('3. مكسب الصرف يقلّل المصروف لأنه دائن', () => {
+  it('3. مكسب الصرف إيراد في دليل الحسابات الفعلي لا مصروف سالب', () => {
     const r = buildIncomeStatement(JULY);
-    expect(r.sections.find((s) => s.key === 'finance')!.total).toBe(-56.40);
+    expect(r.total_revenue).toBe(155056.40);          // 155,000 إيجار + 56.40 صرف
+    expect(r.sections.find((s) => s.key === 'finance')!.lines).toHaveLength(0);
   });
 
-  // 136,277.95 هي النتيجة **الصافية**. والتشغيلية بلا مكسب الصرف 136,221.55 —
-  // الفرق 56.40 وهو المكسب المحقَّق، وقد أُغفل في تقرير سابق فيُثبَّت هنا باختبار.
+  // 136,277.95 هي النتيجة الصافية. والتشغيلية بلا مكسب الصرف 136,221.55 — الفرق
+  // 56.40 مكسب محقَّق، أُغفل في تقرير سابق فيُثبَّت هنا باختبار.
+  // ملاحظة: 7110 مصنَّف إيراداً في دليل الحسابات الفعلي، فالنتيجة واحدة أيّاً كان.
   it('4. نتيجة يوليو الصافية تطابق المحسوب', () => {
     const r = buildIncomeStatement(JULY);
-    expect(r.total_expense).toBe(18722.05);
+    expect(r.total_expense).toBe(18778.45);
     expect(r.net_result).toBe(136277.95);
   });
 
@@ -55,7 +58,7 @@ describe('قائمة الدخل', () => {
     expect(other.lines).toHaveLength(1);
     expect(other.total).toBe(100);
     // ويدخل الإجمالي — الظهور ليس عزلاً
-    expect(r.total_expense).toBe(18822.05);
+    expect(r.total_expense).toBe(18878.45);
   });
 
   it('6. لا يظهر بند «غير مصنَّف» إن لم يوجد', () => {
