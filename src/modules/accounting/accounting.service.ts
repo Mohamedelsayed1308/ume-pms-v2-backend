@@ -181,12 +181,40 @@ export class AccountingService {
     if (role && await repo.findOne({ where: { legal_entity_id: body.legal_entity_id, system_role: role } })) {
       throw new ConflictException(`الدور ${role} مُسنَد لحساب آخر — الدور واحد لكل كيان`);
     }
+
+    /*
+     * الحساب الأب — تحقّق لا تخمين.
+     *
+     * الأب يجب أن يكون **تجميعياً**: حسابٌ عليه حركة ثم تُعلَّق تحته حسابات فرعية
+     * يجعل رصيده خليطاً من حركته وحركة أبنائه، فلا يُقرأ ولا يُجمَع.
+     * والمستوى يُشتقّ من الأب لا يُرسَل — إرساله يسمح بشجرة تكذب على نفسها.
+     */
+    const parentId = body?.parent_id ? String(body.parent_id) : null;
+    let level = 1;
+    if (parentId) {
+      const parent = await repo.findOne({ where: { id: parentId } });
+      if (!parent) throw new BadRequestException('الحساب الأب غير موجود');
+      if (parent.legal_entity_id !== body.legal_entity_id) {
+        throw new UnprocessableEntityException('الحساب الأب يخصّ كياناً قانونياً آخر');
+      }
+      if (parent.is_postable) {
+        throw new UnprocessableEntityException(
+          `الحساب ${parent.code} قابل للترحيل — لا يصلح أباً. اجعله تجميعياً أو اختر أباً آخر.`);
+      }
+      if (parent.account_type !== type) {
+        throw new UnprocessableEntityException(
+          `تصنيف الأب (${parent.account_type}) يخالف تصنيف الحساب (${type}) — الفرع يتبع أباه`);
+      }
+      level = Number(parent.level ?? 1) + 1;
+      if (level > 5) throw new UnprocessableEntityException('عمق الشجرة تجاوز خمسة مستويات');
+    }
+
     return repo.save(repo.create({
       legal_entity_id: body.legal_entity_id, code,
       name: String(body.name).trim(), name_ar: body?.name_ar ?? null,
       account_type: type, account_group: body?.account_group ?? null, system_role: role,
-      normal_balance: normal, parent_id: body?.parent_id ?? null,
-      level: Number(body?.level ?? 1),
+      normal_balance: normal, parent_id: parentId,
+      level,
       is_postable: body?.is_postable !== false,
       is_monetary: !!body?.is_monetary,
       is_related_party: !!body?.is_related_party,
