@@ -215,12 +215,17 @@ describe('P1.1A · نزاهة العملة', () => {
     expect(ecb.lines[0].fx_source).toBe('ECB');
   });
 
-  it('17-أ. مُنشئ السعر لا يُرحَّل بسعرٍ اعتمده بنفسه', () => {
+  it('17-أ. سعرٌ اعتمده منشئه يُرحَّل به — اشتراط الشخصين أُسقط بقرار تشغيلي', () => {
     const lines: LineInput[] = [
       { account_id: 'a-exp', debit: 100, transaction_currency: 'USD', fx_rate_id: 'fx-self-approved' },
       { account_id: 'a-ap', credit: 90, transaction_currency: 'EUR' },
     ];
-    expect(() => prepareLines(lines, ctx())).toThrow(/فصل الواجبات/);
+    // الباقي هو جوهر الضابط: الاعتماد فعلٌ منفصل مسجَّل — لا هويّة فاعله.
+    expect(prepareLines(lines, ctx()).lines[0].fx_source).toBe('ECB');
+    // وغير المعتمَد يبقى مرفوضاً مهما كان مصدره.
+    expect(() => prepareLines(
+      [{ ...lines[0], fx_rate_id: 'fx-ecb-unapproved' }, lines[1]], ctx(),
+    )).toThrow(/غير معتمَد/);
   });
 
   it('18. يرفض سعراً لزوج عملات مختلف أو لكيان آخر أو بمصدر FUNCTIONAL', () => {

@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException, ConflictException, UnprocessableEntityException, ForbiddenException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, ConflictException, UnprocessableEntityException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In } from 'typeorm';
 import { LegalEntity } from './entities/legal-entity.entity';
@@ -233,8 +233,12 @@ export class AccountingService {
   }
 
   /**
-   * اعتماد سعر صرف. الفصل مفروض على **مستوى المستخدم** لا الشاشة وحدها:
-   * مَن أنشأ السعر لا يعتمده مهما كانت صلاحياته.
+   * اعتماد سعر صرف — **فعل منفصل عن الإنشاء وإن قام به الشخص نفسه**.
+   *
+   * اشتراط معتمِدٍ ثانٍ أُسقط بقرار تشغيلي (مُدخِل البيانات واحد)، وبقي جوهر
+   * الضابط: السعر يُنشأ مسوّدة، ولا يُرحَّل به حتى يُختم بفاعلٍ ووقت. فالمراجعة
+   * خطوة مقصودة لا نتيجة تلقائية للإدخال.
+   *
    * والعملية idempotent — السعر المعتمَد يُعاد كما هو بلا خطأ ولا إعادة ختم.
    */
   async approveFxRate(id: string, userId: string | null) {
@@ -243,9 +247,6 @@ export class AccountingService {
     if (!fx) throw new NotFoundException('سعر الصرف غير موجود');
     if (fx.approved_by) return decorateFxRate(fx);
     if (!userId) throw new UnprocessableEntityException('الاعتماد يحتاج مستخدماً معروفاً');
-    if (fx.created_by && fx.created_by === userId) {
-      throw new ForbiddenException('مُنشئ السعر لا يعتمده — فصل الواجبات');
-    }
     fx.approved_by = userId;
     fx.approved_at = new Date();
     return decorateFxRate(await repo.save(fx));

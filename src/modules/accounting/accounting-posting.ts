@@ -216,12 +216,8 @@ export function prepareLines(inputs: LineInput[], ctx: PrepareContext): Prepared
           `${at}: سعر صرف غير معتمَد (${fx.source}) — الاعتماد شرط الترحيل مهما كان المصدر`,
         );
       }
-      // فصل الواجبات على مستوى المستخدم لا الشاشة: مَن أنشأ السعر لا يعتمده.
-      if (fx.created_by && fx.approved_by === fx.created_by) {
-        throw new UnprocessableEntityException(
-          `${at}: مُنشئ سعر الصرف اعتمده بنفسه — فصل الواجبات يمنع الترحيل به`,
-        );
-      }
+      // اشتراط معتمِدٍ ثانٍ أُسقط بقرار تشغيلي: مُدخِل البيانات واحد. والاعتماد
+      // يبقى فعلاً منفصلاً مسجَّلاً — فالسعر لا يُرحَّل به لأنه أُدخِل بل لأنه خُتم.
       // سعر لاحق لتاريخ القيد يعني تقييماً بمعلومة لم تكن متاحة وقت العملية.
       if (fx.rate_date > ctx.accounting_date) {
         throw new UnprocessableEntityException(
