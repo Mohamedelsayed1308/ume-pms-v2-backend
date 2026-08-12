@@ -61,6 +61,13 @@ export class AccountingController {
   @RequireScreen(SCREEN_ACCOUNTING_SETUP)
   createAccount(@Body() body: any) { return this.svc.createAccount(body); }
 
+  // إعداد لا حركة — على شاشة الإعداد وحدها.
+  @Put('accounts/:id/system-role')
+  @RequireScreen(SCREEN_ACCOUNTING_SETUP)
+  setAccountRole(@Param('id') id: string, @Body() body: any) {
+    return this.svc.setAccountSystemRole(id, body?.system_role ?? null);
+  }
+
   @Get('fx-rates')
   @RequireScreen(SCREEN_ACCOUNTING, SCREEN_ACCOUNTING_JOURNALS, SCREEN_ACCOUNTING_SETUP)
   listFxRates(@Query('legal_entity_id') id: string) { return this.svc.listFxRates(id); }

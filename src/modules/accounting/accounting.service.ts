@@ -196,6 +196,37 @@ export class AccountingService {
     }));
   }
 
+  /**
+   * إسناد دور نظام إلى حساب قائم — إعدادٌ لا حركة.
+   *
+   * الدور لا يُستبدل ضمناً: الحساب الذي يحمل دوراً يُفرَّغ صراحةً أولاً. تبديله
+   * صامتاً يعني أن قيوداً لاحقة تذهب إلى حساب آخر بلا أن يلاحظ أحد.
+   */
+  async setAccountSystemRole(id: string, role: string | null) {
+    const repo = this.ds.getRepository(AccountingAccount);
+    const acct = await repo.findOne({ where: { id } });
+    if (!acct) throw new NotFoundException('الحساب غير موجود');
+
+    if (role === null || role === '') {
+      acct.system_role = null;
+      return repo.save(acct);
+    }
+    const r = String(role).trim().toUpperCase();
+    if (!/^[A-Z][A-Z0-9_]{2,39}$/.test(r)) throw new BadRequestException('صيغة الدور غير صالحة');
+    if (acct.system_role && acct.system_role !== r) {
+      throw new ConflictException(
+        `الحساب يحمل الدور ${acct.system_role} — فرِّغه صراحةً قبل إسناد دور آخر`);
+    }
+    const holder = await repo.findOne({
+      where: { legal_entity_id: acct.legal_entity_id, system_role: r },
+    });
+    if (holder && holder.id !== id) {
+      throw new ConflictException(`الدور ${r} مُسنَد للحساب ${holder.code} — الدور واحد لكل كيان`);
+    }
+    acct.system_role = r;
+    return repo.save(acct);
+  }
+
   async listFxRates(entityId: string) {
     const rows = await this.ds.getRepository(AccountingFxRate).find({
       where: { legal_entity_id: entityId }, order: { rate_date: 'DESC' }, take: 500,
