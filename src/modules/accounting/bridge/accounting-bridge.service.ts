@@ -131,6 +131,36 @@ export class AccountingBridgeService {
     return row;
   }
 
+  /**
+   * نطاق الدفتر — المركب يتبع شركة، والشركة تتبع كياناً محاسبياً.
+   *
+   * دفتر Sivamar يخصّ مراكبها وحدها. وبقية مراكب الأسطول لشركات أخرى، فترحيل
+   * فاتورة إحداها هنا يخلط ذممَ كيانين — وهو خطأ لا يُكتشف إلا بعد الترحيل حيث
+   * لا تعديل. فيُمنع عند الباب.
+   *
+   * والفاتورة بلا مركب لا تُفترض داخل النطاق: الصمت استبعاد لا شمول.
+   */
+  private async assertInScope(entityId: string, vesselId: string | null, label: string) {
+    if (!vesselId) {
+      throw new UnprocessableEntityException(
+        `${label}: بلا مركب — لا يمكن نسبتها لكيان محاسبي. أسند المركب أولاً.`);
+    }
+    const [row] = await this.ds.query(
+      `SELECT v.name AS vessel, sc.name AS company, sc.legal_entity_id
+         FROM vessels v
+         LEFT JOIN shipping_companies sc ON sc.id = v.shipping_company_id
+        WHERE v.id = $1`, [vesselId]);
+    if (!row) throw new UnprocessableEntityException(`${label}: المركب غير موجود`);
+    if (!row.legal_entity_id) {
+      throw new UnprocessableEntityException(
+        `${label}: مركب ${row.vessel} تابع لـ${row.company ?? 'شركة غير محدَّدة'} وهي غير مربوطة بكيان محاسبي — خارج نطاق الدفتر`);
+    }
+    if (row.legal_entity_id !== entityId) {
+      throw new UnprocessableEntityException(
+        `${label}: مركب ${row.vessel} يخصّ كياناً محاسبياً آخر (${row.company}) — لا يُرحَّل في هذا الدفتر`);
+    }
+  }
+
   /** القيد القائم لهذا المصدر — يمنع الازدواج قبل أن يصطدم بفهرس قاعدة البيانات. */
   private async existingEntry(entityId: string, event: string, srcType: string, srcId: string) {
     const [e] = await this.ds.query(
@@ -149,6 +179,8 @@ export class AccountingBridgeService {
 
     const entityId = String(body?.legal_entity_id || '');
     await this.entity(entityId);
+
+    await this.assertInScope(entityId, inv.vessel_id ?? null, `الفاتورة ${inv.invoice_number}`);
 
     const dup = await this.existingEntry(entityId, 'invoice_accrual', 'invoice', invoiceId);
     if (dup) {
@@ -224,6 +256,8 @@ export class AccountingBridgeService {
 
     const entityId = String(body?.legal_entity_id || '');
     await this.entity(entityId);
+
+    await this.assertInScope(entityId, inv.vessel_id ?? null, `دفعة الفاتورة ${inv.invoice_number}`);
 
     const dup = await this.existingEntry(entityId, 'payment_settlement', 'payment', paymentId);
     if (dup) {
@@ -308,6 +342,8 @@ export class AccountingBridgeService {
 
     const entityId = String(body?.legal_entity_id || '');
     await this.entity(entityId);
+
+    await this.assertInScope(entityId, h.vessel_id ?? null, `مشارطة ${h.invoice_number}`);
 
     const dup = await this.existingEntry(entityId, 'invoice_accrual', 'hire_invoice', hireId);
     if (dup) {

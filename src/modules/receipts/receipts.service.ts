@@ -54,6 +54,7 @@ export class ReceiptsService {
    */
   pending(q: any) {
     const limit = Math.min(Number(q?.limit ?? 300), 1000);
+    const entityId = q?.legal_entity_id ? String(q.legal_entity_id) : null;
     return this.ds.query(
       `SELECT i.id, i.invoice_number, i.currency, i.total_amount, i.invoice_date,
               i.approval_status, i.vessel_id, i.supplier_id,
@@ -62,15 +63,18 @@ export class ReceiptsService {
          FROM invoices i
          LEFT JOIN suppliers s ON s.id = i.supplier_id
          LEFT JOIN vessels   v ON v.id = i.vessel_id
+         LEFT JOIN shipping_companies sc ON sc.id = v.shipping_company_id
         WHERE NOT EXISTS (
                 SELECT 1 FROM journal_entries je
                  WHERE je.source_type = 'invoice' AND je.source_id = i.id AND je.status <> 'void')
+          AND ($1::uuid IS NULL OR sc.legal_entity_id = $1::uuid)
         ORDER BY i.invoice_date DESC NULLS LAST
-        LIMIT $1`, [limit]);
+        LIMIT $2`, [entityId, limit]);
   }
 
   /** الأعداد التي تُعرض في البطاقات — محسوبة في قاعدة البيانات لا في المتصفّح. */
-  async pendingSummary() {
+  async pendingSummary(q: any) {
+    const entityId = q?.legal_entity_id ? String(q.legal_entity_id) : null;
     const [r] = await this.ds.query(
       `SELECT
          COUNT(*) FILTER (WHERE NOT posted AND receipts = 0)::int AS awaiting,
@@ -81,7 +85,10 @@ export class ReceiptsService {
                 (SELECT COUNT(*) FROM goods_service_receipts r WHERE r.invoice_id = i.id) AS receipts,
                 EXISTS (SELECT 1 FROM journal_entries je
                          WHERE je.source_type = 'invoice' AND je.source_id = i.id AND je.status <> 'void') AS posted
-           FROM invoices i) t`);
+           FROM invoices i
+           LEFT JOIN vessels v ON v.id = i.vessel_id
+           LEFT JOIN shipping_companies sc ON sc.id = v.shipping_company_id
+          WHERE ($1::uuid IS NULL OR sc.legal_entity_id = $1::uuid)) t`, [entityId]);
     return r;
   }
 

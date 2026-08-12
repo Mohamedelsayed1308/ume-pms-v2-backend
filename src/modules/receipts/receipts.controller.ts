@@ -21,7 +21,7 @@ export class ReceiptsController {
 
   @Get('receipts/summary')
   @RequireScreen('/dashboard/receipts', '/dashboard/invoices')
-  summary() { return this.svc.pendingSummary(); }
+  summary(@Query() q: any) { return this.svc.pendingSummary(q); }
 
   @Get('invoices/:id/receipts')
   @RequireScreen('/dashboard/invoices', '/dashboard/receipts')
