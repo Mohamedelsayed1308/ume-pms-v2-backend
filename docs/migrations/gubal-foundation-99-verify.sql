@@ -50,7 +50,7 @@ FROM (
   -- ── 12..17 · ما يجب ألّا يتحرّك ──
   UNION ALL SELECT '12 · عدد القيود', '2',
          (SELECT COUNT(*)::text FROM journal_entries)
-  UNION ALL SELECT '13 · إجمالي أسطر القيود', '13',
+  UNION ALL SELECT '13 · إجمالي أسطر القيود (13 مُرحَّل + 13 ملغاة)', '26',
          (SELECT COUNT(*)::text FROM journal_lines)
   UNION ALL SELECT '14 · OJ-2026-00001 مُرحَّل', 'posted',
          (SELECT COALESCE(status,'(مفقود)') FROM journal_entries WHERE entry_no='OJ-2026-00001')
