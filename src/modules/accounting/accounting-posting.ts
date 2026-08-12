@@ -42,6 +42,7 @@ export interface AccountRef {
   is_active: boolean;
   is_postable: boolean;
   currency_restriction: string | null;
+  account_type?: string;
   code?: string;
   name?: string;
 }
@@ -288,6 +289,69 @@ export function assertDateInPeriod(accountingDate: string, period: PeriodRef): v
       `تاريخ القيد (${accountingDate}) خارج الفترة ${period.name ?? period.period_no} ` +
       `[${period.start_date} → ${period.end_date}]`,
     );
+  }
+}
+
+/** الحدث الوحيد الذي تخصّه الفترة الافتتاحية. */
+export const OPENING_EVENT = 'opening_balance';
+
+/**
+ * ── اختيار الفترة · الفترة 0 ليست يناير ──
+ *
+ * الفترة الافتتاحية والفترة الأولى **تتقاطعان في يوم واحد**: كلتاهما تغطّي
+ * 2026-01-01. فاختيار «أول فترة تغطّي التاريخ» كان سيرسل كل حركة يناير الأولى
+ * إلى الفترة الافتتاحية — ويخلط الرصيد المُرحَّل بنشاط السنة.
+ *
+ * القاعدة: **نوع الحدث هو ما يفصل، لا التاريخ.**
+ *   opening_balance → الفترة 0 حصراً
+ *   أي حدث آخر      → الفترة التشغيلية (period_no > 0)
+ *
+ * وبذلك يبقى 01/01/2026 تاريخاً واحداً يحمل معنيين منفصلين تماماً: رصيد مُرحَّل
+ * في الفترة 0، وحركة تشغيلية في يناير — ولا يختلطان أبداً.
+ */
+export function selectPeriod(eventType: string, candidates: PeriodRef[]): PeriodRef {
+  const opening = candidates.filter((p) => p.period_no === 0);
+  const operational = candidates.filter((p) => p.period_no > 0)
+    .sort((a, b) => a.period_no - b.period_no);
+
+  if (eventType === OPENING_EVENT) {
+    if (!opening.length) {
+      throw new UnprocessableEntityException(
+        'لا توجد فترة افتتاحية تغطّي هذا التاريخ — الرصيد المُرحَّل يخصّ الفترة 0 وحدها',
+      );
+    }
+    return opening[0];
+  }
+
+  if (!operational.length) {
+    throw new UnprocessableEntityException(
+      'التاريخ لا تغطّيه فترة تشغيلية — الفترة الافتتاحية للأرصدة المُرحَّلة فقط',
+    );
+  }
+  return operational[0];
+}
+
+/**
+ * الرصيد الافتتاحي يمسّ المركز المالي لا نتيجة السنة.
+ *
+ * حسابات الإيرادات والمصروفات تبدأ السنة من الصفر بحكم الإقفال؛ فتحميلها برصيد
+ * مُرحَّل يحقن نشاطاً في قائمة دخل 2026 لم يحدث فيها. ما يُرحَّل من نتيجة السنوات
+ * السابقة يدخل حقوق الملكية (أرباح مُرحَّلة) لا حساب الإيراد أو المصروف.
+ *
+ * هذا يجعل «القيد الافتتاحي لا يؤثر على نتيجة 2026» **بنية لا عُرفاً**.
+ */
+export function assertOpeningBalanceAccounts(
+  lines: { account_id: string; line_no: number }[],
+  accounts: Map<string, AccountRef>,
+): void {
+  for (const l of lines) {
+    const t = accounts.get(l.account_id)?.account_type;
+    if (t === 'revenue' || t === 'expense') {
+      throw new UnprocessableEntityException(
+        `السطر ${l.line_no}: الرصيد الافتتاحي لا يُحمَّل على حساب ${t === 'revenue' ? 'إيراد' : 'مصروف'} — ` +
+        'نتيجة السنوات السابقة تُرحَّل إلى حقوق الملكية',
+      );
+    }
   }
 }
 

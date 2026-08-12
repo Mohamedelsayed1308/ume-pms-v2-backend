@@ -384,3 +384,82 @@ describe('P1.1A · دورة حياة القيد', () => {
     expect(td).toBe(tc);
   });
 });
+
+// ═══ 9 · الفترة الافتتاحية · P1.1A.1 ══════════════════════════════════════
+import { selectPeriod, assertOpeningBalanceAccounts, OPENING_EVENT } from './accounting-posting';
+
+describe('P1.1A.1 · دلالات الفترة الافتتاحية', () => {
+  const P0 = period({ id: 'p-0', period_no: 0, name: 'افتتاحي 2026',
+    start_date: '2026-01-01', end_date: '2026-01-01' });
+  const P1 = period({ id: 'p-1', period_no: 1, name: '2026-01',
+    start_date: '2026-01-01', end_date: '2026-01-31' });
+  const P2 = period({ id: 'p-2', period_no: 2, name: '2026-02',
+    start_date: '2026-02-01', end_date: '2026-02-28' });
+
+  it('39. الفترة 0 تقع داخل السنة المالية لا قبلها — 31/12/2025 ليست فترة في FY2026', () => {
+    expect(P0.start_date).toBe('2026-01-01');
+    expect(P0.end_date).toBe('2026-01-01');
+    // لا فترة تغطّي يوم إقفال السنة السابقة
+    const covering = [P0, P1, P2].filter((p) => p.start_date <= '2025-12-31' && p.end_date >= '2025-12-31');
+    expect(covering).toEqual([]);
+  });
+
+  it('40. قيد افتتاحي بتاريخ 01/01/2026 يذهب للفترة 0', () => {
+    expect(selectPeriod(OPENING_EVENT, [P0, P1]).period_no).toBe(0);
+  });
+
+  it('41. قيد تشغيلي بنفس التاريخ يذهب ليناير لا للفترة 0 — التاريخ واحد والمعنى مختلف', () => {
+    for (const evt of ['manual', 'invoice_accrual', 'payment_settlement', 'adjustment', 'reversal']) {
+      expect(selectPeriod(evt, [P0, P1]).period_no).toBe(1);
+    }
+  });
+
+  it('42. الفترة 0 لا تبتلع حركة لا تخصّها ولو كانت وحدها', () => {
+    expect(() => selectPeriod('manual', [P0])).toThrow(/فترة تشغيلية/);
+  });
+
+  it('43. القيد الافتتاحي لا يُقبل خارج الفترة 0', () => {
+    expect(() => selectPeriod(OPENING_EVENT, [P1])).toThrow(/فترة افتتاحية/);
+    expect(() => selectPeriod(OPENING_EVENT, [P2])).toThrow(/فترة افتتاحية/);
+  });
+
+  it('44. حركة فبراير تختار فبراير — الاختيار لا يتأثر بوجود الفترة 0', () => {
+    expect(selectPeriod('manual', [P2]).period_no).toBe(2);
+  });
+
+  it('45. الرصيد الافتتاحي مرفوض على حسابات الإيراد والمصروف — لا يحقن نتيجة في 2026', () => {
+    const accts = new Map<string, AccountRef>([
+      ['a-bank', acct('a-bank', { account_type: 'asset' })],
+      ['a-eq',   acct('a-eq',   { account_type: 'equity' })],
+      ['a-ap',   acct('a-ap',   { account_type: 'liability' })],
+      ['a-rev',  acct('a-rev',  { account_type: 'revenue' })],
+      ['a-exp2', acct('a-exp2', { account_type: 'expense' })],
+    ]);
+    const L = (id: string, no: number) => ({ account_id: id, line_no: no });
+    // المركز المالي: أصول · التزامات · حقوق ملكية → مقبول
+    expect(() => assertOpeningBalanceAccounts([L('a-bank', 1), L('a-ap', 2), L('a-eq', 3)], accts)).not.toThrow();
+    // نتيجة السنة → مرفوض
+    expect(() => assertOpeningBalanceAccounts([L('a-bank', 1), L('a-rev', 2)], accts)).toThrow(/إيراد/);
+    expect(() => assertOpeningBalanceAccounts([L('a-bank', 1), L('a-exp2', 2)], accts)).toThrow(/مصروف/);
+  });
+
+  it('46. تاريخ المستند قد يكون 31/12/2025 بينما تاريخ الأثر 01/01/2026', () => {
+    // تاريخان منفصلان بالتصميم: مصدر الرصيد ≠ الفترة التي يقع فيها أثره
+    const sourceBalanceDate = '2025-12-31';
+    const openingEffective = '2026-01-01';
+    expect(sourceBalanceDate < openingEffective).toBe(true);
+    expect(selectPeriod(OPENING_EVENT, [P0, P1]).start_date).toBe(openingEffective);
+  });
+
+  it('47. حراس الفترة لم تُضعَف — الإقفال ما زال يمنع', () => {
+    expect(() => assertPeriodAcceptsPosting({ ...P0, status: 'hard_closed' }, OPENING_EVENT)).toThrow(/نهائياً/);
+    expect(() => assertPeriodAcceptsPosting({ ...P0, status: 'soft_closed' }, OPENING_EVENT)).toThrow(/مبدئياً/);
+    expect(() => assertPeriodAcceptsPosting(P0, OPENING_EVENT)).not.toThrow();
+  });
+
+  it('48. التوازن والثبات وبقية الضوابط تسري على القيد الافتتاحي كغيره', () => {
+    const p = prepareLines(eurPair(50000), ctx({ accounting_date: '2026-01-01' }));
+    expect(() => assertBalanced(p)).not.toThrow();
+    expect(() => assertCanEditDraft('posted')).toThrow();
+  });
+});

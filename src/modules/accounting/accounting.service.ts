@@ -14,6 +14,7 @@ import {
   prepareLines, assertBalanced, assertDateInPeriod, assertPeriodAcceptsPosting,
   resolveBackdating, formatEntryNo, assertCanEditDraft, assertCanPost, assertCanReverse,
   buildReversalLines, assertReversalDate, assertIsoDate, totalsByCurrency, round2,
+  selectPeriod, assertOpeningBalanceAccounts, OPENING_EVENT,
   LineInput, AccountRef, FxRateRef, PreparedLine,
 } from './accounting-posting';
 
@@ -102,8 +103,12 @@ export class AccountingService {
 
   /**
    * السنة المالية وفتراتها معاً في معاملة واحدة.
-   * الفترة 0 هي **الافتتاحية** بيوم واحد قبل بداية السنة: تفصل الرصيد المُرحَّل
-   * من السنة السابقة عن حركة يناير، فيبقى ميزان الافتتاح قابلاً للعزل والمراجعة.
+   *
+   * الفترة 0 هي **الافتتاحية، وتقع في أول يوم من السنة المالية نفسها** لا قبلها.
+   * الرصيد المُرحَّل يُثبَت **بأثر 01/01/2026** — أما 31/12/2025 فهو تاريخ مصدر
+   * الرصيد (إقفال السنة السابقة) ولا يُعدّ فترة تابعة لـFY2026.
+   *
+   * الفصل بين الفترة 0 ويناير يتمّ بنوع الحدث لا بالتاريخ — انظر `selectPeriod`.
    */
   async createFiscalYear(body: any) {
     const entity = await this.mustFindEntity(body?.legal_entity_id);
@@ -125,7 +130,7 @@ export class AccountingService {
       const periods: Partial<FiscalPeriod>[] = [{
         legal_entity_id: entity.id, fiscal_year_id: fy.id, period_no: 0,
         name: `افتتاحي ${year}`,
-        start_date: `${year - 1}-12-31`, end_date: `${year - 1}-12-31`, status: 'open',
+        start_date: start, end_date: start, status: 'open',
       }];
       for (let p = 1; p <= 12; p++) {
         const mm = String(p).padStart(2, '0');
@@ -257,6 +262,10 @@ export class AccountingService {
       const ctx = await this.resolveContext(m, dto);
       const prepared = prepareLines(dto.lines, ctx.prepare);
       assertBalanced(prepared);
+      // الرصيد الافتتاحي يمسّ المركز المالي لا نتيجة السنة
+      if ((dto.accounting_event_type || 'manual') === OPENING_EVENT) {
+        assertOpeningBalanceAccounts(prepared.lines, ctx.prepare.accounts);
+      }
 
       const back = resolveBackdating(dto.accounting_date, todayIso(), dto.backdated_reason);
       const eventType = dto.accounting_event_type || 'manual';
@@ -587,17 +596,21 @@ export class AccountingService {
     if (!journal.is_active) throw new UnprocessableEntityException('الدفتر غير نشط');
 
     // الفترة تُشتق من التاريخ لا تُختار: اختيارها يدوياً يفتح باب قيد في فترة لا تخصّه.
-    const period = await m.createQueryBuilder(FiscalPeriod, 'p')
+    // لكن التاريخ وحده لا يكفي: الفترة 0 ويناير يتقاطعان في 01/01، فيفصل بينهما
+    // **نوع الحدث** — القرار في `selectPeriod` وحده، ومُختبَر منفصلاً عن القاعدة.
+    const candidates = await m.createQueryBuilder(FiscalPeriod, 'p')
       .where('p.legal_entity_id = :le', { le: entity.id })
       .andWhere('p.start_date <= :d AND p.end_date >= :d', { d: dto.accounting_date })
       .orderBy('p.period_no', 'ASC')
-      .getOne();
-    if (!period) {
+      .getMany();
+    if (!candidates.length) {
       throw new UnprocessableEntityException(
         `لا توجد فترة محاسبية تغطّي ${dto.accounting_date} — أنشئ السنة المالية أولاً`,
       );
     }
-    assertPeriodAcceptsPosting(period as any, dto.accounting_event_type || 'manual');
+    const eventType = dto.accounting_event_type || 'manual';
+    const period = selectPeriod(eventType, candidates as any);
+    assertPeriodAcceptsPosting(period as any, eventType);
 
     const lineInputs = Array.isArray(dto.lines) ? dto.lines : [];
     const accountIds = [...new Set(lineInputs.map((l) => l?.account_id).filter(Boolean))];
