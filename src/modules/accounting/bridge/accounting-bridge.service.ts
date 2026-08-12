@@ -87,6 +87,50 @@ export class AccountingBridgeService {
     return j;
   }
 
+  private async supplierDefault(entityId: string, supplierId: string) {
+    const [d] = await this.ds.query(
+      'SELECT * FROM supplier_accounting_defaults WHERE legal_entity_id = $1 AND supplier_id = $2',
+      [entityId, supplierId]);
+    return d ?? null;
+  }
+
+  /** قراءة وكتابة افتراضيات المورّد — إعدادٌ لا حركة. */
+  listSupplierDefaults(entityId: string) {
+    return this.ds.query(
+      `SELECT d.*, s.name AS supplier_name, a.code AS account_code, a.name AS account_name
+         FROM supplier_accounting_defaults d
+         JOIN suppliers s ON s.id = d.supplier_id
+         JOIN accounting_accounts a ON a.id = d.debit_account_id
+        WHERE d.legal_entity_id = $1
+        ORDER BY s.name`, [entityId]);
+  }
+
+  async setSupplierDefault(body: any, userId: string | null) {
+    const entityId = String(body?.legal_entity_id || '');
+    await this.entity(entityId);
+    const supplierId = String(body?.supplier_id || '');
+    const cat = String(body?.accrual_category || '').toUpperCase();
+    if (cat !== 'GOODS' && cat !== 'PERIOD_SERVICE') {
+      throw new BadRequestException('accrual_category يجب أن تكون GOODS أو PERIOD_SERVICE');
+    }
+    const acct = await this.accountById(entityId, String(body?.debit_account_id || ''), 'حساب المصروف');
+    if (acct.account_type !== 'expense' && acct.account_type !== 'asset') {
+      throw new UnprocessableEntityException(
+        `حساب ${acct.code} تصنيفه ${acct.account_type} — الافتراضي يكون مصروفاً أو أصلاً`);
+    }
+    const [row] = await this.ds.query(
+      `INSERT INTO supplier_accounting_defaults
+         (legal_entity_id, supplier_id, debit_account_id, accrual_category, notes, updated_by)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (legal_entity_id, supplier_id) DO UPDATE
+         SET debit_account_id = EXCLUDED.debit_account_id,
+             accrual_category = EXCLUDED.accrual_category,
+             notes = EXCLUDED.notes, updated_by = EXCLUDED.updated_by, updated_at = now()
+       RETURNING *`,
+      [entityId, supplierId, acct.id, cat, body?.notes ?? null, userId]);
+    return row;
+  }
+
   /** القيد القائم لهذا المصدر — يمنع الازدواج قبل أن يصطدم بفهرس قاعدة البيانات. */
   private async existingEntry(entityId: string, event: string, srcType: string, srcId: string) {
     const [e] = await this.ds.query(
@@ -112,10 +156,15 @@ export class AccountingBridgeService {
         `للفاتورة قيد استحقاق بالفعل (${dup.entry_no ?? 'مسوّدة'} · ${dup.status}) — لا تُستحقّ مرتين`);
     }
 
+    // افتراضي المورّد يملأ ما لم يُعطَ — والطلب يعلو عليه دائماً، فالمُعِدّ هو
+    // من يوقّع على التصنيف لا صفٌّ في جدول إعدادات.
+    const preset = inv.supplier_id ? await this.supplierDefault(entityId, inv.supplier_id) : null;
+
     // الأهلية أولاً: الفاتورة تُثبت المطالبة لا الاستلام.
-    const category = String(body?.category || '').toUpperCase() as AccrualCategory;
+    const category = String(body?.category || preset?.accrual_category || '').toUpperCase() as AccrualCategory;
     if (category !== 'GOODS' && category !== 'PERIOD_SERVICE') {
-      throw new BadRequestException('category يجب أن تكون GOODS أو PERIOD_SERVICE');
+      throw new BadRequestException(
+        'category يجب أن تكون GOODS أو PERIOD_SERVICE — لا في الطلب ولا في افتراضي المورّد');
     }
     const receipts = await this.ds.query(
       'SELECT receipt_type, received_date FROM goods_service_receipts WHERE invoice_id = $1', [invoiceId]);
@@ -128,7 +177,12 @@ export class AccountingBridgeService {
       throw new UnprocessableEntityException(`غير مؤهَّلة للاستحقاق — ${verdict.reason}`);
     }
 
-    const debitAccount = await this.accountById(entityId, String(body?.debit_account_id || ''), 'حساب المدين');
+    const debitId = String(body?.debit_account_id || preset?.debit_account_id || '');
+    if (!debitId) {
+      throw new BadRequestException(
+        'حساب المصروف مطلوب — أرسله في الطلب أو أسند افتراضياً لهذا المورّد');
+    }
+    const debitAccount = await this.accountById(entityId, debitId, 'حساب المدين');
     const payable = body?.payable_account_id
       ? await this.accountById(entityId, body.payable_account_id, 'حساب الدائن')
       : await this.byRole(entityId, 'AP_CONTROL');

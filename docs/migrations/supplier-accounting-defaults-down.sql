@@ -1,0 +1,6 @@
+-- SUPPLIER ACCOUNTING DEFAULTS — DOWN
+BEGIN;
+
+DROP TABLE IF EXISTS supplier_accounting_defaults;
+
+COMMIT;

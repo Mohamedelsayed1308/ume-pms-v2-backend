@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CommonAuthzModule } from '../../common/common-authz.module';
 import { AccountingController } from './accounting.controller';
+import { SupplierAccountingDefault } from './bridge/supplier-default.entity';
 import { AccountingBridgeController } from './bridge/accounting-bridge.controller';
 import { AccountingBridgeService } from './bridge/accounting-bridge.service';
 import { AccountingService } from './accounting.service';
@@ -24,7 +25,7 @@ import { JournalLine } from './entities/journal-line.entity';
   imports: [
     TypeOrmModule.forFeature([
       LegalEntity, CostCenter, AccountingAccount, Journal,
-      FiscalYear, FiscalPeriod, AccountingFxRate, JournalEntry, JournalLine,
+      FiscalYear, FiscalPeriod, AccountingFxRate, JournalEntry, JournalLine, SupplierAccountingDefault,
     ]),
     CommonAuthzModule,
   ],

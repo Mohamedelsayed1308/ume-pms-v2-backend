@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Param, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Body, Param, Query, Req, UseGuards } from '@nestjs/common';
 import { AccountingBridgeService } from './accounting-bridge.service';
 import { JwtAuthGuard } from '../../../common/jwt-auth.guard';
 import { ScreenGuard } from '../../../common/screen.guard';
@@ -32,6 +32,12 @@ export class AccountingBridgeController {
   hireInvoice(@Param('id') id: string, @Body() body: any, @Req() req: any) {
     return this.svc.postHireInvoice(id, body, this.uid(req));
   }
+
+  @Get('supplier-defaults')
+  listSupplierDefaults(@Query('legal_entity_id') id: string) { return this.svc.listSupplierDefaults(id); }
+
+  @Put('supplier-defaults')
+  setSupplierDefault(@Body() body: any, @Req() req: any) { return this.svc.setSupplierDefault(body, this.uid(req)); }
 
   @Post('revenue-release')
   revenueRelease(@Body() body: any, @Req() req: any) {
