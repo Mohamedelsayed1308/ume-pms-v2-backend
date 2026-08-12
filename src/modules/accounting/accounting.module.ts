@@ -3,6 +3,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { CommonAuthzModule } from '../../common/common-authz.module';
 import { AccountingController } from './accounting.controller';
 import { SupplierAccountingDefault } from './bridge/supplier-default.entity';
+import { AccountingReportsController } from './reports/reports.controller';
+import { AccountingReportsService } from './reports/reports.service';
 import { AccountingBridgeController } from './bridge/accounting-bridge.controller';
 import { AccountingBridgeService } from './bridge/accounting-bridge.service';
 import { AccountingService } from './accounting.service';
@@ -29,7 +31,7 @@ import { JournalLine } from './entities/journal-line.entity';
     ]),
     CommonAuthzModule,
   ],
-  controllers: [AccountingController, AccountingBridgeController],
-  providers: [AccountingService, AccountingBridgeService],
+  controllers: [AccountingController, AccountingBridgeController, AccountingReportsController],
+  providers: [AccountingService, AccountingBridgeService, AccountingReportsService],
 })
 export class AccountingModule {}
