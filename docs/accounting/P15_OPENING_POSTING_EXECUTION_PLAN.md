@@ -47,10 +47,10 @@ MANAGEMENT_APPROVED_PROVISIONAL_EQUITY   1   (3100)
 
 ```
 الملف    docs/accounting/sivamar-opening-manifest-2026.json
-bytes    4411   ·   LF فقط   ·   صفر CRLF
+bytes    4425   ·   LF فقط   ·   صفر CRLF
 
-records sha256   b6a71a1e08055018a2d131d909d442598147d675d5e13ff691a9ace5ab2d5b08
-file    sha256   74aa69870f2a44dd116ef589bee817994475eb0c7ee66e7220ad0b445be2e616
+records sha256   eafbf5440c852699a349a74d3c15bcd706f44bec9b9946ff9be98d75da3c8524
+file    sha256   77736e47bee2ba8451b3f94d9ff737d0764564b6220bbb2e0dc0a5829659ed6e
 ```
 
 **البصمة تُعاد وتُطابق قبل التنفيذ مباشرة.** أي اختلاف ⇒ توقّف.
@@ -72,7 +72,7 @@ source_type       opening                source_id         00000000-0000-4000-80
 | 1 | 1010 | Bank — EUR | 88,218.66 | | `10 · Banks Eur` | `UNVERIFIED_OPENING` |
 | 2 | 1100 | Accounts Receivable — Trade | 925,973.06 | | `11000` | `UNVERIFIED_OPENING` |
 | 3 | 1210 | Deferred Expenses | 35,717.61 | | `14` | `UNVERIFIED_OPENING` |
-| 4 | 1300 | Dry Dock — Deferred Cost | 767,982.79 | | `1601` | `UNVERIFIED_OPENING` |
+| 4 | 1300 | Dry Dock / Major Overhaul — Unverified Opening | 767,982.79 | | `1601` | `UNVERIFIED_OPENING` |
 | 5 | 1510 | Vessels — Cost | 1,653,446.00 | | `15001` | `TB_CONFIRMED` |
 | 6 | 1600 | Related Party Receivable | 951,898.84 | | `330102` | `MANAGEMENT_CLASSIFIED` |
 | 7 | 1520 | Accumulated Depreciation — Vessels | | 661,378.56 | `15002` | `TB_CONFIRMED` |
@@ -239,7 +239,7 @@ GET /api/accounting/trial-balance?legal_entity_id=…
   1010  البنك — EUR                          88,218.66
   1100  الذمم المدينة — تجارية               925,973.06
   1210  مصروفات مؤجّلة                        35,717.61
-  1300  دُراي دوك — تكلفة مؤجّلة              767,982.79
+  1300  دُراي دوك / عمرة رئيسية               767,982.79
   1510  المراكب — التكلفة                 1,653,446.00
   1520  مجمّع الإهلاك                      (661,378.56)
   1600  ذمم مدينة — أطراف مرتبطة            951,898.84
@@ -330,9 +330,9 @@ REVOKE + RLS                لا التفاف من الـData API
 
 | # | الإقرار |
 |---|---|
-| 1 | البيان `74aa6987…` هو المعتمَد · السطور الثلاثة عشر والمبالغ صحيحة |
+| 1 | البيان `77736e47…` هو المعتمَد · السطور الثلاثة عشر والمبالغ صحيحة |
 | 2 | الافتتاح على أساس بيانات إدارة **غير مدقَّقة** · لا دليل خارجي لأي سطر |
-| 3 | `1300` دُراي دوك و`1210` مصروفات مؤجّلة يُحمَلان **بلا تصنيف مؤكَّد** |
+| 3 | `1300` دُراي دوك و`1210` مصروفات مؤجّلة يُحمَلان **بلا تصنيف مؤكَّد** — واسم `1300` محايد لا يفترض معالجة |
 | 4 | بعد الترحيل لا تعديل — التصحيح بقيد تسوية مؤرَّخ مستقل |
 
 **ولا ترحيل قبل صدور الإقرار.**
@@ -364,7 +364,7 @@ REVOKE + RLS                لا التفاف من الـData API
 
 ```
 GATES              PASS 12 · FAIL 0 · PENDING 0
-MANIFEST           74aa69870f2a44dd116ef589bee817994475eb0c7ee66e7220ad0b445be2e616
+MANIFEST           77736e47bee2ba8451b3f94d9ff737d0764564b6220bbb2e0dc0a5829659ed6e
 LINES              13 · متوازن عند 4,423,236.96 · معلّق صفر
 PRODUCTION         journal_entries = 0 · journal_lines = 0
 ```

@@ -58,7 +58,7 @@
 | 1100 | Accounts Receivable — Trade | 1000 | RECEIVABLES | `AR_CONTROL` | ✓ | ✓ | **✓** | |
 | 1200 | Prepayments | 1000 | PREPAYMENTS | — | ✓ | | | |
 | 1210 | Deferred Expenses | 1000 | PREPAYMENTS | — | ✓ | | | |
-| 1300 | Dry Dock — Deferred Cost | 1000 | DRY_DOCK | — | ✓ | | | |
+| 1300 | Dry Dock / Major Overhaul — Unverified Opening | 1000 | DRY_DOCK | — | ✓ | | | |
 | 1500 | Fixed Assets — Vessels | 1000 | FIXED_ASSETS | — | **✗** | | | |
 | 1510 | Vessels — Cost | 1500 | FIXED_ASSETS | — | ✓ | | | |
 | 1520 | Accumulated Depreciation — Vessels ‹دائن› | 1500 | FIXED_ASSETS | `ACCUMULATED_DEPRECIATION` | ✓ | | | |
@@ -148,8 +148,8 @@
 | 5 | `12000 · Undeposited Funds` | 0.00 | **1050** | Funds in Transit | ZERO_BALANCE |
 | 6 | `13 · Prepayment` | 0.00 | **1200** | Prepayments | ZERO_BALANCE |
 | 7 | `14 · Deferred Expenses` | 35,717.61 Dr | **1210** | Deferred Expenses | CONDITIONAL |
-| 8 | `16 · Dry Dock overhaul2023` | 0.00 | **1300** | Dry Dock — Deferred | ZERO_BALANCE |
-| 9 | `1601 · Dry Dock overhaul2026` | 767,982.79 Dr | **1300** | Dry Dock — Deferred | **BLOCKED** |
+| 8 | `16 · Dry Dock overhaul2023` | 0.00 | **1300** | Dry Dock / Major Overhaul | ZERO_BALANCE |
+| 9 | `1601 · Dry Dock overhaul2026` | 767,982.79 Dr | **1300** | Dry Dock / Major Overhaul | **BLOCKED** |
 | 10 | `15001 · MV Gubal Trader` | 1,653,446.00 Dr | **1510** | Vessels — Cost | CARRY_FORWARD |
 | 11 | `15002 · Accumulated Depreciation` | 661,378.56 Cr | **1520** | Accum. Dep. — Vessels | CARRY_FORWARD |
 | 12 | `20000 · Accounts Payable` | 450.00 Cr | **2010** | AP — Trade | CARRY_FORWARD · يلزم كشف |
