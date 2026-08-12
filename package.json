@@ -28,7 +28,6 @@
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/serve-static": "^5.0.5",
-    "@nestjs/swagger": "^11.4.5",
     "@nestjs/typeorm": "^11.0.3",
     "@supabase/supabase-js": "^2.110.7",
     "axios": "^1.18.1",
@@ -40,7 +39,6 @@
     "pg": "^8.22.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "swagger-ui-express": "^5.0.1",
     "typeorm": "^1.1.0",
     "xlsx": "^0.18.5"
   },
@@ -88,10 +86,5 @@
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"
-  },
-  "overrides": {
-    "@nestjs/swagger": {
-      "js-yaml": "^5.2.3"
-    }
   }
 }
