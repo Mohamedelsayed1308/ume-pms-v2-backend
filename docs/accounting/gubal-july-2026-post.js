@@ -49,7 +49,12 @@ async function context() {
   return CTX;
 }
 
-/** يبني وصف قيدٍ واحد. لا يرسل شيئاً. */
+/**
+ * يبني وصف قيدٍ واحد. لا يرسل شيئاً.
+ *
+ * كل قيود التجربة بأثر رجعي — معاملات مايو ويوليو تُثبَت في أغسطس — والمحرّك
+ * يرفض ذلك بلا سبب مكتوب. فالسبب يُصرَّح به لكل قيد بدل أن يُلتفّ على الضابط.
+ */
 function entry(c, { journal, date, desc, ref, event, srcType, srcId, lines }) {
   return {
     legal_entity_id: E, journal_id: c.J[journal],
@@ -57,6 +62,9 @@ function entry(c, { journal, date, desc, ref, event, srcType, srcId, lines }) {
     description: desc, reference: ref || null,
     accounting_event_type: event,
     source_type: srcType || null, source_id: srcId || null, source_reference: ref || null,
+    backdated_reason:
+      `تجربة Gubal المحاسبية الأولى — إثبات معاملة ${date} ضمن دورة يوليو 2026 المعتمَدة. ` +
+      `الدفتر بدأ التشغيل الفعلي في أغسطس 2026 بعد اكتمال ضوابط الأساس.`,
     lines,
   };
 }
