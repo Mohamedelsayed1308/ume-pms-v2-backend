@@ -32,16 +32,24 @@ const ACC = new Map<string, AccountRef>([
   ['a-foreign', acct('a-foreign', { legal_entity_id: OTHER_LE })],
 ]);
 
+// الافتراضي سعر **معتمَد بالأصول**: أنشأه مُعِدّ واعتمده شخص آخر. الاعتماد صار
+// شرط ترحيل لكل مصدر، فالسعر غير المعتمَد حالة اختبار لا حالة افتراضية.
 const fx = (id: string, over: Partial<FxRateRef> = {}): FxRateRef => ({
   id, legal_entity_id: LE, currency_from: 'USD', currency_to: 'EUR',
-  rate: 0.9, rate_date: '2026-03-10', source: 'ECB', approved_by: null, ...over,
+  rate: 0.9, rate_date: '2026-03-10', source: 'ECB',
+  created_by: 'u-prep', approved_by: 'u-post', approved_at: '2026-03-11T00:00:00.000Z', ...over,
 });
+
+const UNAPPROVED: Partial<FxRateRef> = { approved_by: null, approved_at: null };
 
 const FX = new Map<string, FxRateRef>([
   ['fx-usd', fx('fx-usd')],
   ['fx-future', fx('fx-future', { rate_date: '2026-12-31' })],
-  ['fx-manual-unapproved', fx('fx-manual-unapproved', { source: 'MANUAL_APPROVED' })],
+  ['fx-manual-unapproved', fx('fx-manual-unapproved', { source: 'MANUAL_APPROVED', ...UNAPPROVED })],
   ['fx-manual-approved', fx('fx-manual-approved', { source: 'MANUAL_APPROVED', approved_by: 'u-1' })],
+  ['fx-ecb-unapproved', fx('fx-ecb-unapproved', { source: 'ECB', ...UNAPPROVED })],
+  ['fx-ecb-no-timestamp', fx('fx-ecb-no-timestamp', { approved_by: 'u-post', approved_at: null })],
+  ['fx-self-approved', fx('fx-self-approved', { created_by: 'u-same', approved_by: 'u-same' })],
   ['fx-wrong-pair', fx('fx-wrong-pair', { currency_from: 'SAR' })],
   ['fx-other-entity', fx('fx-other-entity', { legal_entity_id: OTHER_LE })],
   ['fx-functional', fx('fx-functional', { source: 'FUNCTIONAL' })],
@@ -190,16 +198,29 @@ describe('P1.1A · نزاهة العملة', () => {
     ], ctx())).toThrow(/بعد تاريخ القيد/);
   });
 
-  it('17. يرفض السعر اليدوي بلا معتمِد ويقبله باعتماد', () => {
-    const bad: LineInput[] = [
-      { account_id: 'a-exp', debit: 100, transaction_currency: 'USD', fx_rate_id: 'fx-manual-unapproved' },
+  it('17. الاعتماد شرط ترحيل لكل مصدر — لا استثناء لـECB', () => {
+    const withRate = (id: string): LineInput[] => ([
+      { account_id: 'a-exp', debit: 100, transaction_currency: 'USD', fx_rate_id: id },
+      { account_id: 'a-ap', credit: 90, transaction_currency: 'EUR' },
+    ]);
+    // كان ECB يمرّ بلا اعتماد — وهذا ما أُغلق.
+    expect(() => prepareLines(withRate('fx-ecb-unapproved'), ctx())).toThrow(/غير معتمَد/);
+    expect(() => prepareLines(withRate('fx-manual-unapproved'), ctx())).toThrow(/غير معتمَد/);
+    // معتمِد بلا ختم زمني اعتمادٌ ناقص لا اعتماد.
+    expect(() => prepareLines(withRate('fx-ecb-no-timestamp'), ctx())).toThrow(/غير معتمَد/);
+
+    const good = prepareLines(withRate('fx-manual-approved'), ctx());
+    expect(good.lines[0].fx_source).toBe('MANUAL_APPROVED');
+    const ecb = prepareLines(withRate('fx-usd'), ctx());
+    expect(ecb.lines[0].fx_source).toBe('ECB');
+  });
+
+  it('17-أ. مُنشئ السعر لا يُرحَّل بسعرٍ اعتمده بنفسه', () => {
+    const lines: LineInput[] = [
+      { account_id: 'a-exp', debit: 100, transaction_currency: 'USD', fx_rate_id: 'fx-self-approved' },
       { account_id: 'a-ap', credit: 90, transaction_currency: 'EUR' },
     ];
-    expect(() => prepareLines(bad, ctx())).toThrow(/بلا اعتماد/);
-    const good = prepareLines([
-      { ...bad[0], fx_rate_id: 'fx-manual-approved' }, bad[1],
-    ], ctx());
-    expect(good.lines[0].fx_source).toBe('MANUAL_APPROVED');
+    expect(() => prepareLines(lines, ctx())).toThrow(/فصل الواجبات/);
   });
 
   it('18. يرفض سعراً لزوج عملات مختلف أو لكيان آخر أو بمصدر FUNCTIONAL', () => {
