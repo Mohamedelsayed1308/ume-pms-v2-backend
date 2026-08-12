@@ -4,3 +4,5 @@ docs/migrations/*.json -text
 # فتحويل CRLF عند السحب كان سيجعل الملف المُراجَع والملف المُنفَّذ مختلفَين.
 docs/migrations/*.sql -text
 docs/security/*.sql -text
+# بيان الافتتاح: بصمته بصمة بايتاته — لا تحويل نهايات أسطر.
+docs/accounting/*.json -text

@@ -1,0 +1,46 @@
+{
+  "manifest": "SIVAMAR-FY2026-MANAGEMENT-OPENING",
+  "legal_entity_code": "SIV",
+  "functional_currency": "EUR",
+  "journal_code": "OJ",
+  "accounting_event_type": "opening_balance",
+  "accounting_date": "2026-01-01",
+  "source_document_date": "2025-12-31",
+  "fiscal_period_no": 0,
+  "source": "SV TB 2025.xlsx",
+  "basis": "MANAGEMENT_APPROVED_UNAUDITED",
+  "source_type": "opening",
+  "source_id": "00000000-0000-4000-8000-000053495632",
+  "records": [
+    { "line_no": 1,  "code": "1010", "account": "Bank — EUR",                       "debit": 88218.66,   "credit": 0.00,       "tb_source": "1 · Sweden Bank:10 · Banks Eur",              "evidence_status": "UNVERIFIED_OPENING" },
+    { "line_no": 2,  "code": "1100", "account": "Accounts Receivable — Trade",      "debit": 925973.06,  "credit": 0.00,       "tb_source": "11000 · Accounts Receivable",                 "evidence_status": "UNVERIFIED_OPENING" },
+    { "line_no": 3,  "code": "1210", "account": "Deferred Expenses",                "debit": 35717.61,   "credit": 0.00,       "tb_source": "14 · Deferred Expenses",                      "evidence_status": "UNVERIFIED_OPENING" },
+    { "line_no": 4,  "code": "1300", "account": "Dry Dock — Deferred Cost",         "debit": 767982.79,  "credit": 0.00,       "tb_source": "1601 · Dry Dock Machinery overhaul2026",      "evidence_status": "UNVERIFIED_OPENING" },
+    { "line_no": 5,  "code": "1510", "account": "Vessels — Cost",                   "debit": 1653446.00, "credit": 0.00,       "tb_source": "15000 · Fixed Asset:15001 · MV Gubal Trader", "evidence_status": "TB_CONFIRMED" },
+    { "line_no": 6,  "code": "1600", "account": "Related Party Receivable",         "debit": 951898.84,  "credit": 0.00,       "tb_source": "33000 · ShareHolder:3301 · UME Holding:330102 · Payment", "evidence_status": "MANAGEMENT_CLASSIFIED" },
+    { "line_no": 7,  "code": "1520", "account": "Accumulated Depreciation — Vessels","debit": 0.00,      "credit": 661378.56,  "tb_source": "15000 · Fixed Asset:15002 · Accumulated Depreciation", "evidence_status": "TB_CONFIRMED" },
+    { "line_no": 8,  "code": "2010", "account": "Accounts Payable — Trade",         "debit": 0.00,       "credit": 450.00,     "tb_source": "20000 · Accounts Payable",                    "evidence_status": "UNVERIFIED_OPENING" },
+    { "line_no": 9,  "code": "2200", "account": "Tax & Levy Payable",               "debit": 0.00,       "credit": 350.00,     "tb_source": "24801 · Accrued levy",                        "evidence_status": "MANAGEMENT_CLASSIFIED" },
+    { "line_no": 10, "code": "2210", "account": "Defence Contribution Payable",     "debit": 0.00,       "credit": 125.63,     "tb_source": "24700 · Defence contribution",                "evidence_status": "MANAGEMENT_CLASSIFIED" },
+    { "line_no": 11, "code": "2600", "account": "Related Party Payable",            "debit": 0.00,       "credit": 2272376.19, "tb_source": "33000 · ShareHolder:3301 · UME Holding:330101 · current", "evidence_status": "MANAGEMENT_CLASSIFIED" },
+    { "line_no": 12, "code": "3010", "account": "Share Capital",                    "debit": 0.00,       "credit": 1000.00,    "tb_source": "30100 · Capital",                             "evidence_status": "TB_CONFIRMED" },
+    { "line_no": 13, "code": "3100", "account": "Retained Earnings",                "debit": 0.00,       "credit": 1487556.58, "tb_source": "32000 · Accumulated Gain/Loss + FY2025 result", "evidence_status": "MANAGEMENT_APPROVED_PROVISIONAL_EQUITY" }
+  ],
+  "totals": {
+    "total_debit_eur": 4423236.96,
+    "total_credit_eur": 4423236.96,
+    "difference": 0.00,
+    "opening_suspense": 0.00,
+    "line_count": 13
+  },
+  "management_decisions": {
+    "dry_dock": "UNVERIFIED_OPENING — no automatic reclassification",
+    "deferred_expenses": "UNVERIFIED_OPENING — pending later analysis",
+    "gubal_depreciation": "MANAGEMENT APPROVED ESTIMATE — 10-year straight-line, prospective only, not historical fact",
+    "related_party": "MANAGEMENT_CLASSIFIED — 1600 / 2600, gross, no offset, not equity",
+    "interest": "UNRESOLVED / REVIEW LATER — no opening impact",
+    "retained_earnings": "MANAGEMENT_APPROVED_PROVISIONAL_EQUITY — 1452777.63 carried + 34778.95 derived"
+  },
+  "disclosure": "MANAGEMENT ACCOUNTS — OPENING BALANCES UNAUDITED",
+  "prohibited_labels": ["Audited", "Final Audited", "Auditor Approved"]
+}
