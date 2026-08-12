@@ -44,7 +44,7 @@ FROM (
   UNION ALL SELECT '10b · أسطر بغير اليورو على 1010', '0',
          (SELECT COUNT(*)::text FROM journal_lines jl JOIN accounting_accounts a ON a.id=jl.account_id
            WHERE a.code='1010' AND jl.transaction_currency <> 'EUR')
-  UNION ALL SELECT '11 · أعمدة accounting_fx_rates بلا تغيير', '11',
+  UNION ALL SELECT '11 · أعمدة accounting_fx_rates بلا تغيير', '12',
          (SELECT COUNT(*)::text FROM information_schema.columns WHERE table_name='accounting_fx_rates')
 
   -- ── 12..17 · ما يجب ألّا يتحرّك ──
