@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException, ConflictException, UnprocessableEntityException, ForbiddenException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, ConflictException, UnprocessableEntityException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In } from 'typeorm';
 import { LegalEntity } from './entities/legal-entity.entity';
@@ -196,11 +196,10 @@ export class AccountingService {
     }));
   }
 
-  async listFxRates(entityId: string) {
-    const rows = await this.ds.getRepository(AccountingFxRate).find({
+  listFxRates(entityId: string) {
+    return this.ds.getRepository(AccountingFxRate).find({
       where: { legal_entity_id: entityId }, order: { rate_date: 'DESC' }, take: 500,
     });
-    return rows.map((r) => decorateFxRate(r));
   }
 
   /** سعر الصرف لا يُقبل بلا تاريخ ومصدر — والسعر اليدوي بلا معتمِد يُرفض هنا وفي القاعدة. */
@@ -225,30 +224,10 @@ export class AccountingService {
       rate: String(rate), rate_date: body.rate_date, source,
       source_reference: body?.source_reference ?? null,
       created_by: userId,
-      // السعر يُنشأ مسوّدة دائماً. الاعتماد واقعة لاحقة منفصلة يقوم بها شخص آخر —
-      // فلا اعتماد ذاتي ولا اعتماد تلقائي لمصدر بعينه.
-      approved_by: null,
-      approved_at: null,
+      // الاعتماد واقعة تُسجَّل بمن قام بها — السعر اليدوي بلا معتمِد لا يُرحَّل به.
+      approved_by: source === 'MANUAL_APPROVED' ? userId : null,
+      approved_at: source === 'MANUAL_APPROVED' ? new Date() : null,
     }));
-  }
-
-  /**
-   * اعتماد سعر صرف. الفصل مفروض على **مستوى المستخدم** لا الشاشة وحدها:
-   * مَن أنشأ السعر لا يعتمده مهما كانت صلاحياته.
-   * والعملية idempotent — السعر المعتمَد يُعاد كما هو بلا خطأ ولا إعادة ختم.
-   */
-  async approveFxRate(id: string, userId: string | null) {
-    const repo = this.ds.getRepository(AccountingFxRate);
-    const fx = await repo.findOne({ where: { id } });
-    if (!fx) throw new NotFoundException('سعر الصرف غير موجود');
-    if (fx.approved_by) return decorateFxRate(fx);
-    if (!userId) throw new UnprocessableEntityException('الاعتماد يحتاج مستخدماً معروفاً');
-    if (fx.created_by && fx.created_by === userId) {
-      throw new ForbiddenException('مُنشئ السعر لا يعتمده — فصل الواجبات');
-    }
-    fx.approved_by = userId;
-    fx.approved_at = new Date();
-    return decorateFxRate(await repo.save(fx));
   }
 
   // ── القيود ────────────────────────────────────────────────────────────────
@@ -708,25 +687,6 @@ function toPrepared(l: JournalLine): PreparedLine {
 }
 
 /** الفهرس الفريد يمنع تكرار الحدث المحاسبي — يُترجَم لرسالة مفهومة لا لـ500. */
-/**
- * اتجاه السعر أخطر ما في إدخاله. ECB ينشر `1 EUR = X USD` والنظام يخزّن
- * `1 USD = Y EUR` — ونسخ رقم ECB كما هو يضخّم كل مبلغ دولاري بلا اعتراض.
- * فيُرافق كل سعر لافتةٌ تقرأ اتجاهه الفعلي، ولا يُترك القارئ يستنتجه من أسماء
- * الأعمدة.
- */
-export function fxDirectionLabel(r: { currency_from: string; currency_to: string; rate: string | number }): string {
-  return `1 ${r.currency_from} = ${r.rate} ${r.currency_to}`;
-}
-
-export function decorateFxRate<T extends { currency_from: string; currency_to: string; rate: string | number; approved_by?: string | null }>(r: T) {
-  return {
-    ...r,
-    rate_label: fxDirectionLabel(r),
-    inverse_label: `1 ${r.currency_to} = ${(1 / Number(r.rate)).toFixed(8)} ${r.currency_from}`,
-    is_approved: !!r.approved_by,
-  };
-}
-
 function rethrowDuplicateEvent(err: any): never {
   if (err?.code === '23505' && String(err?.constraint || '').includes(UQ_JE_EVENT)) {
     throw new ConflictException('لهذا المستند قيد بنفس نوع الحدث المحاسبي بالفعل');

@@ -55,9 +55,7 @@ export interface FxRateRef {
   rate: number | string;
   rate_date: string;
   source: string;
-  created_by: string | null;
   approved_by: string | null;
-  approved_at: Date | string | null;
 }
 
 export interface PeriodRef {
@@ -209,18 +207,8 @@ export function prepareLines(inputs: LineInput[], ctx: PrepareContext): Prepared
       if (fx.source === 'FUNCTIONAL') {
         throw new UnprocessableEntityException(`${at}: مصدر FUNCTIONAL لا يصلح لعملة أجنبية`);
       }
-      // الاعتماد شرط ترحيل لكل مصدر بلا استثناء. قصْره سابقاً على MANUAL_APPROVED
-      // كان يجعل سعر ECB يُرحَّل به فور إنشائه — ومصدر السعر لا يُغني عن مراجعته.
-      if (!fx.approved_by || !fx.approved_at) {
-        throw new UnprocessableEntityException(
-          `${at}: سعر صرف غير معتمَد (${fx.source}) — الاعتماد شرط الترحيل مهما كان المصدر`,
-        );
-      }
-      // فصل الواجبات على مستوى المستخدم لا الشاشة: مَن أنشأ السعر لا يعتمده.
-      if (fx.created_by && fx.approved_by === fx.created_by) {
-        throw new UnprocessableEntityException(
-          `${at}: مُنشئ سعر الصرف اعتمده بنفسه — فصل الواجبات يمنع الترحيل به`,
-        );
+      if (fx.source === 'MANUAL_APPROVED' && !fx.approved_by) {
+        throw new UnprocessableEntityException(`${at}: سعر يدوي بلا اعتماد — لا يصلح للترحيل`);
       }
       // سعر لاحق لتاريخ القيد يعني تقييماً بمعلومة لم تكن متاحة وقت العملية.
       if (fx.rate_date > ctx.accounting_date) {
