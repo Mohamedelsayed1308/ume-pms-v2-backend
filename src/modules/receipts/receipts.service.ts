@@ -46,6 +46,45 @@ export class ReceiptsService {
     }));
   }
 
+  /**
+   * قائمة عمل الاستلام — استعلام واحد.
+   *
+   * كانت الواجهة تسأل عن وقائع كل فاتورة على حدة، فصارت مئات الطلبات المتوازية
+   * وعلقت الصفحة. العدّ والاستبعاد يتمّان هنا حيث البيانات، لا هناك حيث الشبكة.
+   */
+  pending(q: any) {
+    const limit = Math.min(Number(q?.limit ?? 300), 1000);
+    return this.ds.query(
+      `SELECT i.id, i.invoice_number, i.currency, i.total_amount, i.invoice_date,
+              i.approval_status, i.vessel_id, i.supplier_id,
+              s.name AS supplier_name, v.name AS vessel_name,
+              (SELECT COUNT(*)::int FROM goods_service_receipts r WHERE r.invoice_id = i.id) AS receipt_count
+         FROM invoices i
+         LEFT JOIN suppliers s ON s.id = i.supplier_id
+         LEFT JOIN vessels   v ON v.id = i.vessel_id
+        WHERE NOT EXISTS (
+                SELECT 1 FROM journal_entries je
+                 WHERE je.source_type = 'invoice' AND je.source_id = i.id AND je.status <> 'void')
+        ORDER BY i.invoice_date DESC NULLS LAST
+        LIMIT $1`, [limit]);
+  }
+
+  /** الأعداد التي تُعرض في البطاقات — محسوبة في قاعدة البيانات لا في المتصفّح. */
+  async pendingSummary() {
+    const [r] = await this.ds.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE NOT posted AND receipts = 0)::int AS awaiting,
+         COUNT(*) FILTER (WHERE NOT posted AND receipts > 0)::int AS confirmed,
+         COUNT(*) FILTER (WHERE posted)::int                      AS in_ledger
+       FROM (
+         SELECT i.id,
+                (SELECT COUNT(*) FROM goods_service_receipts r WHERE r.invoice_id = i.id) AS receipts,
+                EXISTS (SELECT 1 FROM journal_entries je
+                         WHERE je.source_type = 'invoice' AND je.source_id = i.id AND je.status <> 'void') AS posted
+           FROM invoices i) t`);
+    return r;
+  }
+
   /** ما تسأله خدمة الترحيل قبل إثبات أي فاتورة. */
   async eligibility(invoiceId: string, q: any): Promise<EligibilityVerdict & { invoice_id: string }> {
     const inv = await this.ds.query('SELECT id, approval_status FROM invoices WHERE id = $1', [invoiceId]);
