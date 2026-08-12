@@ -24,6 +24,7 @@ import { FleetModule } from './modules/fleet/fleet.module';
 import { MarketModule } from './modules/market/market.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AskUmeModule } from './modules/ask-ume/ask-ume.module';
+import { AccountingModule } from './modules/accounting/accounting.module';
 import { R3aRunnerModule } from './migrations/r3a-runner.module';
 import { shouldSynchronize, assertNoAutoDdlInProduction } from './common/schema-policy';
 
@@ -82,6 +83,7 @@ import { shouldSynchronize, assertNoAutoDdlInProduction } from './common/schema-
     MarketModule,
     AuditModule,
     AskUmeModule,
+    AccountingModule,
     R3aRunnerModule,
   ],
 })
