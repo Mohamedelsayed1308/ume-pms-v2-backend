@@ -33,6 +33,9 @@ export class AccountingBridgeController {
     return this.svc.postHireInvoice(id, body, this.uid(req));
   }
 
+  @Get('postable-invoices')
+  postableInvoices(@Query('legal_entity_id') id: string) { return this.svc.postableInvoices(id); }
+
   @Get('supplier-defaults')
   listSupplierDefaults(@Query('legal_entity_id') id: string) { return this.svc.listSupplierDefaults(id); }
 

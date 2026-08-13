@@ -173,6 +173,56 @@ export class AccountingBridgeService {
     return e ?? null;
   }
 
+  /**
+   * الفواتير التي تنتظر قيداً — بحسابها المقترح وأهليّتها محسوبةً.
+   *
+   * تُعرَض **كلها** لا المؤهَّلة وحدها: إخفاء غير المؤهَّلة يجعل السبب مجهولاً،
+   * فيظنّ القارئ أن الفاتورة ضاعت لا أنها تنتظر دليلاً. والسبب يُرافق كل صفّ.
+   */
+  async postableInvoices(entityId: string) {
+    await this.entity(entityId);
+    const rows = await this.ds.query(
+      `SELECT i.id, i.invoice_number, i.currency, i.total_amount, i.invoice_date,
+              i.approval_status, i.supplier_id, i.vessel_id,
+              s.name AS supplier_name, v.name AS vessel_name,
+              (SELECT COUNT(*)::int FROM goods_service_receipts r WHERE r.invoice_id = i.id) AS receipt_count,
+              d.debit_account_id, d.accrual_category,
+              a.code AS account_code, a.name AS account_name
+         FROM invoices i
+         JOIN vessels v ON v.id = i.vessel_id
+         JOIN shipping_companies sc ON sc.id = v.shipping_company_id
+         LEFT JOIN suppliers s ON s.id = i.supplier_id
+         LEFT JOIN supplier_accounting_defaults d
+                ON d.supplier_id = i.supplier_id AND d.legal_entity_id = $1
+         LEFT JOIN accounting_accounts a ON a.id = d.debit_account_id
+        WHERE sc.legal_entity_id = $1
+          AND NOT EXISTS (
+                SELECT 1 FROM journal_entries je
+                 WHERE je.source_type = 'invoice' AND je.source_id = i.id AND je.status <> 'void')
+        ORDER BY i.invoice_date DESC NULLS LAST`,
+      [entityId]);
+
+    const receipts = await this.ds.query(
+      `SELECT r.invoice_id, r.receipt_type, r.received_date
+         FROM goods_service_receipts r
+        WHERE r.invoice_id = ANY($1::uuid[])`,
+      [rows.map((r: any) => r.id)]);
+    const byInvoice = new Map<string, any[]>();
+    for (const r of receipts) byInvoice.set(r.invoice_id, [...(byInvoice.get(r.invoice_id) ?? []), r]);
+
+    return rows.map((r: any) => {
+      // بلا تصنيف محفوظ تُفترض سلعةً — وهو الافتراض المتشدّد: السلعة تحتاج دليلاً
+      // والخدمة لا. فالتساهل يأتي بقرار لا بغياب إعداد.
+      const category: AccrualCategory = (r.accrual_category as AccrualCategory) ?? 'GOODS';
+      const verdict = evaluateAccrualEligibility({
+        category,
+        approval_status: r.approval_status,
+        receipts: byInvoice.get(r.id) ?? [],
+      });
+      return { ...r, assumed_category: category, eligible: verdict.eligible, reason: verdict.reason };
+    });
+  }
+
   // ── فاتورة مورد ← استحقاق ─────────────────────────────────────────────────
 
   async postSupplierInvoice(invoiceId: string, body: any, userId: string | null) {
