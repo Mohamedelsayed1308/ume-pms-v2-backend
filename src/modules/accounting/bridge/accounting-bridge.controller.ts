@@ -39,6 +39,9 @@ export class AccountingBridgeController {
   @Put('supplier-defaults')
   setSupplierDefault(@Body() body: any, @Req() req: any) { return this.svc.setSupplierDefault(body, this.uid(req)); }
 
+  @Post('depreciation')
+  depreciation(@Body() body: any, @Req() req: any) { return this.svc.postDepreciation(body, this.uid(req)); }
+
   @Post('revenue-release')
   revenueRelease(@Body() body: any, @Req() req: any) {
     return this.svc.releaseEarnedRevenue(body, this.uid(req));

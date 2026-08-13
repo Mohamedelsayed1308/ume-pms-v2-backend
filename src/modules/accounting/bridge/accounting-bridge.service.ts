@@ -6,6 +6,7 @@ import { round2, EUR } from '../accounting-posting';
 import { splitHireRevenue, summariseCutoff } from '../revenue-cutoff';
 import { evaluateAccrualEligibility, AccrualCategory } from '../../receipts/receipt-eligibility';
 import { buildTwoSidedLines, buildSettlementLines, assertSettleable, BridgeDims } from './accounting-bridge.logic';
+import { planDepreciation, assertWithinCarryingAmount } from './depreciation.logic';
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
@@ -379,6 +380,102 @@ export class AccountingBridgeService {
     };
 
     return { entry: await this.accounting.createDraft(dto, userId) };
+  }
+
+  // ── الإهلاك الشهري ────────────────────────────────────────────────────────
+
+  /**
+   * قيد إهلاك لكل شهر في المدى — لا قيد واحد مجمَّع.
+   *
+   * الإهلاك مصروف **شهر بعينه**. جمعه في قيد واحد يُحمّل شهراً واحداً ما استحقّته
+   * سبعة، فتكذب قائمة دخل كل شهر منها.
+   *
+   * والشهر المُهلَك سلفاً يُتخطَّى بصمت لا يُرفض المدى كلّه: تشغيلها ثانيةً بعد
+   * إضافة شهر جديد يجب أن يعمل، لا أن يصطدم بما نجح سابقاً.
+   */
+  async postDepreciation(body: any, userId: string | null) {
+    const entityId = String(body?.legal_entity_id || '');
+    const entity = await this.entity(entityId);
+
+    const vesselId = String(body?.vessel_id || '');
+    await this.assertInScope(entityId, vesselId || null, 'الإهلاك');
+
+    const expense = body?.expense_account_id
+      ? await this.accountById(entityId, body.expense_account_id, 'حساب مصروف الإهلاك')
+      : await this.byRole(entityId, 'DEPRECIATION_EXPENSE');
+    const accumulated = body?.accumulated_account_id
+      ? await this.accountById(entityId, body.accumulated_account_id, 'حساب مجمع الإهلاك')
+      : await this.byRole(entityId, 'ACCUMULATED_DEPRECIATION');
+    const costAccount = body?.cost_account_id
+      ? await this.accountById(entityId, body.cost_account_id, 'حساب تكلفة الأصل')
+      : await this.byRole(entityId, 'VESSEL_COST');
+
+    const plan = planDepreciation({
+      vesselId,
+      from: String(body?.from_month || ''),
+      to: String(body?.to_month || ''),
+      monthlyAmount: Number(body?.monthly_amount),
+      namespace: entityId,
+    });
+
+    // الحدّ يُقرأ من الدفتر لا من سجل أصول لا وجود له.
+    const [bal] = await this.ds.query(
+      `SELECT
+         COALESCE(SUM(l.debit_eur)  FILTER (WHERE l.account_id = $2), 0)
+       - COALESCE(SUM(l.credit_eur) FILTER (WHERE l.account_id = $2), 0) AS cost,
+         COALESCE(SUM(l.credit_eur) FILTER (WHERE l.account_id = $3), 0)
+       - COALESCE(SUM(l.debit_eur)  FILTER (WHERE l.account_id = $3), 0) AS accumulated
+       FROM journal_lines l
+       JOIN journal_entries e ON e.id = l.entry_id
+      WHERE e.legal_entity_id = $1 AND e.status IN ('posted','reversed')`,
+      [entityId, costAccount.id, accumulated.id]);
+
+    const totalCharge = round2(plan.reduce((a, p) => a + p.amount, 0));
+    assertWithinCarryingAmount({
+      costEur: Number(bal?.cost ?? 0),
+      accumulatedEur: Number(bal?.accumulated ?? 0),
+      chargeEur: totalCharge,
+    });
+
+    const journalId = (await this.journalByCode(entityId, body?.journal_code || 'GJ')).id;
+    const created: any[] = [];
+    const skipped: string[] = [];
+
+    for (const m of plan) {
+      const dup = await this.existingEntry(entityId, 'depreciation', 'depreciation', m.source_id);
+      if (dup) { skipped.push(`${m.month} (${dup.entry_no ?? 'مسوّدة'})`); continue; }
+
+      const dto: CreateEntryDto = {
+        legal_entity_id: entityId, journal_id: journalId,
+        accounting_date: m.accounting_date, source_document_date: m.accounting_date,
+        description: body?.description
+          ? `${body.description} — ${m.month}`
+          : `إهلاك ${m.month} — قسط شهري`,
+        reference: m.source_reference,
+        accounting_event_type: 'depreciation',
+        source_type: 'depreciation', source_id: m.source_id, source_reference: m.source_reference,
+        backdated_reason: body?.backdated_reason ?? null,
+        lines: buildTwoSidedLines({
+          debitAccountId: expense.id, creditAccountId: accumulated.id,
+          amount: m.amount, currency: entity.functional_currency, fxRateId: null,
+          dims: { vessel_id: vesselId },
+          debitDescription: `${expense.name} — ${m.month}`,
+          creditDescription: `${accumulated.name} — ${m.month}`,
+        }),
+      };
+      created.push({ month: m.month, entry: await this.accounting.createDraft(dto, userId) });
+    }
+
+    return {
+      months_planned: plan.length,
+      created: created.length,
+      skipped,
+      monthly_amount: round2(Number(body?.monthly_amount)),
+      total_charge_eur: totalCharge,
+      carrying_before: round2(Number(bal?.cost ?? 0) - Number(bal?.accumulated ?? 0)),
+      carrying_after: round2(Number(bal?.cost ?? 0) - Number(bal?.accumulated ?? 0) - totalCharge),
+      entries: created.map((c) => ({ month: c.month, id: c.entry.id, debit_eur: c.entry.total_debit_eur })),
+    };
   }
 
   // ── الإفراج الدوري عن الإيراد المكتسَب ────────────────────────────────────
