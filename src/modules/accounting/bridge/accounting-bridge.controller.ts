@@ -42,6 +42,22 @@ export class AccountingBridgeController {
   @Post('depreciation')
   depreciation(@Body() body: any, @Req() req: any) { return this.svc.postDepreciation(body, this.uid(req)); }
 
+  @Get('depreciation/schedules')
+  listSchedules(@Query('legal_entity_id') id: string) { return this.svc.listDepreciationSchedules(id); }
+
+  @Put('depreciation/schedules')
+  setSchedule(@Body() body: any, @Req() req: any) { return this.svc.setDepreciationSchedule(body, this.uid(req)); }
+
+  @Post('depreciation/schedules/:id/deactivate')
+  deactivateSchedule(@Param('id') id: string) { return this.svc.deactivateDepreciationSchedule(id); }
+
+  // اللحاق يُستدعى كلّما فُتحت شاشة المحاسبة. آمنٌ للتكرار: يُنشئ ما ينقص فقط.
+  @Post('depreciation/catch-up')
+  catchUp(@Body() body: any, @Req() req: any) {
+    const today = new Date().toISOString().slice(0, 10);
+    return this.svc.catchUpDepreciation(String(body?.legal_entity_id || ''), today, this.uid(req));
+  }
+
   @Post('revenue-release')
   revenueRelease(@Body() body: any, @Req() req: any) {
     return this.svc.releaseEarnedRevenue(body, this.uid(req));

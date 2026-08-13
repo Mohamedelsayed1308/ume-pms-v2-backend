@@ -1,0 +1,6 @@
+-- DEPRECIATION SCHEDULE — DOWN
+BEGIN;
+
+DROP TABLE IF EXISTS depreciation_schedules;
+
+COMMIT;

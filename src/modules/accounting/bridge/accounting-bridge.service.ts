@@ -6,7 +6,8 @@ import { round2, EUR } from '../accounting-posting';
 import { splitHireRevenue, summariseCutoff } from '../revenue-cutoff';
 import { evaluateAccrualEligibility, AccrualCategory } from '../../receipts/receipt-eligibility';
 import { buildTwoSidedLines, buildSettlementLines, assertSettleable, BridgeDims } from './accounting-bridge.logic';
-import { planDepreciation, assertWithinCarryingAmount } from './depreciation.logic';
+import { planDepreciation, assertWithinCarryingAmount, monthsBetween } from './depreciation.logic';
+import { monthsDue } from './depreciation-catchup.logic';
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
@@ -476,6 +477,106 @@ export class AccountingBridgeService {
       carrying_after: round2(Number(bal?.cost ?? 0) - Number(bal?.accumulated ?? 0) - totalCharge),
       entries: created.map((c) => ({ month: c.month, id: c.entry.id, debit_eur: c.entry.total_debit_eur })),
     };
+  }
+
+  // ── جدولة الإهلاك واللحاق بها ─────────────────────────────────────────────
+
+  listDepreciationSchedules(entityId: string) {
+    return this.ds.query(
+      `SELECT s.*, v.name AS vessel_name,
+              e.code AS expense_code, e.name AS expense_name,
+              a.code AS accumulated_code, a.name AS accumulated_name
+         FROM depreciation_schedules s
+         JOIN vessels v ON v.id = s.vessel_id
+         JOIN accounting_accounts e ON e.id = s.expense_account_id
+         JOIN accounting_accounts a ON a.id = s.accumulated_account_id
+        WHERE s.legal_entity_id = $1
+        ORDER BY v.name`, [entityId]);
+  }
+
+  async setDepreciationSchedule(body: any, userId: string | null) {
+    const entityId = String(body?.legal_entity_id || '');
+    await this.entity(entityId);
+    const vesselId = String(body?.vessel_id || '');
+    await this.assertInScope(entityId, vesselId, 'جدول الإهلاك');
+
+    const expense = body?.expense_account_id
+      ? await this.accountById(entityId, body.expense_account_id, 'حساب مصروف الإهلاك')
+      : await this.byRole(entityId, 'DEPRECIATION_EXPENSE');
+    const accumulated = body?.accumulated_account_id
+      ? await this.accountById(entityId, body.accumulated_account_id, 'حساب مجمع الإهلاك')
+      : await this.byRole(entityId, 'ACCUMULATED_DEPRECIATION');
+    const cost = body?.cost_account_id
+      ? await this.accountById(entityId, body.cost_account_id, 'حساب تكلفة الأصل')
+      : await this.byRole(entityId, 'VESSEL_COST').catch(() => null);
+
+    const amount = round2(Number(body?.monthly_amount));
+    if (!(amount > 0)) throw new BadRequestException('القسط الشهري يجب أن يكون موجباً');
+    const start = String(body?.start_month || '');
+    const end = String(body?.end_month || '');
+    // نهاية مُلزِمة: جدولٌ بلا نهاية يُهلِك الأصل تحت الصفر بصمت.
+    monthsBetween(start, end);
+
+    const [row] = await this.ds.query(
+      `INSERT INTO depreciation_schedules
+         (legal_entity_id, vessel_id, description, monthly_amount, start_month, end_month,
+          expense_account_id, accumulated_account_id, cost_account_id, journal_code, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       ON CONFLICT (legal_entity_id, vessel_id) WHERE is_active DO UPDATE
+         SET description = EXCLUDED.description, monthly_amount = EXCLUDED.monthly_amount,
+             start_month = EXCLUDED.start_month, end_month = EXCLUDED.end_month,
+             expense_account_id = EXCLUDED.expense_account_id,
+             accumulated_account_id = EXCLUDED.accumulated_account_id,
+             cost_account_id = EXCLUDED.cost_account_id, updated_at = now()
+       RETURNING *`,
+      [entityId, vesselId, body?.description ?? null, amount, start, end,
+       expense.id, accumulated.id, cost?.id ?? null, body?.journal_code || 'GJ', userId]);
+    return row;
+  }
+
+  async deactivateDepreciationSchedule(id: string) {
+    const [row] = await this.ds.query(
+      'UPDATE depreciation_schedules SET is_active = false, updated_at = now() WHERE id = $1 RETURNING *', [id]);
+    if (!row) throw new NotFoundException('الجدول غير موجود');
+    return row;
+  }
+
+  /**
+   * اللحاق: لكل جدول نشط، تُنشأ مسوّدات كل شهر **مكتمل** بلا قيد.
+   *
+   * لا يسأل «هل حان الموعد؟» بل «أي شهر فات بلا قيد؟» — فلا يفوته شهر مهما
+   * انقطعت الخدمة، ولا يضرّه أن يُستدعى مئة مرة: فهرس التكرار يمنع الازدواج.
+   *
+   * ويُنشئ **مسوّدات لا قيوداً مُرحَّلة**. أتمتة تُرحّل بلا مراجع بشري تُدخل الدفتر
+   * ما لا يستطيع أحد إخراجه.
+   */
+  async catchUpDepreciation(entityId: string, today: string, userId: string | null) {
+    const schedules = await this.ds.query(
+      'SELECT * FROM depreciation_schedules WHERE legal_entity_id = $1 AND is_active', [entityId]);
+
+    const out: any[] = [];
+    for (const s of schedules) {
+      const due = monthsDue({ startMonth: s.start_month, endMonth: s.end_month, today });
+      if (!due.length) { out.push({ vessel_id: s.vessel_id, created: 0, note: 'لا شهر مستحقّ بعد' }); continue; }
+      try {
+        const r = await this.postDepreciation({
+          legal_entity_id: entityId, vessel_id: s.vessel_id,
+          monthly_amount: Number(s.monthly_amount),
+          from_month: due[0], to_month: due[due.length - 1],
+          expense_account_id: s.expense_account_id,
+          accumulated_account_id: s.accumulated_account_id,
+          cost_account_id: s.cost_account_id ?? undefined,
+          journal_code: s.journal_code,
+          description: s.description || undefined,
+          backdated_reason: `إهلاك دوري مُجدوَل — أُنشئ آلياً عن الأشهر المكتملة حتى ${today}.`,
+        }, userId);
+        out.push({ vessel_id: s.vessel_id, created: r.created, skipped: r.skipped.length, months: due });
+      } catch (e: any) {
+        // جدول متعثّر لا يُسقط البقية — والسبب يُقال لا يُبتلع.
+        out.push({ vessel_id: s.vessel_id, created: 0, error: e?.message ?? 'تعذّر التوليد' });
+      }
+    }
+    return { as_of: today, schedules: schedules.length, results: out };
   }
 
   // ── الإفراج الدوري عن الإيراد المكتسَب ────────────────────────────────────
