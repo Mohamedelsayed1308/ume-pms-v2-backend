@@ -9,7 +9,7 @@ import { AccountingAccount } from './entities/accounting-account.entity';
 import { AccountingFxRate } from './entities/accounting-fx-rate.entity';
 import { JournalEntry } from './entities/journal-entry.entity';
 import { JournalLine } from './entities/journal-line.entity';
-import { ACCOUNTING_EVENT_TYPES, UQ_JE_EVENT } from './accounting.constants';
+import { ACCOUNTING_EVENT_TYPES_CURRENT, UQ_JE_EVENT } from './accounting.constants';
 import {
   prepareLines, assertBalanced, assertDateInPeriod, assertPeriodAcceptsPosting,
   resolveBackdating, formatEntryNo, assertCanEditDraft, assertCanPost, assertCanReverse,
@@ -350,7 +350,7 @@ export class AccountingService {
 
       const back = resolveBackdating(dto.accounting_date, todayIso(), dto.backdated_reason);
       const eventType = dto.accounting_event_type || 'manual';
-      if (!(ACCOUNTING_EVENT_TYPES as readonly string[]).includes(eventType)) {
+      if (!ACCOUNTING_EVENT_TYPES_CURRENT.includes(eventType)) {
         throw new BadRequestException('نوع حدث محاسبي غير معروف');
       }
       if (eventType === 'reversal') {

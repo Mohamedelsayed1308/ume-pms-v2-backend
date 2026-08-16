@@ -54,6 +54,22 @@ export class AccountingBridgeController {
   @Post('depreciation/schedules/:id/deactivate')
   deactivateSchedule(@Param('id') id: string) { return this.svc.deactivateDepreciationSchedule(id); }
 
+  // ── إطفاء المصروفات المدفوعة مقدماً ──
+
+  @Get('prepaid/schedules')
+  listPrepaid(@Query('legal_entity_id') id: string) { return this.svc.listPrepaidSchedules(id); }
+
+  @Put('prepaid/schedules')
+  setPrepaid(@Body() body: any, @Req() req: any) { return this.svc.upsertPrepaidSchedule(body, this.uid(req)); }
+
+  /*
+   * التوليد آمنٌ للتكرار — المعرّف الحتمي من الكيان والشهر يمنع قيداً ثانياً.
+   * و`through_month` يُولّد سلفاً إلى شهرٍ محدَّد: الجدول معلوم منذ الاعتراف،
+   * فلا داعي لانتظار كل شهر ليُكتشف.
+   */
+  @Post('prepaid/run')
+  runAmortization(@Body() body: any, @Req() req: any) { return this.svc.runAmortization(body, this.uid(req)); }
+
   // اللحاق يُستدعى كلّما فُتحت شاشة المحاسبة. آمنٌ للتكرار: يُنشئ ما ينقص فقط.
   @Post('depreciation/catch-up')
   catchUp(@Body() body: any, @Req() req: any) {

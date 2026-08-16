@@ -25,6 +25,22 @@ export const ACCOUNTING_EVENT_TYPES = [
   'reversal', 'adjustment', 'depreciation', 'fx_revaluation',
 ] as const;
 
+/**
+ * الأنواع المضافة بعد P1.1A — تُفصَل عمداً عن قائمتها.
+ *
+ * `ACCOUNTING_EVENT_TYPES` تُغذّي `CHK_JE_EVENT_TYPE_EXPR` الذي يولّد سكربت
+ * هجرة P1.1A **المُنفَّذ على الإنتاج ببصمة معتمَدة**. فتعديلها يُغيّر ما كان
+ * ذلك السكربت سيولّده — أي يُزوّر أثراً تاريخياً، ويكسر اختبار البصمة بحقّ.
+ *
+ * فما يُضاف بعدها يعيش هنا، وهجرتُه هي التي تستبدل القيد في القاعدة.
+ */
+export const ACCOUNTING_EVENT_TYPES_ADDED = ['amortization'] as const;
+
+/** ما يقبله المحرّك اليوم — القائمة الأصلية وما أُضيف بعدها. */
+export const ACCOUNTING_EVENT_TYPES_CURRENT: readonly string[] = [
+  ...ACCOUNTING_EVENT_TYPES, ...ACCOUNTING_EVENT_TYPES_ADDED,
+];
+
 export const FX_SOURCES = ['FUNCTIONAL', 'ECB', 'BANK', 'MANUAL_APPROVED', 'OTHER_APPROVED'] as const;
 
 export type AccountType = (typeof ACCOUNT_TYPES)[number];

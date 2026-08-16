@@ -8,6 +8,7 @@ import { evaluateAccrualEligibility, AccrualCategory } from '../../receipts/rece
 import { buildTwoSidedLines, buildSettlementLines, assertSettleable, BridgeDims } from './accounting-bridge.logic';
 import { planDepreciation, assertWithinCarryingAmount, monthsBetween } from './depreciation.logic';
 import { monthsDue } from './depreciation-catchup.logic';
+import { planMonth, amortizationMonthsDue, type PrepaidSchedule } from './amortization.logic';
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
@@ -700,6 +701,141 @@ export class AccountingBridgeService {
       })),
       totals: summariseCutoff(splits),
       entry: await this.accounting.createDraft(dto, userId),
+    };
+  }
+
+  // ── إطفاء المصروفات المدفوعة مقدماً ─────────────────────────
+
+  listPrepaidSchedules(entityId: string) {
+    return this.ds.query(
+      `SELECT s.*, v.name AS vessel_name,
+              e.code AS expense_code, e.name AS expense_name,
+              p.code AS prepaid_code, p.name AS prepaid_name
+         FROM prepaid_schedules s
+    LEFT JOIN vessels v ON v.id = s.vessel_id
+         JOIN accounting_accounts e ON e.id = s.expense_account_id
+         JOIN accounting_accounts p ON p.id = s.prepaid_account_id
+        WHERE s.legal_entity_id = $1
+        ORDER BY s.source_reference`, [entityId]);
+  }
+
+  /**
+   * تسجيل جدول إطفاء — أو تحديثه إن كان مرجعه مسجَّلاً.
+   *
+   * المرجع مفتاح: تحميل الكشف مرّتين لا يُنشئ جدولين فيُطفأ كل شيء ضِعفين.
+   */
+  async upsertPrepaidSchedule(body: any, userId: string | null) {
+    const entityId = String(body?.legal_entity_id || '');
+    await this.entity(entityId);
+    const prepaid = await this.accountById(entityId, String(body?.prepaid_account_id || ''), 'حساب المصروف المقدَّم');
+    const expense = await this.accountById(entityId, String(body?.expense_account_id || ''), 'حساب المصروف');
+    const total = round2(Number(body?.total_amount));
+    if (!(total > 0)) throw new BadRequestException('إجمالي المبلغ يجب أن يكون موجباً');
+
+    const [row] = await this.ds.query(
+      `INSERT INTO prepaid_schedules
+         (legal_entity_id, vessel_id, customer_id, description, source_reference,
+          total_amount, start_month, end_month, prepaid_account_id, expense_account_id,
+          journal_code, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+       ON CONFLICT (legal_entity_id, source_reference) WHERE is_active
+       DO UPDATE SET total_amount = EXCLUDED.total_amount,
+                     start_month = EXCLUDED.start_month, end_month = EXCLUDED.end_month,
+                     expense_account_id = EXCLUDED.expense_account_id,
+                     description = EXCLUDED.description, updated_at = now()
+       RETURNING *`,
+      [entityId, body?.vessel_id ?? null, body?.customer_id ?? null,
+       body?.description ?? null, String(body?.source_reference || ''),
+       String(total), String(body?.start_month || ''), String(body?.end_month || ''),
+       prepaid.id, expense.id, body?.journal_code || 'GJ', userId]);
+    return row;
+  }
+
+  private async loadSchedules(entityId: string): Promise<PrepaidSchedule[]> {
+    const rows = await this.ds.query(
+      'SELECT * FROM prepaid_schedules WHERE legal_entity_id = $1 AND is_active', [entityId]);
+    return rows.map((r: any) => ({
+      id: r.id, description: r.description, source_reference: r.source_reference,
+      total_amount: Number(r.total_amount),
+      start_month: r.start_month, end_month: r.end_month,
+      expense_account_id: r.expense_account_id, prepaid_account_id: r.prepaid_account_id,
+      vessel_id: r.vessel_id, customer_id: r.customer_id,
+    }));
+  }
+
+  /**
+   * توليد مسوّدات الإطفاء للأشهر المستحقّة.
+   *
+   * آمنٌ للتكرار: المعرّف الحتمي من الكيان والشهر يمنع قيداً ثانياً لشهرٍ
+   * وُلِّد من قبل — ويمنعه فهرس التكرار في القاعدة لا فحصٌ تطبيقي.
+   *
+   * و`through_month` يسمح بالتوليد إلى نهاية السنة سلفاً: الجدول معلوم بالكامل
+   * منذ الاعتراف، فلا داعي لانتظار كل شهر ليُكتشف.
+   */
+  async runAmortization(body: any, userId: string | null) {
+    const entityId = String(body?.legal_entity_id || '');
+    await this.entity(entityId);
+    const schedules = await this.loadSchedules(entityId);
+    if (!schedules.length) return { months: 0, created: 0, skipped: [], entries: [] };
+
+    const posted = await this.ds.query(
+      `SELECT DISTINCT to_char(e.accounting_date, 'YYYY-MM') AS m
+         FROM journal_entries e
+        WHERE e.legal_entity_id = $1 AND e.accounting_event_type = 'amortization'
+          AND e.status <> 'void'`, [entityId]);
+
+    let months = amortizationMonthsDue({
+      schedules, today: new Date().toISOString().slice(0, 10),
+      alreadyPosted: posted.map((r: any) => r.m),
+    });
+
+    // التوليد المسبق حتى شهرٍ محدَّد — بلا تجاوز نهاية الجداول
+    const through = String(body?.through_month || '');
+    if (/^\d{4}-(0[1-9]|1[0-2])$/.test(through)) {
+      const end = schedules.map((s) => s.end_month).sort().reverse()[0];
+      const upto = through < end ? through : end;
+      const start = schedules.map((s) => s.start_month).sort()[0];
+      const done = new Set(posted.map((r: any) => r.m));
+      months = monthsBetween(start, upto).filter((m) => !done.has(m));
+    }
+
+    const journalId = (await this.journalByCode(entityId, body?.journal_code || 'GJ')).id;
+    const created: any[] = [];
+    const skipped: string[] = [];
+
+    for (const month of months) {
+      const plan = planMonth({ entityId, month, schedules, namespace: entityId });
+      if (!plan) continue;
+
+      const dup = await this.existingEntry(entityId, 'amortization', 'amortization', plan.source_id);
+      if (dup) { skipped.push(`${month} (${dup.entry_no ?? 'مسوّدة'})`); continue; }
+
+      const dto: CreateEntryDto = {
+        legal_entity_id: entityId, journal_id: journalId,
+        accounting_date: plan.accounting_date, source_document_date: plan.accounting_date,
+        description: `إطفاء مصروفات مدفوعة مقدماً — ${month}`,
+        reference: plan.source_reference,
+        accounting_event_type: 'amortization',
+        source_type: 'amortization', source_id: plan.source_id, source_reference: plan.source_reference,
+        backdated_reason: body?.backdated_reason ?? 'إطفاء شهرٍ مكتمل يُولَّد بعد انقضائه',
+        lines: [
+          ...plan.debits.map((d) => ({
+            account_id: d.expense_account_id, debit: d.amount, transaction_currency: EUR,
+            vessel_id: d.vessel_id, description: d.description,
+          })),
+          {
+            account_id: plan.credit.prepaid_account_id, credit: plan.credit.amount,
+            transaction_currency: EUR, description: `إطفاء ${month} — تخفيض المصروف المقدَّم`,
+          },
+        ],
+      };
+      created.push({ month, total: plan.total, entry: await this.accounting.createDraft(dto, userId) });
+    }
+
+    return {
+      months: months.length, created: created.length, skipped,
+      total_eur: round2(created.reduce((s, c) => s + c.total, 0)),
+      entries: created.map((c) => ({ month: c.month, id: c.entry.id, total: c.total })),
     };
   }
 }
