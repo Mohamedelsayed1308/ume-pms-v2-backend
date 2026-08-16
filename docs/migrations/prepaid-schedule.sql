@@ -1,12 +1,3 @@
--- ══════════════════════════════════════════════════════════════════
--- محرّك إطفاء المصروفات المدفوعة مقدماً — هجرة القاعدة
---
--- ينفّذها المالك في محرّر Supabase. لا يُنفّذها التطبيق: الإنتاج على
--- synchronize=false و migrationsRun=false عمداً.
---
--- آمنة للتكرار: كل عبارة IF NOT EXISTS أو DROP ثم ADD.
--- ══════════════════════════════════════════════════════════════════
-
 BEGIN;
 
 ALTER TABLE journal_entries DROP CONSTRAINT IF EXISTS chk_je_event_type;
@@ -34,6 +25,13 @@ CREATE TABLE IF NOT EXISTS prepaid_schedules (
      updated_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
      created_by            UUID
    );
+
+ALTER TABLE prepaid_schedules ADD COLUMN IF NOT EXISTS monthly_amount NUMERIC(18,2);
+
+ALTER TABLE prepaid_schedules DROP CONSTRAINT IF EXISTS chk_ps_monthly;
+
+ALTER TABLE prepaid_schedules ADD CONSTRAINT chk_ps_monthly
+     CHECK (monthly_amount IS NULL OR monthly_amount > 0);
 
 ALTER TABLE prepaid_schedules DROP CONSTRAINT IF EXISTS chk_ps_amount;
 

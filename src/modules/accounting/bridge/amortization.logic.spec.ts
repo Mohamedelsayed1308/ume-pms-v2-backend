@@ -137,3 +137,33 @@ describe('amortizationMonthsDue', () => {
     expect(amortizationMonthsDue({ schedules: [], today: '2026-08-16', alreadyPosted: [] })).toEqual([]);
   });
 });
+
+describe('القسط الثابت — الدُّراي دوك', () => {
+  /*
+   * أصلٌ بدأ إطفاؤه في دفترٍ سابق: القسط قائمٌ لا يُشتقّ من الرصيد المتبقّي.
+   * 767,982.79 على 26 شهراً بالقسمة = 29,537.80 — ويخالف الدفتر الأصلي.
+   */
+  it('يلتزم القسط المُملى ويضع الباقي في الأخير', () => {
+    const months = monthsBetween('2026-01', '2028-02');
+    expect(months).toHaveLength(26);
+    const r = spreadAmount(767982.79, months, 30645);
+    expect(r[0].amount).toBe(30645);
+    expect(r[24].amount).toBe(30645);
+    expect(r[25].amount).toBe(1857.79);
+    expect(Math.round(r.reduce((s, x) => s + x.amount, 0) * 100) / 100).toBe(767982.79);
+  });
+
+  it('وبلا قسط مُملى يقسم بالتساوي كما كان', () => {
+    const r = spreadAmount(767982.79, monthsBetween('2026-01', '2028-02'));
+    expect(r[0].amount).toBe(29537.8);
+  });
+
+  it('القسط يمرّ عبر الجدول إلى حصّة الشهر', () => {
+    const s = { id: 'dd', description: 'دُراي دوك', source_reference: 'DD',
+      total_amount: 767982.79, start_month: '2026-01', end_month: '2028-02',
+      expense_account_id: '5090', prepaid_account_id: '1300',
+      vessel_id: 'g', customer_id: null, monthly_amount: 30645 };
+    expect(monthShare(s, '2026-03')!.amount).toBe(30645);
+    expect(monthShare(s, '2028-02')!.amount).toBe(1857.79);
+  });
+});

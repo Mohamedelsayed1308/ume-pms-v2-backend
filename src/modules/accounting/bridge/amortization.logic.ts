@@ -26,16 +26,25 @@ export interface AmortizationMonth {
  *
  * المجموع المُوزَّع يساوي المبلغ الأصلي بالسنت دائماً، مهما كان عدد الأشهر.
  */
-export function spreadAmount(total: number, months: string[]): AmortizationMonth[] {
+export function spreadAmount(total: number, months: string[], fixedMonthly?: number | null): AmortizationMonth[] {
   const amount = round2(total);
   if (!(amount > 0)) throw new BadRequestException('المبلغ المُطفأ يجب أن يكون موجباً');
   if (!months.length) throw new BadRequestException('لا أشهر للإطفاء');
 
-  const per = round2(amount / months.length);
+  /*
+   * القسط الثابت حين يُملى من خارج.
+   *
+   * أصلٌ بدأ إطفاؤه في دفترٍ سابق له قسطٌ قائم لا يُشتقّ من رصيده المتبقّي:
+   * الدُّراي دوك يُطفأ 30,645 شهرياً منذ فبراير 2025، وقسمةُ ما تبقّى على مدّته
+   * تعطي 29,537.80 — رقمٌ يخالف الدفتر الأصلي بألفٍ ومئة كل شهر ويكسر
+   * المقارنة بين النظامين.
+   *
+   * والأخير يحمل الباقي في الحالتين، فالمجموع يطابق الأصل بالسنت.
+   */
+  const per = fixedMonthly && fixedMonthly > 0 ? round2(fixedMonthly) : round2(amount / months.length);
   return months.map((month, i) => ({
     month,
     accounting_date: lastDayOfMonth(month),
-    // الأخير يحمل الفرق: المجموع يطابق الأصل بالسنت لا بالتقريب
     amount: i === months.length - 1 ? round2(amount - per * (months.length - 1)) : per,
   }));
 }
@@ -51,6 +60,8 @@ export interface PrepaidSchedule {
   prepaid_account_id: string;
   vessel_id: string | null;
   customer_id: string | null;
+  /** قسطٌ ثابت يُملى من خارج — يغلب القسمة على عدد الأشهر. */
+  monthly_amount?: number | null;
 }
 
 export interface AmortizationLine {
@@ -70,7 +81,7 @@ export interface AmortizationLine {
  */
 export function monthShare(s: PrepaidSchedule, month: string): AmortizationLine | null {
   if (month < s.start_month || month > s.end_month) return null;
-  const spread = spreadAmount(s.total_amount, monthsBetween(s.start_month, s.end_month));
+  const spread = spreadAmount(s.total_amount, monthsBetween(s.start_month, s.end_month), s.monthly_amount);
   const hit = spread.find((x) => x.month === month);
   if (!hit) return null;
   return {

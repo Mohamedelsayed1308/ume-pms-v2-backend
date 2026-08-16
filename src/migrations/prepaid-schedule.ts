@@ -44,6 +44,19 @@ export const PREPAID_SCHEDULE_UP: string[] = [
      created_by            UUID
    )`,
 
+  /*
+   * قسطٌ ثابت اختياري.
+   *
+   * أصلٌ بدأ إطفاؤه في دفترٍ سابق له قسطٌ قائم لا يُشتقّ من رصيده المتبقّي —
+   * وقسمةُ الباقي على مدّته تُنتج رقماً يخالف الدفتر الأصلي كل شهر. فارغاً
+   * يعني القسمة بالتساوي كما كان.
+   */
+  `ALTER TABLE prepaid_schedules ADD COLUMN IF NOT EXISTS monthly_amount NUMERIC(18,2)`,
+
+  `ALTER TABLE prepaid_schedules DROP CONSTRAINT IF EXISTS chk_ps_monthly`,
+  `ALTER TABLE prepaid_schedules ADD CONSTRAINT chk_ps_monthly
+     CHECK (monthly_amount IS NULL OR monthly_amount > 0)`,
+
   `ALTER TABLE prepaid_schedules DROP CONSTRAINT IF EXISTS chk_ps_amount`,
   `ALTER TABLE prepaid_schedules ADD CONSTRAINT chk_ps_amount CHECK (total_amount > 0)`,
 

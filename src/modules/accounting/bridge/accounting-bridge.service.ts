@@ -741,18 +741,20 @@ export class AccountingBridgeService {
       `INSERT INTO prepaid_schedules
          (legal_entity_id, vessel_id, customer_id, description, source_reference,
           total_amount, start_month, end_month, prepaid_account_id, expense_account_id,
-          journal_code, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+          journal_code, created_by, monthly_amount)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        ON CONFLICT (legal_entity_id, source_reference) WHERE is_active
        DO UPDATE SET total_amount = EXCLUDED.total_amount,
                      start_month = EXCLUDED.start_month, end_month = EXCLUDED.end_month,
                      expense_account_id = EXCLUDED.expense_account_id,
+                     monthly_amount = EXCLUDED.monthly_amount,
                      description = EXCLUDED.description, updated_at = now()
        RETURNING *`,
       [entityId, body?.vessel_id ?? null, body?.customer_id ?? null,
        body?.description ?? null, String(body?.source_reference || ''),
        String(total), String(body?.start_month || ''), String(body?.end_month || ''),
-       prepaid.id, expense.id, body?.journal_code || 'GJ', userId]);
+       prepaid.id, expense.id, body?.journal_code || 'GJ', userId,
+       body?.monthly_amount == null ? null : String(round2(Number(body.monthly_amount)))]);
     return row;
   }
 
@@ -765,6 +767,7 @@ export class AccountingBridgeService {
       start_month: r.start_month, end_month: r.end_month,
       expense_account_id: r.expense_account_id, prepaid_account_id: r.prepaid_account_id,
       vessel_id: r.vessel_id, customer_id: r.customer_id,
+      monthly_amount: r.monthly_amount == null ? null : Number(r.monthly_amount),
     }));
   }
 
