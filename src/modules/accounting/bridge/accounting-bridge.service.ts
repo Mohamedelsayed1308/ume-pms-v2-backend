@@ -792,17 +792,37 @@ export class AccountingBridgeService {
      * للتكرار لأن الفرق يصير صفراً بعد أول لحاق.
      */
     const postedRows = await this.ds.query(
-      `SELECT to_char(e.accounting_date, 'YYYY-MM') AS m,
-              COALESCE(SUM(l.debit_eur), 0) AS total,
-              COUNT(DISTINCT e.id)::int AS n
+      `SELECT to_char(e.accounting_date, 'YYYY-MM') AS m, l.account_id,
+              COALESCE(SUM(l.debit_eur), 0)  AS dr,
+              COALESCE(SUM(l.credit_eur), 0) AS cr
          FROM journal_entries e
-         JOIN journal_lines l ON l.entry_id = e.id AND l.debit_eur > 0
+         JOIN journal_lines l ON l.entry_id = e.id
         WHERE e.legal_entity_id = $1 AND e.accounting_event_type = 'amortization'
           AND e.status <> 'void'
+        GROUP BY 1, 2`, [entityId]);
+
+    /*
+     * المُرحَّل **لكل حساب** لا كمجموع.
+     *
+     * أول محاولةٍ قسمتُ فيها الفرق نسبةً على السطور: كل سطر يُقرَّب وحده فينكسر
+     * التوازن بسنت. والفرق لكل حساب لا يحتاج تقريباً أصلاً — المستحقّ والمُرحَّل
+     * كلاهما متوازن، ففرقهما متوازن بالضرورة.
+     */
+    const postedDr = new Map<string, Map<string, number>>();
+    const postedCr = new Map<string, Map<string, number>>();
+    const postedCount = new Map<string, number>();
+    for (const r of postedRows) {
+      if (!postedDr.has(r.m)) { postedDr.set(r.m, new Map()); postedCr.set(r.m, new Map()); }
+      postedDr.get(r.m)!.set(r.account_id, round2((postedDr.get(r.m)!.get(r.account_id) ?? 0) + Number(r.dr)));
+      postedCr.get(r.m)!.set(r.account_id, round2((postedCr.get(r.m)!.get(r.account_id) ?? 0) + Number(r.cr)));
+    }
+    const cntRows = await this.ds.query(
+      `SELECT to_char(accounting_date, 'YYYY-MM') AS m, COUNT(*)::int AS n
+         FROM journal_entries
+        WHERE legal_entity_id = $1 AND accounting_event_type = 'amortization' AND status <> 'void'
         GROUP BY 1`, [entityId]);
-    const postedByMonth = new Map<string, { total: number; n: number }>(
-      postedRows.map((r: any) => [r.m, { total: Number(r.total), n: Number(r.n) }]));
-    const posted = postedRows.map((r: any) => ({ m: r.m }));
+    for (const r of cntRows) postedCount.set(r.m, Number(r.n));
+    const postedByMonth = postedDr;
 
     let months = amortizationMonthsDue({
       schedules, today: new Date().toISOString().slice(0, 10),
@@ -826,24 +846,32 @@ export class AccountingBridgeService {
       const plan = planMonth({ entityId, month, schedules, namespace: entityId });
       if (!plan) continue;
 
-      const already = postedByMonth.get(month);
-      const gap = round2(plan.total - (already?.total ?? 0));
-      if (Math.abs(gap) < 0.005) { if (already) skipped.push(`${month} (مُرحَّل بالكامل)`); continue; }
-      if (gap < 0) { skipped.push(`${month} (المُرحَّل يفوق المستحقّ بـ${round2(-gap)} — يُراجَع يدوياً)`); continue; }
+      const pdr = postedDr.get(month) ?? new Map<string, number>();
+      const pcr = postedCr.get(month) ?? new Map<string, number>();
+
+      const dDebits = plan.debits
+        .map((d) => ({ ...d, amount: round2(d.amount - (pdr.get(d.expense_account_id) ?? 0)) }))
+        .filter((d) => Math.abs(d.amount) > 0.004);
+      const dCredits = plan.credits
+        .map((c) => ({ ...c, amount: round2(c.amount - (pcr.get(c.prepaid_account_id) ?? 0)) }))
+        .filter((c) => Math.abs(c.amount) > 0.004);
+
+      const gap = round2(dDebits.reduce((a, d) => a + d.amount, 0));
+      if (!dDebits.length && !dCredits.length) { skipped.push(`${month} (مُرحَّل بالكامل)`); continue; }
+      if (dDebits.some((d) => d.amount < 0) || dCredits.some((c) => c.amount < 0)) {
+        skipped.push(`${month} (المُرحَّل يفوق المستحقّ على حسابٍ ما — يُراجَع يدوياً)`); continue;
+      }
 
       /*
        * لحاقٌ جزئي: المعرّف يحمل ترتيب القيد في شهره، فالأول يبقى بمعرّفه
        * والثاني يأخذ معرّفاً خاصّاً به. وتشغيلٌ ثانٍ لا يُنتج ثالثاً لأن الفرق
        * يكون قد صار صفراً.
        */
-      const seq = already?.n ?? 0;
+      const seq = postedCount.get(month) ?? 0;
       const sourceId = seq === 0 ? plan.source_id
         : deterministicUuid(entityId, `prepaid|${entityId}|${month}|top-up-${seq}`);
       const dup = await this.existingEntry(entityId, 'amortization', 'amortization', sourceId);
       if (dup) { skipped.push(`${month} (${dup.entry_no ?? 'مسوّدة'})`); continue; }
-
-      // النِّسَب تُقلَّص إلى الفرق حين يكون لحاقاً جزئياً
-      const factor = seq === 0 ? 1 : gap / plan.total;
 
       const dto: CreateEntryDto = {
         legal_entity_id: entityId, journal_id: journalId,
@@ -857,12 +885,12 @@ export class AccountingBridgeService {
         source_reference: seq === 0 ? plan.source_reference : `${plan.source_reference}-T${seq}`,
         backdated_reason: body?.backdated_reason ?? 'إطفاء شهرٍ مكتمل يُولَّد بعد انقضائه',
         lines: [
-          ...plan.debits.map((d) => ({
-            account_id: d.expense_account_id, debit: round2(d.amount * factor), transaction_currency: EUR,
+          ...dDebits.map((d) => ({
+            account_id: d.expense_account_id, debit: d.amount, transaction_currency: EUR,
             vessel_id: d.vessel_id, description: d.description,
           })),
-          ...plan.credits.map((c) => ({
-            account_id: c.prepaid_account_id, credit: round2(c.amount * factor),
+          ...dCredits.map((c) => ({
+            account_id: c.prepaid_account_id, credit: c.amount,
             transaction_currency: EUR, description: `إطفاء ${month} — تخفيض المصروف المقدَّم`,
           })),
         ],
