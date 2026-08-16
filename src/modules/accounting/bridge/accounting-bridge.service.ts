@@ -9,6 +9,7 @@ import { buildTwoSidedLines, buildSettlementLines, assertSettleable, BridgeDims 
 import { planDepreciation, assertWithinCarryingAmount, monthsBetween } from './depreciation.logic';
 import { monthsDue } from './depreciation-catchup.logic';
 import { planMonth, amortizationMonthsDue, type PrepaidSchedule } from './amortization.logic';
+import { deterministicUuid } from './depreciation.logic';
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
@@ -782,15 +783,30 @@ export class AccountingBridgeService {
     const schedules = await this.loadSchedules(entityId);
     if (!schedules.length) return { months: 0, created: 0, skipped: [], entries: [] };
 
-    const posted = await this.ds.query(
-      `SELECT DISTINCT to_char(e.accounting_date, 'YYYY-MM') AS m
+    /*
+     * ما رُحِّل لكل شهر **بالمبلغ** لا بوجوده.
+     *
+     * جدولٌ يُضاف بعد ترحيل شهرٍ كان يسقط منه إلى الأبد: المعرّف الحتمي يمنع
+     * قيداً ثانياً، فيبقى الشهر ناقصاً بلا أن يشتكي أحد. والفرق بين المستحقّ
+     * والمُرحَّل هو ما يُولَّد — فيلحق المضافُ ما فاته، ويبقى التوليد آمناً
+     * للتكرار لأن الفرق يصير صفراً بعد أول لحاق.
+     */
+    const postedRows = await this.ds.query(
+      `SELECT to_char(e.accounting_date, 'YYYY-MM') AS m,
+              COALESCE(SUM(l.debit_eur), 0) AS total,
+              COUNT(DISTINCT e.id)::int AS n
          FROM journal_entries e
+         JOIN journal_lines l ON l.entry_id = e.id AND l.debit_eur > 0
         WHERE e.legal_entity_id = $1 AND e.accounting_event_type = 'amortization'
-          AND e.status <> 'void'`, [entityId]);
+          AND e.status <> 'void'
+        GROUP BY 1`, [entityId]);
+    const postedByMonth = new Map<string, { total: number; n: number }>(
+      postedRows.map((r: any) => [r.m, { total: Number(r.total), n: Number(r.n) }]));
+    const posted = postedRows.map((r: any) => ({ m: r.m }));
 
     let months = amortizationMonthsDue({
       schedules, today: new Date().toISOString().slice(0, 10),
-      alreadyPosted: posted.map((r: any) => r.m),
+      alreadyPosted: [...postedByMonth.keys()],
     });
 
     // التوليد المسبق حتى شهرٍ محدَّد — بلا تجاوز نهاية الجداول
@@ -799,8 +815,7 @@ export class AccountingBridgeService {
       const end = schedules.map((s) => s.end_month).sort().reverse()[0];
       const upto = through < end ? through : end;
       const start = schedules.map((s) => s.start_month).sort()[0];
-      const done = new Set(posted.map((r: any) => r.m));
-      months = monthsBetween(start, upto).filter((m) => !done.has(m));
+      months = monthsBetween(start, upto);
     }
 
     const journalId = (await this.journalByCode(entityId, body?.journal_code || 'GJ')).id;
@@ -811,29 +826,48 @@ export class AccountingBridgeService {
       const plan = planMonth({ entityId, month, schedules, namespace: entityId });
       if (!plan) continue;
 
-      const dup = await this.existingEntry(entityId, 'amortization', 'amortization', plan.source_id);
+      const already = postedByMonth.get(month);
+      const gap = round2(plan.total - (already?.total ?? 0));
+      if (Math.abs(gap) < 0.005) { if (already) skipped.push(`${month} (مُرحَّل بالكامل)`); continue; }
+      if (gap < 0) { skipped.push(`${month} (المُرحَّل يفوق المستحقّ بـ${round2(-gap)} — يُراجَع يدوياً)`); continue; }
+
+      /*
+       * لحاقٌ جزئي: المعرّف يحمل ترتيب القيد في شهره، فالأول يبقى بمعرّفه
+       * والثاني يأخذ معرّفاً خاصّاً به. وتشغيلٌ ثانٍ لا يُنتج ثالثاً لأن الفرق
+       * يكون قد صار صفراً.
+       */
+      const seq = already?.n ?? 0;
+      const sourceId = seq === 0 ? plan.source_id
+        : deterministicUuid(entityId, `prepaid|${entityId}|${month}|top-up-${seq}`);
+      const dup = await this.existingEntry(entityId, 'amortization', 'amortization', sourceId);
       if (dup) { skipped.push(`${month} (${dup.entry_no ?? 'مسوّدة'})`); continue; }
+
+      // النِّسَب تُقلَّص إلى الفرق حين يكون لحاقاً جزئياً
+      const factor = seq === 0 ? 1 : gap / plan.total;
 
       const dto: CreateEntryDto = {
         legal_entity_id: entityId, journal_id: journalId,
         accounting_date: plan.accounting_date, source_document_date: plan.accounting_date,
-        description: `إطفاء مصروفات مدفوعة مقدماً — ${month}`,
+        description: seq === 0
+          ? `إطفاء مصروفات مدفوعة مقدماً — ${month}`
+          : `إطفاء مصروفات مدفوعة مقدماً — ${month} · لحاق جداول أُضيفت بعد الترحيل`,
         reference: plan.source_reference,
         accounting_event_type: 'amortization',
-        source_type: 'amortization', source_id: plan.source_id, source_reference: plan.source_reference,
+        source_type: 'amortization', source_id: sourceId,
+        source_reference: seq === 0 ? plan.source_reference : `${plan.source_reference}-T${seq}`,
         backdated_reason: body?.backdated_reason ?? 'إطفاء شهرٍ مكتمل يُولَّد بعد انقضائه',
         lines: [
           ...plan.debits.map((d) => ({
-            account_id: d.expense_account_id, debit: d.amount, transaction_currency: EUR,
+            account_id: d.expense_account_id, debit: round2(d.amount * factor), transaction_currency: EUR,
             vessel_id: d.vessel_id, description: d.description,
           })),
           ...plan.credits.map((c) => ({
-            account_id: c.prepaid_account_id, credit: c.amount,
+            account_id: c.prepaid_account_id, credit: round2(c.amount * factor),
             transaction_currency: EUR, description: `إطفاء ${month} — تخفيض المصروف المقدَّم`,
           })),
         ],
       };
-      created.push({ month, total: plan.total, entry: await this.accounting.createDraft(dto, userId) });
+      created.push({ month, total: gap, entry: await this.accounting.createDraft(dto, userId) });
     }
 
     return {
