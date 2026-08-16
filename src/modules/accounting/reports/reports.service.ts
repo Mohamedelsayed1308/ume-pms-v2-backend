@@ -185,6 +185,14 @@ export class AccountingReportsService {
     if (from && from > to) throw new BadRequestException('بداية الفترة بعد نهايتها');
 
     /*
+     * ترشيح بحساب واحد — لعرض «كشف حساب» من أي شاشة.
+     *
+     * الترشيح في الاستعلام لا بعده: جلبُ الدفتر كلّه ثم انتقاءُ حسابٍ منه في
+     * المتصفّح يعني تحميل آلاف السطور لعرض عشرة.
+     */
+    const codeFilter = String(q?.account_code || '') || null;
+
+    /*
      * الرصيد الافتتاحي حاصل ما قبل الفترة — يُقرأ باستعلام مستقلّ.
      *
      * اشتقاقه من سطور الفترة يجعل الرصيد الأول مساوياً للحركة الأولى، وهو خطأ
@@ -196,10 +204,12 @@ export class AccountingReportsService {
         `SELECT l.account_id, COALESCE(SUM(l.debit_eur - l.credit_eur), 0) AS net
            FROM journal_lines l
            JOIN journal_entries e ON e.id = l.entry_id
+           JOIN accounting_accounts a ON a.id = l.account_id
           WHERE e.legal_entity_id = $1 AND e.status IN ('posted','reversed')
             AND e.accounting_date < $2::date
+            AND ($3::text IS NULL OR a.code = $3::text)
           GROUP BY l.account_id`,
-        [entityId, from]);
+        [entityId, from, codeFilter]);
       for (const r of rows) openings.set(r.account_id, Number(r.net));
     }
 
@@ -222,8 +232,9 @@ export class AccountingReportsService {
           AND e.status IN ('posted','reversed')
           AND ($2::date IS NULL OR e.accounting_date >= $2::date)
           AND e.accounting_date <= $3::date
+          AND ($4::text IS NULL OR a.code = $4::text)
         ORDER BY a.code, e.accounting_date, e.entry_no, l.line_no`,
-      [entityId, from, to]);
+      [entityId, from, to, codeFilter]);
 
     const lines = rows.map(mapLine);
     const splits = await this.splitsFor(entityId, [...new Set<string>(lines.map((l: LedgerLine) => l.entry_id))]);
