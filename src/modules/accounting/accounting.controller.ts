@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Body, Param, Query, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Body, Param, Query, Req, UseGuards } from '@nestjs/common';
 import { AccountingService, CreateEntryDto } from './accounting.service';
 import { JwtAuthGuard } from '../../common/jwt-auth.guard';
 import { ScreenGuard } from '../../common/screen.guard';
@@ -62,6 +62,14 @@ export class AccountingController {
   createAccount(@Body() body: any) { return this.svc.createAccount(body); }
 
   // إعداد لا حركة — على شاشة الإعداد وحدها.
+  /*
+   * التعطيل لا الحذف: الحساب قد يكون في قيدٍ مُرحَّل، وحذفه يقطع أثراً.
+   * والحساب المعطَّل يخرج من قوائم الاختيار ولا يقبل ترحيلاً جديداً.
+   */
+  @Patch('accounts/:id')
+  @RequireScreen(SCREEN_ACCOUNTING_SETUP)
+  updateAccount(@Param('id') id: string, @Body() body: any) { return this.svc.updateAccount(id, body); }
+
   @Put('accounts/:id/system-role')
   @RequireScreen(SCREEN_ACCOUNTING_SETUP)
   setAccountRole(@Param('id') id: string, @Body() body: any) {

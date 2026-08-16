@@ -2,6 +2,7 @@ import { spreadAmount, monthShare, planMonth, amortizationMonthsDue, type Prepai
 import { monthsBetween } from './depreciation.logic';
 
 const NS = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
+const r2sum = (a: { amount: number }[]) => Math.round(a.reduce((s, x) => s + x.amount, 0) * 100) / 100;
 
 const sched = (o: Partial<PrepaidSchedule> = {}): PrepaidSchedule => ({
   id: 's1', description: 'عقد', source_reference: 'INV-1',
@@ -73,7 +74,8 @@ describe('planMonth', () => {
     expect(r.debits).toHaveLength(2);
     expect(r.debits.find((d) => d.expense_account_id === 'exp-5040')!.amount).toBe(300);
     expect(r.total).toBe(400);
-    expect(r.credit.amount).toBe(400);
+    expect(r.credits).toHaveLength(1);
+    expect(r.credits[0].amount).toBe(400);
   });
 
   it('المدين يساوي الدائن دائماً', () => {
@@ -81,7 +83,7 @@ describe('planMonth', () => {
       sched({ id: 'a', total_amount: 100, start_month: '2026-07', end_month: '2026-09' }),
       sched({ id: 'b', total_amount: 777.77, start_month: '2026-01', end_month: '2026-12', expense_account_id: 'x' }),
     ] })!;
-    expect(r.total).toBe(r.credit.amount);
+    expect(r.total).toBe(r2sum(r.credits));
     expect(r.total).toBe(Math.round(r.debits.reduce((s, d) => s + d.amount, 0) * 100) / 100);
   });
 
@@ -101,10 +103,16 @@ describe('planMonth', () => {
     expect(a.source_id).not.toBe(b.source_id);
   });
 
-  it('حسابا مقدَّم مختلفان في شهرٍ واحد يُرفضان — القيد لا يحتملهما', () => {
-    expect(() => planMonth({ entityId: 'e', month: '2026-08', namespace: NS, schedules: [
-      sched({ id: 'a' }), sched({ id: 'b', prepaid_account_id: 'other' }),
-    ] })).toThrow();
+  it('حسابا مقدَّم مختلفان يُنتجان سطرين دائنين لا رفضاً', () => {
+    const r = planMonth({ entityId: 'e', month: '2026-08', namespace: NS, schedules: [
+      sched({ id: 'a', total_amount: 1200, prepaid_account_id: 'pre-1220' }),
+      sched({ id: 'b', total_amount: 2400, prepaid_account_id: 'pre-1210' }),
+    ] })!;
+    expect(r.credits).toHaveLength(2);
+    expect(r.credits.find((c) => c.prepaid_account_id === 'pre-1220')!.amount).toBe(100);
+    expect(r.credits.find((c) => c.prepaid_account_id === 'pre-1210')!.amount).toBe(200);
+    // ويبقى القيد متوازناً
+    expect(r2sum(r.credits)).toBe(r.total);
   });
 });
 

@@ -71,10 +71,14 @@ export class AccountingBridgeService {
   private async fxFor(entityId: string, currency: string, onDate: string) {
     if (currency.toUpperCase() === EUR) return null;
     const rows = await this.ds.query(
+      /*
+       * فاصلُ تعادلٍ صريح: سعران بالتاريخ نفسه كانا يُختاران عشوائياً، فيتغيّر
+       * التحويل بين تشغيلين لنفس القيد. والأحدث اعتماداً هو التصحيح المقصود.
+       */
       `SELECT * FROM accounting_fx_rates
         WHERE legal_entity_id = $1 AND currency_from = $2 AND currency_to = 'EUR'
           AND rate_date <= $3::date AND approved_by IS NOT NULL
-        ORDER BY rate_date DESC LIMIT 1`,
+        ORDER BY rate_date DESC, approved_at DESC NULLS LAST, created_at DESC LIMIT 1`,
       [entityId, currency.toUpperCase(), onDate]);
     if (!rows.length) {
       throw new UnprocessableEntityException(
@@ -823,10 +827,10 @@ export class AccountingBridgeService {
             account_id: d.expense_account_id, debit: d.amount, transaction_currency: EUR,
             vessel_id: d.vessel_id, description: d.description,
           })),
-          {
-            account_id: plan.credit.prepaid_account_id, credit: plan.credit.amount,
+          ...plan.credits.map((c) => ({
+            account_id: c.prepaid_account_id, credit: c.amount,
             transaction_currency: EUR, description: `إطفاء ${month} — تخفيض المصروف المقدَّم`,
-          },
+          })),
         ],
       };
       created.push({ month, total: plan.total, entry: await this.accounting.createDraft(dto, userId) });

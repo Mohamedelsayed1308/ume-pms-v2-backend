@@ -92,7 +92,14 @@ export interface MonthlyAmortization {
   /** سطرٌ مدين لكل حساب مصروف — الجداول ذات الحساب الواحد تُجمَع. */
   debits: { expense_account_id: string; amount: number; description: string;
     vessel_id: string | null; customer_id: string | null }[];
-  credit: { prepaid_account_id: string; amount: number };
+  /**
+   * سطرٌ دائن لكل حساب مقدَّم.
+   *
+   * كان القيد يرفض شهراً فيه حسابا مقدَّم مختلفان — قيدٌ ضيّق بلا سبب: القيد
+   * يحتمل أي عدد من السطور، والرفض كان يمنع حالةً مشروعة تماماً — تأميناتٌ على
+   * حسابٍ وعقودُ إعادة تحميل على آخر، يلتقيان في الشهر نفسه.
+   */
+  credits: { prepaid_account_id: string; amount: number }[];
   total: number;
 }
 
@@ -122,9 +129,9 @@ export function planMonth(args: {
     byAccount.set(l.expense_account_id, [...(byAccount.get(l.expense_account_id) ?? []), l]);
   }
 
-  const prepaidIds = [...new Set(lines.map((l) => l.prepaid_account_id))];
-  if (prepaidIds.length !== 1) {
-    throw new BadRequestException('جداول الشهر الواحد تشير إلى أكثر من حساب مقدَّم — القيد لا يحتمل ذلك');
+  const byPrepaid = new Map<string, number>();
+  for (const l of lines) {
+    byPrepaid.set(l.prepaid_account_id, round2((byPrepaid.get(l.prepaid_account_id) ?? 0) + l.amount));
   }
 
   const debits = [...byAccount.entries()].map(([acc, ls]) => ({
@@ -143,7 +150,7 @@ export function planMonth(args: {
     source_id: deterministicUuid(args.namespace, `prepaid|${args.entityId}|${args.month}`),
     source_reference: `AMORT-${args.month}`,
     debits,
-    credit: { prepaid_account_id: prepaidIds[0], amount: total },
+    credits: [...byPrepaid.entries()].map(([prepaid_account_id, amount]) => ({ prepaid_account_id, amount })),
     total,
   };
 }

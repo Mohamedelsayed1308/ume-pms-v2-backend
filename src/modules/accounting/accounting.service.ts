@@ -263,6 +263,34 @@ export class AccountingService {
   }
 
   /** سعر الصرف لا يُقبل بلا تاريخ ومصدر — والسعر اليدوي بلا معتمِد يُرفض هنا وفي القاعدة. */
+  /**
+   * تعديل حساب — التعطيل وحده اليوم.
+   *
+   * الحذف ممنوع: الحساب قد يكون في قيدٍ مُرحَّل، وحذفه يقطع أثراً لا يُستعاد.
+   * والتعطيل يُخرجه من الاختيار ويمنع ترحيلاً جديداً ويُبقي تاريخه كاملاً.
+   */
+  async updateAccount(id: string, body: any) {
+    const repo = this.ds.getRepository(AccountingAccount);
+    const acc = await repo.findOne({ where: { id } });
+    if (!acc) throw new NotFoundException('الحساب غير موجود');
+    if (typeof body?.is_active === 'boolean') {
+      if (!body.is_active) {
+        const [used] = await this.ds.query(
+          `SELECT COALESCE(SUM(l.debit_eur - l.credit_eur), 0) AS net
+             FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id
+            WHERE l.account_id = $1 AND e.status IN ('posted','reversed')`, [id]);
+        // حسابٌ برصيد لا يُعطَّل: يختفي من الاختيار ورصيده باقٍ في الميزان فلا يُفسَّر
+        if (Math.abs(Number(used?.net ?? 0)) > 0.005) {
+          throw new UnprocessableEntityException('لا يُعطَّل حساب له رصيد — سوِّه أولاً');
+        }
+      }
+      acc.is_active = body.is_active;
+    }
+    if (typeof body?.name === 'string' && body.name.trim()) acc.name = body.name.trim();
+    if (typeof body?.name_ar === 'string') acc.name_ar = body.name_ar.trim() || null;
+    return repo.save(acc);
+  }
+
   async createFxRate(body: any, userId: string | null) {
     await this.mustFindEntity(body?.legal_entity_id);
     const from = String(body?.currency_from || '').toUpperCase();
