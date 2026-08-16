@@ -13,4 +13,19 @@ export class AccountingReportsController {
 
   @Get('statements')
   statements(@Query() q: any) { return this.svc.statements(q); }
+
+  /*
+   * التفصيل والملخّص من نداءٍ واحد.
+   *
+   * الملخّص مشتقٌّ من التفصيل لا محسوبٌ على حدة، فإفرادُه بنقطة نهاية يفتح باب
+   * اختلافهما — وتقريران متناقضان عن الشيء نفسه أسوأ من تقرير واحد ناقص.
+   */
+  @Get('vendor-balance')
+  vendorBalance(@Query() q: any) { return this.svc.vendorBalance(q); }
+
+  @Get('customer-balance')
+  customerBalance(@Query() q: any) { return this.svc.customerBalance(q); }
+
+  @Get('general-ledger')
+  generalLedger(@Query() q: any) { return this.svc.generalLedger(q); }
 }
