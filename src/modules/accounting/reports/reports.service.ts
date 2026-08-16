@@ -180,6 +180,81 @@ export class AccountingReportsService {
   vendorBalance(q: any) { return this.partyReport(q, 'supplier_id'); }
   customerBalance(q: any) { return this.partyReport(q, 'customer_id'); }
 
+  /**
+   * كشف طرف مرتبط — الجانبان في شاشة واحدة.
+   *
+   * الطرف الواحد قد يكون مديناً ودائناً معاً: يستأجر المركب فيصير مديناً،
+   * ويدفع عن الشركة فيصير دائناً. وقراءةُ حسابٍ واحد تُظهر نصف الحقيقة.
+   *
+   * والصافي يُعرض **خبراً لا عرضاً محاسبياً**: المقاصّة بين مدينٍ ودائن لا
+   * تجوز في المركز المالي إلا بحقٍّ قانوني في المقاصّة ونيّةٍ للتسوية بالصافي،
+   * وبغيرهما يُنقص الصافي الأصولَ والالتزامات معاً بمقدار الأصغر.
+   */
+  async relatedPartyStatement(q: any) {
+    const entityId = this.entity(q);
+    const asOf = this.date(q?.as_of, 'as_of')!;
+
+    /*
+     * الحسابات من مجموعتها لا من رموزها: `RELATED_PARTY` تجمع المدين والدائن
+     * مهما أُعيد ترقيم الدليل، وإضافةُ حسابٍ للمجموعة تدخل الكشف تلقائياً.
+     */
+    const rows = await this.ds.query(
+      `SELECT code FROM accounting_accounts
+        WHERE legal_entity_id = $1 AND account_group = 'RELATED_PARTY' AND is_active AND is_postable`,
+      [entityId]);
+    const codes: string[] = rows.map((r: any) => r.code);
+    if (!codes.length) throw new BadRequestException('لا حسابات في مجموعة RELATED_PARTY');
+
+    /*
+     * الطرف قد يكون مسجَّلاً عميلاً أو مورّداً — فيُقرأ الاثنان ويُوحَّدان.
+     * وكيانٌ واحد مسجَّل بالصفتين يظهر مجموعةً واحدة لا مجموعتين.
+     */
+    const both = await this.ds.query(
+      `SELECT e.id AS entry_id, e.entry_no, e.accounting_date AS entry_date, e.status AS entry_status,
+              e.accounting_event_type AS event_type, e.reference, l.description,
+              a.id AS account_id, a.code AS account_code, a.name AS account_name,
+              a.account_type, a.parent_id,
+              l.debit_eur, l.credit_eur,
+              l.supplier_id, l.customer_id,
+              COALESCE(l.customer_id, l.supplier_id) AS party_id,
+              COALESCE(c.name, s.name) AS party_name
+         FROM journal_lines l
+         JOIN journal_entries e ON e.id = l.entry_id
+         JOIN accounting_accounts a ON a.id = l.account_id
+    LEFT JOIN customers c ON c.id = l.customer_id
+    LEFT JOIN suppliers s ON s.id = l.supplier_id
+        WHERE e.legal_entity_id = $1
+          AND e.status IN ('posted','reversed')
+          AND a.code = ANY($2::text[])
+          AND e.accounting_date <= $3::date
+        ORDER BY e.accounting_date, e.entry_no, l.line_no
+        LIMIT ${ROW_CAP + 1}`,
+      [entityId, codes, asOf]);
+
+    const truncated = both.length > ROW_CAP;
+    const lines = (truncated ? both.slice(0, ROW_CAP) : both).map(mapLine);
+    const splits = await this.splitsFor(entityId, [...new Set<string>(lines.map((l: LedgerLine) => l.entry_id))]);
+
+    /*
+     * الطبيعة مدينة: هذه حسابات الجانبين معاً، فقلبُ الإشارة لأحدهما يجعل
+     * العمود غير قابل للجمع. الموجب مدينٌ على الطرف والسالب دائنٌ له.
+     */
+    const detail = buildPartyBalanceDetail(lines, {
+      as_of: asOf, account_codes: codes, normal: 'debit', splits,
+    });
+
+    return {
+      entity: await this.entityHeader(entityId),
+      title: 'Related Party Statement',
+      disclosure: 'MANAGEMENT ACCOUNTS — OPENING BALANCES UNAUDITED',
+      presentation: 'الصافي إخبارٌ لا عرض — المركز المالي يعرض المدين والدائن إجمالاً لا مقاصّةً',
+      account_codes: codes,
+      truncated,
+      detail,
+      summary: buildPartyBalanceSummary(detail),
+    };
+  }
+
   async generalLedger(q: any) {
     const entityId = this.entity(q);
     const from = this.date(q?.period_start, 'period_start', false);

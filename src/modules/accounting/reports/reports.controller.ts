@@ -32,4 +32,13 @@ export class AccountingReportsController {
 
   @Get('general-ledger')
   generalLedger(@Query() q: any) { return this.svc.generalLedger(q); }
+
+  /*
+   * كشف الطرف المرتبط — الجانبان معاً.
+   *
+   * لا يُطوى في تقرير العملاء ولا الموردين: أولئك يقرؤون حساباً واحداً بطبيعة
+   * واحدة، وهذا يقرأ مجموعة حسابات قد يقف الطرف فيها مديناً ودائناً في آن.
+   */
+  @Get('related-party')
+  relatedParty(@Query() q: any) { return this.svc.relatedPartyStatement(q); }
 }
