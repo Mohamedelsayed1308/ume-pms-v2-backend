@@ -98,7 +98,7 @@ export class AccountingReportsService {
    * `party` تُمرَّر كاسم عمود لا كقيمة — وهي من ثابتين في الكود لا من الطلب،
    * فلا مدخل للمستخدم في نصّ الاستعلام.
    */
-  private async partyLines(entityId: string, codes: string[], asOf: string, party: 'supplier_id' | 'customer_id'): Promise<LedgerLine[]> {
+  private async partyLines(entityId: string, codes: string[], asOf: string, party: 'supplier_id' | 'customer_id'): Promise<{ truncated: boolean; lines: LedgerLine[] }> {
     const nameTable = party === 'supplier_id' ? 'suppliers' : 'customers';
     const rows = await this.ds.query(
       `SELECT e.id AS entry_id, e.entry_no, e.accounting_date AS entry_date, e.status AS entry_status,
@@ -106,8 +106,8 @@ export class AccountingReportsService {
               a.id AS account_id, a.code AS account_code, a.name AS account_name,
               a.account_type, a.parent_id,
               l.debit_eur, l.credit_eur,
-              l.${party} AS party_id, p.name AS party_name,
-              '${party === 'supplier_id' ? 'vendor' : 'customer'}'::text AS party_kind
+              l.supplier_id, l.customer_id,
+              l.${party} AS party_id, p.name AS party_name
          FROM journal_lines l
          JOIN journal_entries e ON e.id = l.entry_id
          JOIN accounting_accounts a ON a.id = l.account_id
@@ -116,9 +116,10 @@ export class AccountingReportsService {
           AND e.status IN ('posted','reversed')
           AND a.code = ANY($2::text[])
           AND e.accounting_date <= $3::date
-        ORDER BY e.accounting_date, e.entry_no, l.line_no`,
+        ORDER BY e.accounting_date, e.entry_no, l.line_no
+        LIMIT ${ROW_CAP + 1}`,
       [entityId, codes, asOf]);
-    return rows.map(mapLine);
+    return { truncated: rows.length > ROW_CAP, lines: (rows.length > ROW_CAP ? rows.slice(0, ROW_CAP) : rows).map(mapLine) };
   }
 
   private async accountCodes(entityId: string, role: string, fallback: string[]): Promise<string[]> {
@@ -152,7 +153,7 @@ export class AccountingReportsService {
     const isVendor = party === 'supplier_id';
     const codes = await this.accountCodes(entityId, isVendor ? 'ACCOUNTS_PAYABLE' : 'ACCOUNTS_RECEIVABLE', isVendor ? ['2010'] : ['1100']);
 
-    const lines = await this.partyLines(entityId, codes, asOf, party);
+    const { truncated, lines } = await this.partyLines(entityId, codes, asOf, party);
     /*
      * الجانب المقابل يُقرأ من سطور القيد كاملةً لا من سطور الحساب وحده.
      *
@@ -170,6 +171,7 @@ export class AccountingReportsService {
       entity: await this.entityHeader(entityId),
       title: isVendor ? 'Vendor Balance Detail' : 'Customer Balance Detail',
       disclosure: 'MANAGEMENT ACCOUNTS — OPENING BALANCES UNAUDITED',
+      truncated,
       detail,
       summary: buildPartyBalanceSummary(detail),
     };
@@ -198,19 +200,31 @@ export class AccountingReportsService {
      * اشتقاقه من سطور الفترة يجعل الرصيد الأول مساوياً للحركة الأولى، وهو خطأ
      * لا يظهر إلا عند مطابقة الدفتر بميزان المراجعة.
      */
+    /*
+     * الافتتاحيات تحمل هوية حسابها من مصدرها.
+     *
+     * الحساب الساكن — رصيدٌ قبل الفترة بلا حركة فيها — لا سطور له في استعلام
+     * الفترة بحكم تعريفه، فاسمه لا يأتي إلا من هنا. وبدون ذلك كان يُعرض
+     * برمزٍ واسمٍ فارغين يتصدّران التقرير.
+     */
     const openings = new Map<string, number>();
+    const accountInfo = new Map<string, { code: string; name: string; account_type: string }>();
     if (from) {
       const rows = await this.ds.query(
-        `SELECT l.account_id, COALESCE(SUM(l.debit_eur - l.credit_eur), 0) AS net
+        `SELECT l.account_id, a.code, a.name, a.account_type,
+                COALESCE(SUM(l.debit_eur - l.credit_eur), 0) AS net
            FROM journal_lines l
            JOIN journal_entries e ON e.id = l.entry_id
            JOIN accounting_accounts a ON a.id = l.account_id
           WHERE e.legal_entity_id = $1 AND e.status IN ('posted','reversed')
             AND e.accounting_date < $2::date
             AND ($3::text IS NULL OR a.code = $3::text)
-          GROUP BY l.account_id`,
+          GROUP BY l.account_id, a.code, a.name, a.account_type`,
         [entityId, from, codeFilter]);
-      for (const r of rows) openings.set(r.account_id, Number(r.net));
+      for (const r of rows) {
+        openings.set(r.account_id, Number(r.net));
+        accountInfo.set(r.account_id, { code: r.code, name: r.name, account_type: r.account_type });
+      }
     }
 
     const rows = await this.ds.query(
@@ -219,10 +233,9 @@ export class AccountingReportsService {
               a.id AS account_id, a.code AS account_code, a.name AS account_name,
               a.account_type, a.parent_id,
               l.debit_eur, l.credit_eur,
+              l.supplier_id, l.customer_id,
               NULL AS party_id,
-              COALESCE(s.name, c.name) AS party_name,
-              CASE WHEN l.supplier_id IS NOT NULL THEN 'vendor'
-                   WHEN l.customer_id IS NOT NULL THEN 'customer' END AS party_kind
+              COALESCE(s.name, c.name) AS party_name
          FROM journal_lines l
          JOIN journal_entries e ON e.id = l.entry_id
          JOIN accounting_accounts a ON a.id = l.account_id
@@ -233,20 +246,43 @@ export class AccountingReportsService {
           AND ($2::date IS NULL OR e.accounting_date >= $2::date)
           AND e.accounting_date <= $3::date
           AND ($4::text IS NULL OR a.code = $4::text)
-        ORDER BY a.code, e.accounting_date, e.entry_no, l.line_no`,
+        ORDER BY a.code, e.accounting_date, e.entry_no, l.line_no
+        LIMIT ${ROW_CAP + 1}`,
       [entityId, from, to, codeFilter]);
 
-    const lines = rows.map(mapLine);
-    const splits = await this.splitsFor(entityId, [...new Set<string>(lines.map((l: LedgerLine) => l.entry_id))]);
+    const truncated = rows.length > ROW_CAP;
+    const lines = (truncated ? rows.slice(0, ROW_CAP) : rows).map(mapLine);
+
+    /*
+     * خريطة المقابل من المجلوب حين يكون كاملاً.
+     *
+     * بلا مرشِّح حساب، الترشيح على القيد لا السطر — فالاستعلام الرئيسي يحمل كل
+     * سطور قيود الفترة أصلاً، وإعادة جلبها بـ`splitsFor` كانت تمسح join
+     * السطور مرتين على أثقل تقرير في الوحدة. النداء الثاني لازمٌ فقط حين
+     * يُرشَّح بحسابٍ فتغيب سطور المقابل عن المجلوب.
+     */
+    const splits = codeFilter
+      ? await this.splitsFor(entityId, [...new Set<string>(lines.map((l: LedgerLine) => l.entry_id))])
+      : buildSplitMap(lines);
 
     return {
       entity: await this.entityHeader(entityId),
       title: 'General Ledger',
       disclosure: 'MANAGEMENT ACCOUNTS — OPENING BALANCES UNAUDITED',
-      report: buildGeneralLedger(lines, { from, to, openings, splits }),
+      truncated,
+      report: buildGeneralLedger(lines, { from, to, openings, accountInfo, splits }),
     };
   }
 }
+
+/*
+ * سقف صفوف واحد للتقارير الثلاثة.
+ *
+ * بلا سقفٍ يكبر الردّ مع الدفتر بلا حدّ حتى يعلّق تسلسل عشرات الميغابايت
+ * الخادمَ والمتصفّحَ معاً. والقصّ يُعلَن بعلم `truncated` — تقريرٌ مقصوصٌ
+ * بصمت يُقرأ كاملاً وهو ناقص.
+ */
+const ROW_CAP = 20000;
 
 /*
  * التاريخ يعود من `pg` كائنَ `Date` لا نصّاً.
@@ -273,6 +309,8 @@ function mapLine(r: any): LedgerLine {
     account_id: r.account_id, account_code: r.account_code, account_name: r.account_name,
     account_type: r.account_type, parent_id: r.parent_id,
     debit_eur: Number(r.debit_eur), credit_eur: Number(r.credit_eur),
-    party_id: r.party_id, party_name: r.party_name, party_kind: r.party_kind ?? null,
+    party_id: r.party_id, party_name: r.party_name,
+    // اشتقاقٌ واحد للنوع — من وجود الطرف على السطر، لا من نوع التقرير ولا من SQL
+    party_kind: r.supplier_id ? 'vendor' : r.customer_id ? 'customer' : null,
   };
 }

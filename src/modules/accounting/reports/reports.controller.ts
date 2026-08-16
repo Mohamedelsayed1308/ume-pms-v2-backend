@@ -3,11 +3,15 @@ import { AccountingReportsService } from './reports.service';
 import { JwtAuthGuard } from '../../../common/jwt-auth.guard';
 import { ScreenGuard } from '../../../common/screen.guard';
 import { RequireScreen } from '../../../common/require-screen.decorator';
-import { SCREEN_ACCOUNTING, SCREEN_ACCOUNTING_POSTING } from '../accounting.constants';
+import { SCREEN_ACCOUNTING, SCREEN_ACCOUNTING_POSTING, SCREEN_ACCOUNTING_REPORTS } from '../accounting.constants';
 
 @Controller('api/accounting/reports')
 @UseGuards(JwtAuthGuard, ScreenGuard)
-@RequireScreen(SCREEN_ACCOUNTING, SCREEN_ACCOUNTING_POSTING)
+/*
+ * شاشة التقارير ضمن القائمة: مطابقة الشاشات تامّة لا بادئة، فمنح
+ * المستخدم شاشة «تقارير الدفتر» وحدها كان يريه الرابط وتردّ نداءاته 403.
+ */
+@RequireScreen(SCREEN_ACCOUNTING, SCREEN_ACCOUNTING_POSTING, SCREEN_ACCOUNTING_REPORTS)
 export class AccountingReportsController {
   constructor(private svc: AccountingReportsService) {}
 

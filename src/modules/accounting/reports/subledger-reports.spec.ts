@@ -224,3 +224,45 @@ describe('الجانب المقابل في تفصيل الأطراف', () => {
     expect(r.groups[0].rows[0].split).toBe('-SPLIT-');
   });
 });
+
+describe('إصلاحات المراجعة — مثبَّتة', () => {
+  const opts = { as_of: '2026-08-15', normal: 'credit' as const, account_codes: ['2010'] };
+
+  it('الحساب الساكن يأخذ اسمه من accountInfo لا من سطور الفترة', () => {
+    const r = buildGeneralLedger([], {
+      from: '2026-07-01', to: '2026-07-31',
+      openings: new Map([['a-idle', 88218.66]]),
+      accountInfo: new Map([['a-idle', { code: '1010', name: 'Bank — EUR', account_type: 'asset' }]]),
+      splits: new Map(),
+    });
+    expect(r.accounts[0].code).toBe('1010');
+    expect(r.accounts[0].name).toBe('Bank — EUR');
+    expect(r.accounts[0].closing).toBe(88218.66);
+  });
+
+  it('السطر بلا طرف عنوانه «غير منسوب» — لا ادّعاء أنه افتتاحي', () => {
+    const r = buildPartyBalanceDetail([
+      line({ party_id: null, party_name: null, credit_eur: 12400, event_type: 'fx_revaluation' }),
+    ], opts);
+    expect(r.groups[0].party_name).toBe('غير منسوب');
+    expect(r.groups[0].unattributed).toBe(true);
+  });
+
+  it('طرفٌ حقيقي بلا اسم يُسمّى بهويته ويُحتسب منسوباً', () => {
+    const r = buildPartyBalanceDetail([
+      line({ party_id: 'deadbeef-0000-4000-8000-000000000000', party_name: null, credit_eur: 100 }),
+    ], opts);
+    expect(r.groups[0].party_name).toContain('deadbeef');
+    expect(r.groups[0].unattributed).toBe(false);
+    expect(r.attributed_total).toBe(100);
+  });
+
+  it('النوع من party_kind المحمول على السطر لا من نوع التقرير', () => {
+    const r = buildPartyBalanceDetail([
+      line({ credit_eur: 500, party_kind: 'vendor' }),
+      line({ entry_id: 'e2', party_id: null, party_name: null, debit_eur: 200, event_type: 'payment_settlement', party_kind: null }),
+    ], opts);
+    const rows = r.groups.flatMap((g) => g.rows);
+    expect(rows.map((x) => x.type).sort()).toEqual(['Bill', 'Settlement']);
+  });
+});

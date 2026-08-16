@@ -49,6 +49,7 @@ export const SCREEN_ACCOUNTING_JOURNALS = '/dashboard/accounting/journals';
 export const SCREEN_ACCOUNTING_POSTING = '/dashboard/accounting/posting';
 export const SCREEN_ACCOUNTING_PERIODS = '/dashboard/accounting/periods';
 export const SCREEN_ACCOUNTING_SETUP = '/dashboard/accounting/setup';
+export const SCREEN_ACCOUNTING_REPORTS = '/dashboard/accounting/reports';
 
 const list = (a: readonly string[]) => a.map((x) => `'${x}'`).join(',');
 
