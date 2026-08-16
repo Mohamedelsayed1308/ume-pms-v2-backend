@@ -195,3 +195,32 @@ describe('buildGeneralLedger', () => {
     expect(r.accounts[0].rows[0].split).toBe('4000 · Revenue');
   });
 });
+
+describe('الجانب المقابل في تفصيل الأطراف', () => {
+  const opts = { as_of: '2026-08-15', normal: 'credit' as const, account_codes: ['2010'] };
+
+  it('يحمل المصروف أو البنك — لا حساب الدائنين نفسه', () => {
+    const splits = buildSplitMap([
+      { entry_id: 'e1', account_id: 'a-ap', account_code: '2010', account_name: 'Accounts Payable — Trade' },
+      { entry_id: 'e1', account_id: 'a-exp', account_code: '5001', account_name: 'Vessel Operating Expense' },
+    ]);
+    const r = buildPartyBalanceDetail([line({ credit_eur: 1000 })], { ...opts, splits });
+
+    expect(r.groups[0].rows[0].split).toBe('5001 · Vessel Operating Expense');
+  });
+
+  it('كل سطر يحمل معرّف قيده ليُفتح كاملاً', () => {
+    const r = buildPartyBalanceDetail([line({ entry_id: 'entry-42', credit_eur: 1000 })], opts);
+    expect(r.groups[0].rows[0].entry_id).toBe('entry-42');
+  });
+
+  it('قيدٌ متعدّد الأطراف يقول -SPLIT- ولا يسمّي أحدها', () => {
+    const splits = buildSplitMap([
+      { entry_id: 'e1', account_id: 'a-ap', account_code: '2010', account_name: 'AP' },
+      { entry_id: 'e1', account_id: 'a-exp', account_code: '5001', account_name: 'Expense' },
+      { entry_id: 'e1', account_id: 'a-tax', account_code: '2200', account_name: 'Tax' },
+    ]);
+    const r = buildPartyBalanceDetail([line({ credit_eur: 1000 })], { ...opts, splits });
+    expect(r.groups[0].rows[0].split).toBe('-SPLIT-');
+  });
+});

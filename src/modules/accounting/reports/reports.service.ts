@@ -153,9 +153,17 @@ export class AccountingReportsService {
     const codes = await this.accountCodes(entityId, isVendor ? 'ACCOUNTS_PAYABLE' : 'ACCOUNTS_RECEIVABLE', isVendor ? ['2010'] : ['1100']);
 
     const lines = await this.partyLines(entityId, codes, asOf, party);
+    /*
+     * الجانب المقابل يُقرأ من سطور القيد كاملةً لا من سطور الحساب وحده.
+     *
+     * فلو اكتُفي بما جلبه `partyLines` — وهو حساب الدائنين فقط — لما وُجد مقابل
+     * أصلاً: كل سطر يرى نفسه ولا يرى المصروف ولا البنك.
+     */
+    const splits = await this.splitsFor(entityId, [...new Set<string>(lines.map((l: LedgerLine) => l.entry_id))]);
     const detail = buildPartyBalanceDetail(lines, {
       as_of: asOf, account_codes: codes,
       normal: isVendor ? 'credit' : 'debit',
+      splits,
     });
 
     return {
