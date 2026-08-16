@@ -5,7 +5,7 @@ import {
 
 const line = (o: Partial<LedgerLine>): LedgerLine => ({
   entry_id: 'e1', entry_no: 'PJ-1', entry_date: '2026-07-10', entry_status: 'posted',
-  event_type: 'supplier_invoice', reference: null, description: null,
+  event_type: 'invoice_accrual', reference: null, description: null,
   account_id: 'a-ap', account_code: '2010', account_name: 'Accounts Payable — Trade',
   account_type: 'liability', parent_id: null,
   debit_eur: 0, credit_eur: 0, party_id: 's1', party_name: 'SERMACO',
@@ -13,14 +13,30 @@ const line = (o: Partial<LedgerLine>): LedgerLine => ({
 });
 
 describe('transactionType', () => {
-  it('يطابق مصطلحات QuickBooks التي يعرفها الفريق', () => {
-    expect(transactionType('supplier_invoice')).toBe('Bill');
-    expect(transactionType('supplier_payment')).toBe('Bill Pmt');
-    expect(transactionType('hire_invoice')).toBe('Invoice');
+  /*
+   * الأنواع هنا هي الثابتة في `ACCOUNTING_EVENT_TYPES` لا أسماء مخترَعة.
+   * أوّل نسخة اخترعتُ فيها الأسماء أسقطت المطابقة كلّها إلى `General Journal`
+   * على الإنتاج — ولم يكشفها اختبار لأنه كان يختبر الاختراع نفسه.
+   */
+  it('الاستحقاق يفرّقه الطرف: فاتورة مورّد Bill وفاتورة عميل Invoice', () => {
+    expect(transactionType('invoice_accrual', 'vendor')).toBe('Bill');
+    expect(transactionType('invoice_accrual', 'customer')).toBe('Invoice');
   });
 
-  it('لا يخترع اسماً لحدثٍ لا مقابل له', () => {
-    expect(transactionType('something_new')).toBe('General Journal');
+  it('والسداد كذلك', () => {
+    expect(transactionType('payment_settlement', 'vendor')).toBe('Bill Pmt');
+    expect(transactionType('payment_settlement', 'customer')).toBe('Payment');
+  });
+
+  it('بلا طرفٍ معروف لا يُنسب إلى أحدهما', () => {
+    expect(transactionType('invoice_accrual', null)).toBe('Accrual');
+    expect(transactionType('payment_settlement', null)).toBe('Settlement');
+  });
+
+  it('ما لا مقابل له يبقى General Journal', () => {
+    for (const e of ['manual', 'opening_balance', 'reversal', 'adjustment', 'depreciation', 'fx_revaluation']) {
+      expect(transactionType(e, 'vendor')).toBe('General Journal');
+    }
     expect(transactionType(null)).toBe('General Journal');
   });
 });
@@ -52,7 +68,7 @@ describe('buildPartyBalanceDetail — الدائنون', () => {
   it('الفاتورة تزيد الدَّين والسداد ينقصه', () => {
     const r = buildPartyBalanceDetail([
       line({ entry_id: 'e1', entry_no: 'PJ-1', entry_date: '2026-07-10', credit_eur: 1000 }),
-      line({ entry_id: 'e2', entry_no: 'BJ-1', entry_date: '2026-07-20', debit_eur: 400, event_type: 'supplier_payment' }),
+      line({ entry_id: 'e2', entry_no: 'BJ-1', entry_date: '2026-07-20', debit_eur: 400, event_type: 'payment_settlement' }),
     ], opts);
 
     const g = r.groups[0];
@@ -94,8 +110,8 @@ describe('buildPartyBalanceDetail — الدائنون', () => {
 describe('buildPartyBalanceDetail — المدينون', () => {
   it('المدين طبيعته مدينة: الفاتورة مدينة تزيد والتحصيل ينقص', () => {
     const r = buildPartyBalanceDetail([
-      line({ account_code: '1100', debit_eur: 5000, event_type: 'hire_invoice', party_name: 'UME AB' }),
-      line({ entry_id: 'e2', account_code: '1100', credit_eur: 2000, event_type: 'customer_receipt', party_name: 'UME AB' }),
+      line({ account_code: '1100', debit_eur: 5000, event_type: 'invoice_accrual', party_name: 'UME AB' }),
+      line({ entry_id: 'e2', account_code: '1100', credit_eur: 2000, event_type: 'payment_settlement', party_name: 'UME AB' }),
     ], { as_of: '2026-08-15', normal: 'debit', account_codes: ['1100'] });
 
     expect(r.groups[0].rows.map((x) => x.amount)).toEqual([5000, -2000]);
@@ -110,7 +126,7 @@ describe('buildPartyBalanceSummary', () => {
     const d = buildPartyBalanceDetail([
       line({ party_id: 's1', party_name: 'AAA', credit_eur: 100 }),
       line({ entry_id: 'e2', party_id: 's2', party_name: 'BBB', credit_eur: 300 }),
-      line({ entry_id: 'e3', party_id: 's2', party_name: 'BBB', debit_eur: 300, event_type: 'supplier_payment' }),
+      line({ entry_id: 'e3', party_id: 's2', party_name: 'BBB', debit_eur: 300, event_type: 'payment_settlement' }),
     ], opts);
     const s = buildPartyBalanceSummary(d);
 

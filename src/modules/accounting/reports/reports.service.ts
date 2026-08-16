@@ -106,7 +106,8 @@ export class AccountingReportsService {
               a.id AS account_id, a.code AS account_code, a.name AS account_name,
               a.account_type, a.parent_id,
               l.debit_eur, l.credit_eur,
-              l.${party} AS party_id, p.name AS party_name
+              l.${party} AS party_id, p.name AS party_name,
+              '${party === 'supplier_id' ? 'vendor' : 'customer'}'::text AS party_kind
          FROM journal_lines l
          JOIN journal_entries e ON e.id = l.entry_id
          JOIN accounting_accounts a ON a.id = l.account_id
@@ -201,7 +202,9 @@ export class AccountingReportsService {
               a.account_type, a.parent_id,
               l.debit_eur, l.credit_eur,
               NULL AS party_id,
-              COALESCE(s.name, c.name) AS party_name
+              COALESCE(s.name, c.name) AS party_name,
+              CASE WHEN l.supplier_id IS NOT NULL THEN 'vendor'
+                   WHEN l.customer_id IS NOT NULL THEN 'customer' END AS party_kind
          FROM journal_lines l
          JOIN journal_entries e ON e.id = l.entry_id
          JOIN accounting_accounts a ON a.id = l.account_id
@@ -226,14 +229,31 @@ export class AccountingReportsService {
   }
 }
 
+/*
+ * التاريخ يعود من `pg` كائنَ `Date` لا نصّاً.
+ *
+ * و`String(date).slice(0,10)` يعطي `Fri Jul 31` — نصّاً يبدو تاريخاً ويُرتَّب
+ * أبجدياً فيختلّ الرصيد الجاري. رأيتُه على الإنتاج قبل أن يكشفه اختبار.
+ *
+ * و`toISOString` بلا تصحيح المنطقة يزحف بيوم في المناطق السالبة، والحقل
+ * `date` بلا وقت أصلاً — فيُبنى النصّ من مكوّناته المحلّية.
+ */
+function isoDate(v: any): string {
+  if (v instanceof Date) {
+    const p = (n: number) => String(n).padStart(2, '0');
+    return `${v.getFullYear()}-${p(v.getMonth() + 1)}-${p(v.getDate())}`;
+  }
+  return String(v ?? '').slice(0, 10);
+}
+
 /** الأرقام تعود من `pg` نصوصاً — تحويلها في موضع واحد يمنع تسرّب النصّ إلى الحساب. */
 function mapLine(r: any): LedgerLine {
   return {
-    entry_id: r.entry_id, entry_no: r.entry_no, entry_date: String(r.entry_date).slice(0, 10),
+    entry_id: r.entry_id, entry_no: r.entry_no, entry_date: isoDate(r.entry_date),
     entry_status: r.entry_status, event_type: r.event_type, reference: r.reference, description: r.description,
     account_id: r.account_id, account_code: r.account_code, account_name: r.account_name,
     account_type: r.account_type, parent_id: r.parent_id,
     debit_eur: Number(r.debit_eur), credit_eur: Number(r.credit_eur),
-    party_id: r.party_id, party_name: r.party_name,
+    party_id: r.party_id, party_name: r.party_name, party_kind: r.party_kind ?? null,
   };
 }
