@@ -320,6 +320,39 @@ export class AccountingService {
   }
 
   /**
+   * تصحيح سعر صرف — بحارسٍ لا بثقة.
+   *
+   * الفهرس الفريد يمنع سعرين للعملة والتاريخ نفسيهما، فتصحيح شهرٍ لا يكون
+   * بإضافةٍ بل بتعديل. والتعديل خطرٌ لولا الحارس: سعرٌ **استُعمل في قيدٍ
+   * مُرحَّل** لا يُمسّ — السطر يحفظ سعره فلا يتغيّر القيد، لكن السجلّ يصير
+   * كاذباً عمّا حدث، ومن يراجع لاحقاً يجد قيداً بسعرٍ لا يطابق مصدره.
+   *
+   * والتصحيح يُعيد الاعتماد إلى الصفر: رقمٌ جديد يحتاج موافقةً جديدة.
+   */
+  async updateFxRate(id: string, body: any, userId: string | null) {
+    const repo = this.ds.getRepository(AccountingFxRate);
+    const fx = await repo.findOne({ where: { id } });
+    if (!fx) throw new NotFoundException('سعر الصرف غير موجود');
+
+    const [used] = await this.ds.query(
+      `SELECT COUNT(*)::int AS n
+         FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id
+        WHERE l.fx_rate_id = $1 AND e.status IN ('posted','reversed')`, [id]);
+    if (Number(used?.n ?? 0) > 0) {
+      throw new UnprocessableEntityException(
+        `السعر مستعمَل في ${used.n} سطر مُرحَّل — لا يُصحَّح. أنشئ سعراً لتاريخٍ لاحق أو اعكس القيود`);
+    }
+
+    const rate = Number(body?.rate);
+    if (!(rate > 0)) throw new BadRequestException('سعر الصرف يجب أن يكون موجباً');
+    fx.rate = String(rate);
+    if (typeof body?.source_reference === 'string') fx.source_reference = body.source_reference;
+    fx.approved_by = null;
+    fx.approved_at = null;
+    return decorateFxRate(await repo.save(fx));
+  }
+
+  /**
    * اعتماد سعر صرف — **فعل منفصل عن الإنشاء وإن قام به الشخص نفسه**.
    *
    * اشتراط معتمِدٍ ثانٍ أُسقط بقرار تشغيلي (مُدخِل البيانات واحد)، وبقي جوهر
