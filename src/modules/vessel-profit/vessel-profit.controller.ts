@@ -15,6 +15,12 @@ export class VesselProfitController {
     return this.svc.get(vessel);
   }
 
+  // الرحلات من الشيت الموحّد — المصدر الافتراضي، والرفع اليدوي يبقى بديلاً
+  @Get(':vessel/from-sheet')
+  fromSheet(@Param('vessel') vessel: string) {
+    return this.svc.fromSheet(vessel);
+  }
+
   @RequireScreen('/dashboard/reports')
   @Put(':vessel')
   save(@Param('vessel') vessel: string, @Body() body: { voyages?: any; manual?: any }) {
