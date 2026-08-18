@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThanOrEqual, Not, Repository } from 'typeorm';
 import { Invoice, InvoiceStatus } from './invoice.entity';
@@ -50,8 +50,34 @@ export class InvoicesService {
   // حالة السداد تُشتقّ حصراً من سجلات الدفع الفعلية عبر updatePaidAmount.
   //
   // كان الاقتران هنا هو ما أنتج 128 فاتورة «مدفوعة» بلا سند دفع.
+  /**
+   * الفاتورة تُصنَّف أو لا تُحفَظ.
+   *
+   * ثلاثون بالمئة من الفواتير (84 من 284) دخلت بلا بند، وقيمتها تتجاوز مليوناً
+   * وسبعمئة ألف دولار — والعدد يتزايد شهرياً لا يتناقص. وأي تقرير تكاليف يعرض
+   * ثلث الإنفاق في خانةٍ بلا معنى.
+   *
+   * ── ولماذا «أو سطور» ──
+   * الفاتورة متعدّدة البنود مُصنَّفة بسطورها لا بحقلها، ومستخرِج الفواتير الآلي
+   * يُنتجها كذلك. فاشتراط الحقل وحده كان سيرفض فواتير مُصنَّفة تصنيفاً أدقّ.
+   *
+   * ── ولماذا هنا لا في الواجهة ──
+   * الواجهة أحد المداخل: هناك الاستخراج الآلي والاستيراد بالدفعات. والشرط في
+   * الخدمة يحرس المداخل جميعاً.
+   */
+  private assertClassified(data: any, existing?: Invoice) {
+    const itemId = data.item_id !== undefined ? data.item_id : existing?.item_id;
+    if (itemId) return;
+    const lines = data.line_items !== undefined ? data.line_items : (existing as any)?.line_items;
+    if (Array.isArray(lines) && lines.length > 0) return;
+    throw new BadRequestException(
+      'اختر بند الفاتورة — أو أدخل سطورها التفصيلية. الفاتورة بلا تصنيف تُفسد تقارير التكاليف.',
+    );
+  }
+
   async create(data: Partial<Invoice>) {
     data = stripSystemControlledFields(data);   // الطبقة 2 — دفاع عميق
+    this.assertClassified(data);
     const saved = await this.repo.save(data);
     const row = Array.isArray(saved) ? saved[0] : saved;
     return this.findOne(row.id);
@@ -59,6 +85,15 @@ export class InvoicesService {
 
   async update(id: string, data: Partial<Invoice>) {
     data = stripSystemControlledFields(data);   // الطبقة 2 — دفاع عميق
+    /*
+     * التعديل يُفحص بالحالة بعد الدمج لا بالحمولة وحدها.
+     *
+     * تعديلٌ يمسّ المبلغ فقط لا يحمل `item_id`، وفحصُ الحمولة كان سيرفضه —
+     * فيمتنع تصحيح الفواتير الـ84 القائمة أصلاً. والمقصود منع خلق فاتورة بلا
+     * تصنيف، لا تجميد ما هو قائم.
+     */
+    const before = await this.repo.findOne({ where: { id } });
+    if (before) this.assertClassified(data, before);
     await this.repo.update(id, data);
     // لا أثر لتغيير الموافقة على حالة السداد — لا كتابة ولا إعادة اشتقاق.
     // السجلات القائمة لا تُعاد كتابتها تلقائياً.

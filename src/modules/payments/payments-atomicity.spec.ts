@@ -150,7 +150,9 @@ function makeInvoiceSvc(initial: any) {
 }
 
 describe('R3B · فكّ اقتران الموافقة عن السداد', () => {
-  const base = { id: 'i1', currency: 'USD', total_amount: 1000, paid_amount: 0, status: InvoiceStatus.UNPAID, payments: [] };
+  // ‏`item_id` جزءٌ من الفاتورة الصالحة منذ إلزام التصنيف — لا علاقة له بما تختبره
+  // هذه المجموعة، لكن فاتورةً بلا تصنيف لم تعد تُحفَظ أصلاً.
+  const base = { id: 'i1', item_id: 'it1', currency: 'USD', total_amount: 1000, paid_amount: 0, status: InvoiceStatus.UNPAID, payments: [] };
 
   it('1. الإنشاء بموافقة paid لا يجعل paid_amount = الإجمالي', async () => {
     const { svc, store } = makeInvoiceSvc(base);
