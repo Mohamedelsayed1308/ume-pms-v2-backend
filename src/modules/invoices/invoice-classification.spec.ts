@@ -8,7 +8,7 @@ import { InvoicesService } from './invoices.service';
  * الـ84 القائمة بلا تصنيف — فشرطٌ يمنع تصحيحها يمنع علاج المشكلة نفسها.
  */
 describe('إلزام تصنيف الفاتورة', () => {
-  const svc = new InvoicesService(null as any, null as any, null as any, null as any);
+  const svc = new InvoicesService(null as any, null as any);
   const check = (data: any, existing?: any) => (svc as any).assertClassified(data, existing);
 
   it('يقبل فاتورةً ببند', () => {

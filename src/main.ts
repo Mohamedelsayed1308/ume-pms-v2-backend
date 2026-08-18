@@ -1,4 +1,5 @@
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 
 // قائمة سماح CORS صريحة (بدل origin:true). تُضبط عبر البيئة + الإنتاج المعروف.
@@ -16,7 +17,21 @@ function buildCorsOrigins(): (string | RegExp)[] {
 }
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  /*
+   * حدّ جسم الطلب.
+   *
+   * الافتراضي في Express مئة كيلوبايت، وحفظ ربحية ألكوديا يُرسل رحلات المركب
+   * كلّها دفعةً واحدة: مئتان وستّون رحلة = نحو 170 ك.ب. فكان الحفظ يُردّ بـ413
+   * والشاشة تقول «فشل الحفظ» بلا سبب — والرحلات تتراكم فيزداد التجاوز كل شهر.
+   *
+   * والخمسة ميجابايت ليست رقماً مريحاً: هي نحو ثلاثين ضعفاً للحمولة الحالية،
+   * فتكفي سنواتٍ من التراكم ولا تفتح الباب لجسمٍ بلا سقف.
+   */
+  app.useBodyParser('json', { limit: '5mb' });
+  app.useBodyParser('urlencoded', { limit: '5mb', extended: true });
+
   const allowed = buildCorsOrigins();
   app.enableCors({
     origin: (origin, cb) => {
