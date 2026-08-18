@@ -42,6 +42,20 @@ export interface TabReport {
   columns: ColumnMap[];
   missing: string[];
 }
+/**
+ * آخر سحبٍ ناجح — نبض الأنبوب.
+ *
+ * البريد يُنبّه حين **يفشل** السحب. لكن مُنبّهاً يُحذف أو لا يُطلق لا يُنتج
+ * فشلاً يُبلَّغ عنه — يصمت فحسب، والأرقام تبقى معروضة كأنها اليوم. فيُقرأ آخر
+ * سطرٍ في `_ImportLog` ويُحسب عمره: الصمت نفسه يصير مرئياً.
+ */
+export interface LastImport {
+  at: string | null;        // ISO — لا يلتبس بمنطقةٍ زمنية
+  ageHours: number | null;
+  stale: boolean;           // تجاوز نصف يومٍ بلا سحب
+  status: string | null;
+}
+
 export interface FleetSource {
   sheetId: string;
   sheetUrl: string;
@@ -50,6 +64,7 @@ export interface FleetSource {
   fetchedAt: string;   // متى جُلب الشيت فعلاً
   stale: boolean;      // معروضٌ من آخر نسخة ناجحة بعد فشل جلبٍ أو تفسير
   staleReason: string | null;
+  lastImport: LastImport;
 }
 
 export interface FleetData {
@@ -233,6 +248,30 @@ function parseVoyages(ws: XLSX.WorkSheet): Parsed<VoyageRow> {
 }
 
 /**
+ * آخر سطرٍ إجمالي في `_ImportLog` — عمود `UTC` نصّاً.
+ *
+ * يُقرأ من الآخر إلى الأول: السجلّ يُلحَق، فآخر تشغيلٍ في آخره. وغياب الورقة
+ * أو العمود ليس خطأً — قد يكون الأنبوب لم يُركَّب بعد.
+ */
+function lastImport_(ws: XLSX.WorkSheet | undefined): LastImport {
+  const none: LastImport = { at: null, ageHours: null, stale: true, status: null };
+  if (!ws) return none;
+  const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
+  for (let r = rows.length - 1; r >= 1; r--) {
+    const row = rows[r] || [];
+    if (String(row[1] ?? '').indexOf('الإجمالي') < 0) continue;
+    const iso = String(row[7] ?? '').trim();
+    if (!iso) continue;
+    const t = Date.parse(iso);
+    if (!isFinite(t)) continue;
+    const ageHours = Math.round(((Date.now() - t) / 3600000) * 10) / 10;
+    // نصف يوم: المدى بين تشغيلين مجدوَلين ثمانِ ساعات، فتجاوز اثنتي عشرة تخطٍّ لواحدٍ كامل
+    return { at: iso, ageHours, stale: ageHours > 12, status: String(row[2] ?? '') || null };
+  }
+  return none;
+}
+
+/**
  * يَسِم النسخة المُخزَّنة بأنها قديمة وبسبب ذلك.
  *
  * الرجوع لآخر نسخة ناجحة يمنع شاشةً فارغة، لكنه يُظهر أرقاماً قديمة كأنها حيّة.
@@ -253,6 +292,7 @@ export class FleetService {
       const wb = XLSX.read(buf, { type: 'buffer' });
       const monthlyWs = wb.Sheets['LookerMonthly'];
       const voyagesWs = wb.Sheets['LookerData'];
+      const importLog = lastImport_(wb.Sheets['_ImportLog']);
       const m = monthlyWs ? parseMonthly(monthlyWs) : { ...EMPTY, missing: ['التبويب نفسه'] };
       const v = voyagesWs ? parseVoyages(voyagesWs) : { ...EMPTY, missing: ['التبويب نفسه'] };
       const monthly = m.rows as MonthRow[];
@@ -274,6 +314,7 @@ export class FleetService {
           fetchedAt: now,
           stale: false,
           staleReason: null,
+          lastImport: importLog,
           tabs: [
             { name: 'LookerMonthly', role: 'المصدر الأساسي — صف لكل مركب/شهر', found: !!monthlyWs,
               headerRow: m.headerRow, rows: monthly.length, columns: m.columns, missing: m.missing },
@@ -295,3 +336,4 @@ export class FleetService {
 // مكشوفة للاختبار وحده — مرجعية القراءة تُختبَر على عناوين حقيقية لا على وهم.
 export const __test_parseMonthly = parseMonthly;
 export const __test_parseVoyages = parseVoyages;
+export const __test_lastImport = lastImport_;

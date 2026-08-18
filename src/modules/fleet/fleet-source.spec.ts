@@ -71,3 +71,55 @@ describe('مطابقة العناوين لا تبالي بحالة الأحرف'
     expect(__test_parseVoyages(ws).rows[0].vessel).not.toBe('alcudia');
   });
 });
+
+/*
+ * نبض الأنبوب.
+ *
+ * البريد يُنبّه عند الفشل. أما مُنبّهٌ حُذف أو لم يُطلق فلا يُنتج فشلاً — يصمت،
+ * والأرقام تبقى معروضة كأنها اليوم. فالعمر نفسه هو التنبيه.
+ */
+describe('آخر سحبٍ ناجح', () => {
+  const mod = require('./fleet.service');
+  const sheet = (rows: any[][]) => XLSX.utils.aoa_to_sheet(rows);
+  const H = ['الوقت', 'المركب', 'الحالة', 'قُرئ', 'أُضيف', 'حُدِّث', 'ملاحظات', 'UTC'];
+
+  it('يقرأ آخر إجمالي ويحسب عمره', () => {
+    const iso = new Date(Date.now() - 2 * 3600000).toISOString();
+    const r = mod.__test_lastImport(sheet([H,
+      ['x', 'ALCUDIA', 'تمّ', 260, 0, 0, '', iso],
+      ['x', '— الإجمالي —', 'تمّ', '', 0, 0, 'ثوانٍ: 60', iso]]));
+    expect(r.at).toBe(iso);
+    expect(r.ageHours).toBeGreaterThanOrEqual(1.9);
+    expect(r.stale).toBe(false);
+  });
+
+  it('يَسِم الصمت الطويل قديماً', () => {
+    const iso = new Date(Date.now() - 30 * 3600000).toISOString();
+    const r = mod.__test_lastImport(sheet([H, ['x', '— الإجمالي —', 'تمّ', '', 0, 0, '', iso]]));
+    expect(r.stale).toBe(true);
+    expect(r.ageHours).toBeGreaterThan(24);
+  });
+
+  it('يتخطّى سطور المراكب ويأخذ الإجمالي وحده', () => {
+    const older = new Date(Date.now() - 40 * 3600000).toISOString();
+    const newer = new Date(Date.now() - 3 * 3600000).toISOString();
+    const r = mod.__test_lastImport(sheet([H,
+      ['x', '— الإجمالي —', 'تمّ', '', 0, 0, '', older],
+      ['x', 'PELAGOS', 'تمّ', 144, 0, 0, '', newer],
+      ['x', '— الإجمالي —', 'فشل جزئي', '', 0, 0, '', newer]]));
+    expect(r.at).toBe(newer);
+    expect(r.status).toBe('فشل جزئي');
+  });
+
+  it('غياب الورقة يعني «لا سحب» لا «سحبٌ حديث»', () => {
+    const r = mod.__test_lastImport(undefined);
+    expect(r.at).toBeNull();
+    expect(r.stale).toBe(true);   // ‏لا يُفترض الخير عند غياب الدليل
+  });
+
+  it('سجلٌّ بلا عمود UTC لا يُسقط القراءة', () => {
+    const r = mod.__test_lastImport(sheet([H.slice(0, 7), ['x', '— الإجمالي —', 'تمّ', '', 0, 0, '']]));
+    expect(r.at).toBeNull();
+    expect(r.stale).toBe(true);
+  });
+});
