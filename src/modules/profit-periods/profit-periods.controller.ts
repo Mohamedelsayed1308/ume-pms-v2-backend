@@ -37,6 +37,19 @@ export class ProfitPeriodsController {
     return this.svc.calculate(period);
   }
 
+  // القراءة من الشيت الموحّد — بديلٌ لمسار إكسل درايف بالشكل نفسه
+  @Post('fetch-sheet')
+  async fetchSheet(@Body() body: { date_from: string; date_to: string }) {
+    if (!body?.date_from || !body?.date_to) {
+      throw new HttpException('الفترة الزمنية مطلوبة', 400);
+    }
+    try {
+      return await this.svc.fetchFromUnifiedSheet(body.date_from, body.date_to);
+    } catch (e: any) {
+      throw new HttpException(e?.message || 'تعذّر الجلب من الشيت', 502);
+    }
+  }
+
   @Post('fetch-excel')
   async fetchExcel(@Body() body: { file_id: string; date_from: string; date_to: string; voy_from?: number; voy_to?: number }) {
     try {
