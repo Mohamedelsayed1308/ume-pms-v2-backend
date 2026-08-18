@@ -41,11 +41,22 @@ export class ProfitPeriodsService {
    * الذي صار الشيت يسحبه ثلاث مرّات يومياً. فالقراءة من الشيت مباشرةً تُلغي
    * وسيطاً وتُصيب النسخة التي عليها بقيّة النظام.
    *
+   * ── لماذا يُنتقى برقم الرحلة لا بالتاريخ ──
+   * رحلات المراكب **لا تتزامن**. بوسيدون 60→64 يقع بين 21 يونيو و3 يوليو، ومدىً
+   * تقويميّ يغطّيه يلتقط من أمل رحلاتٍ أخرى تماماً. فالفترة تُحدَّد برقم الرحلة
+   * لكل مركب على حدة، والتاريخ يبقى بديلاً لمن لا مدى له.
+   *
+   * والرقم **يتكرّر كل سنة**، فالسنة تُشتقّ من `dateFrom` وتدخل الانتقاء — وإلا
+   * جُمعت رحلةُ 2025 مع رحلة 2026 تحملان الرقم نفسه.
+   *
    * ── ما لا يأتي منه ──
    * `cash_safaga` **دفعاتٌ مصروفة** لا إيراد، ولا وجود لها في دفتر المركب. تُترك
    * كما هي ولا تُصفَّر: تصفيرُها يرفع نتيجة النشاط بمقدارها بلا أن يُنبّه أحد.
    */
-  async fetchFromUnifiedSheet(dateFrom: string, dateTo: string) {
+  async fetchFromUnifiedSheet(
+    dateFrom: string, dateTo: string,
+    ranges?: Record<string, { from?: number; to?: number } | undefined>,
+  ) {
     const SHEET_ID = process.env.FLEET_SHEET_ID || '1G7VU_z7WDZK6kq-7Sk_iLztJzmP-HlXe4ke6UtFn4fM';
     let rows: any[][];
     try {
@@ -62,12 +73,22 @@ export class ProfitPeriodsService {
     }
 
     const KEYS: Record<string, string> = { POSEIDON: 'poseidon', AMAL: 'amal', DALEELA: 'daleela' };
-    const out: any = {
-      poseidon: { revenue: 0, voyages: 0, commission: 0, bunker: 0 },
-      amal:     { revenue: 0, voyages: 0, commission: 0, bunker: 0 },
-      daleela:  { revenue: 0, voyages: 0, commission: 0, bunker: 0 },
+    const year = Number(String(dateFrom).slice(0, 4)) || null;
+    const blank = () => ({ revenue: 0, voyages: 0, commission: 0, bunker: 0,
+      refs: [] as number[], firstDate: null as string | null, lastDate: null as string | null,
+      by: 'date' as 'date' | 'ref' });
+    const out: any = { poseidon: blank(), amal: blank(), daleela: blank() };
+
+    const rangeOf = (key: string) => {
+      const r = ranges && ranges[key];
+      if (!r) return null;
+      const from = Number(r.from), to = Number(r.to);
+      if (!isFinite(from) || !isFinite(to) || from <= 0 || to <= 0) return null;
+      return { from: Math.min(from, to), to: Math.max(from, to) };
     };
-    const seen: string[] = [];
+    for (const k of Object.keys(out)) if (rangeOf(k)) out[k].by = 'ref';
+
+    const dates: Record<string, string[]> = { poseidon: [], amal: [], daleela: [] };
 
     for (const row of rows) {
       const raw = row && row[10];
@@ -76,27 +97,50 @@ export class ProfitPeriodsService {
       try { p = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { continue; }
       const key = KEYS[String(p?.vessel || '').toUpperCase()];
       if (!key) continue;
+
       // التاريخ من المغادرة، وعند غيابه من الوصول — كما تفعل بقيّة الشاشات
       const d = String(p.dateExp || p.dateImp || '').slice(0, 10);
-      if (!d || d < dateFrom || d > dateTo) continue;
+      const rng = rangeOf(key);
+      if (rng) {
+        const ref = Number(p.ref);
+        if (!isFinite(ref) || ref < rng.from || ref > rng.to) continue;
+        if (year && Number(p.year) && Number(p.year) !== year) continue;
+        out[key].refs.push(ref);
+      } else {
+        if (!d || d < dateFrom || d > dateTo) continue;
+      }
+
       out[key].revenue += Number(p.income) || 0;
       out[key].commission += Number(p.comm) || 0;
       out[key].bunker += Number(p.bnk) || 0;
       out[key].voyages += 1;
-      seen.push(d);
+      if (d) dates[key].push(d);
     }
+
+    let matched = 0;
     for (const k of Object.keys(out)) {
       out[k].revenue = Math.round(out[k].revenue * 100) / 100;
       out[k].commission = Math.round(out[k].commission * 100) / 100;
       out[k].bunker = Math.round(out[k].bunker * 100) / 100;
+      out[k].refs.sort((a: number, b: number) => a - b);
+      dates[k].sort();
+      out[k].firstDate = dates[k][0] || null;
+      out[k].lastDate = dates[k][dates[k].length - 1] || null;
+      matched += out[k].voyages;
+      // مدىً طُلب ولم يكتمل: نقصٌ يجب أن يُرى لا أن يُجمع بصمت
+      const rng = rangeOf(k);
+      if (rng) {
+        const want = rng.to - rng.from + 1;
+        out[k].expected = want;
+        out[k].missing = [];
+        for (let i = rng.from; i <= rng.to; i++) if (out[k].refs.indexOf(i) < 0) out[k].missing.push(i);
+      }
     }
-    seen.sort();
     out.source = {
       kind: 'unified-sheet',
       fetchedAt: new Date().toISOString(),
-      matched: seen.length,
-      firstDate: seen[0] || null,
-      lastDate: seen[seen.length - 1] || null,
+      matched,
+      year,
       note: 'الكاش المصروف لا يأتي من الشيت — يبقى كما هو',
     };
     return out;
