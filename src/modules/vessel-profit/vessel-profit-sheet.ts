@@ -67,6 +67,13 @@ export interface SheetSide {
 }
 export interface SheetVoyage {
   ref: any; month: string | null; monthAlt: string | null;
+  /*
+   * تاريخ الرحلة كاملاً لا شهرها.
+   *
+   * الشاشة تعرض شهراً واحداً، والسؤال «أوصلت رحلات الأمس؟» لا يُجاب بالشهر.
+   * فيُحمل التاريخ ليُعرف أحدث ما في الدفتر بيومه.
+   */
+  date: string;
   E: SheetSide; I: SheetSide;
   bunker: number; net: number; O: number; P: number; bassamLiq: number;
 }
@@ -104,6 +111,7 @@ export function toSheetVoyage(p: any, spec: SheetVesselSpec): SheetVoyage {
   return {
     ref: p.ref,
     month, monthAlt,
+    date: String(p.dateExp || p.dateImp || ''),
     E: side(p, 'E', spec.exportExp),
     I: side(p, 'I', spec.importExp),
     bunker: n(p.bnk),
