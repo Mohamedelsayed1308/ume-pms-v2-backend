@@ -23,7 +23,7 @@ const ALCUDIA_ROW = {
   fw: 453.33, fw_E: 0, fw_I: 453.33,
   r: 9725.6, r_E: 0, r_I: 9725.6,
   oth: -4095.73, oth_E: 0, oth_I: -4095.73,
-  bnk: 43136.29, net: 40789.87,
+  bnk: 43136.29, net: 40789.87, liq: 199417.44,
 };
 
 describe('قراءة رحلات المركب من الشيت الموحّد', () => {
@@ -53,6 +53,17 @@ describe('قراءة رحلات المركب من الشيت الموحّد', ()
     expect(v.E.exp.fw).toBeUndefined();
     expect(v.I.exp.egyPort).toBeUndefined();
     expect(v.E.exp.broker).toBe(0);
+  });
+
+  it('تنقل السيولة من الشيت لا تُصفّرها', () => {
+    /*
+     * كان هذا الحقل يُكتب صفراً صراحةً حين لم يكن الشيت يحمله — فكانت شاشة
+     * حساب البسّام تعرض أصفاراً وتقول «السيولة مش ظاهرة». وصار الشيت يحمله،
+     * فيُحرَس هنا: صفرٌ في المخرجات مع قيمةٍ في المدخلات عطبٌ لا إغفال.
+     */
+    const v = toSheetVoyage(ALCUDIA_ROW, spec);
+    expect(v.bassamLiq).toBe(199417.44);
+    expect(toSheetVoyage({ ...ALCUDIA_ROW, liq: undefined }, spec).bassamLiq).toBe(0);
   });
 
   it('تنقل التحصيل والبانكر والصافي كما هي', () => {
