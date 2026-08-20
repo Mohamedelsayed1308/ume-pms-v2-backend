@@ -78,6 +78,18 @@ export interface SheetVoyage {
   bunker: number; net: number; O: number; P: number; bassamLiq: number;
 }
 
+/**
+ * أول سنةٍ تُقرأ سيولتها.
+ *
+ * ما قبل 2026 محسوبٌ بتعريفٍ قديم يفرّق بين `P.P` و`C.C` لا يطابق ما يشتقّه
+ * المحلّل اليوم من الدفتر. فبقاؤه يخلط تعريفين في عمودٍ واحد ويُنتج رصيداً
+ * تراكمياً لا يُطابق شيئاً — والمالك أمر بمنعه.
+ *
+ * والمنع هنا لا في الشيت: الشيت يحتفظ بالأرقام كما هي للمراجعة، والشاشة وحدها
+ * تتجاهلها.
+ */
+const LIQ_FROM_YEAR = 2026;
+
 const n = (v: any) => (typeof v === 'number' && isFinite(v) ? v : Number(v) || 0);
 
 function side(p: any, leg: 'E' | 'I', map: ExpenseMap): SheetSide {
@@ -105,6 +117,13 @@ function side(p: any, leg: 'E' | 'I', map: ExpenseMap): SheetSide {
  * الشهر من تاريخ المغادرة، و`monthAlt` من الوصول. الشاشة تُرجّح الأول وتسقط إلى
  * الثاني — فرحلةٌ بلا تاريخ مغادرة تُعرض ولا تُحذف.
  */
+/** سنة الرحلة: من حقلها إن وُجد، وإلا من تاريخها. */
+function liqYear(p: any): number {
+  const y = Number(p?.year);
+  if (y) return y;
+  return Number(String(p?.dateExp || p?.dateImp || '').slice(0, 4)) || 0;
+}
+
 export function toSheetVoyage(p: any, spec: SheetVesselSpec): SheetVoyage {
   const month = p.dateExp ? String(p.dateExp).slice(0, 7) : null;
   const monthAlt = p.dateImp ? String(p.dateImp).slice(0, 7) : null;
@@ -129,7 +148,7 @@ export function toSheetVoyage(p: any, spec: SheetVesselSpec): SheetVoyage {
      * وشاشة حساب البسّام كانت تقول «السيولة مش ظاهرة» وهي محقّة — لا لأن
      * الرحلات ناقصة بل لأن هذا السطر يمحو الرقم قبل أن يصلها.
      */
-    bassamLiq: n(p.liq),
+    bassamLiq: liqYear(p) >= LIQ_FROM_YEAR ? n(p.liq) : 0,
   };
 }
 

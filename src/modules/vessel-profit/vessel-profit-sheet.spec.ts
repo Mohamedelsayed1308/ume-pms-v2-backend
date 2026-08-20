@@ -66,6 +66,16 @@ describe('قراءة رحلات المركب من الشيت الموحّد', ()
     expect(toSheetVoyage({ ...ALCUDIA_ROW, liq: undefined }, spec).bassamLiq).toBe(0);
   });
 
+  it('تتجاهل سيولة ما قبل 2026 — تعريفٌ قديم لا يُخلط بالجديد', () => {
+    expect(toSheetVoyage({ ...ALCUDIA_ROW, year: 2025 }, spec).bassamLiq).toBe(0);
+    expect(toSheetVoyage({ ...ALCUDIA_ROW, year: 2024 }, spec).bassamLiq).toBe(0);
+    expect(toSheetVoyage({ ...ALCUDIA_ROW, year: 2027 }, spec).bassamLiq).toBe(199417.44);
+    // بلا حقل سنة: تُشتقّ من التاريخ
+    expect(toSheetVoyage({ ...ALCUDIA_ROW, year: undefined, dateExp: '2025-06-01' }, spec).bassamLiq).toBe(0);
+    // وبقيّة الحقول لا تتأثّر بالسنة
+    expect(toSheetVoyage({ ...ALCUDIA_ROW, year: 2025 }, spec).net).toBe(40789.87);
+  });
+
   it('تنقل التحصيل والبانكر والصافي كما هي', () => {
     const v = toSheetVoyage(ALCUDIA_ROW, spec);
     expect(v.O).toBe(15107.08);
