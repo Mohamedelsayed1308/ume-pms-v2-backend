@@ -7,13 +7,22 @@ const SHEET_ID = process.env.FLEET_SHEET_ID || '1G7VU_z7WDZK6kq-7Sk_iLztJzmP-HlX
 const EXPORT_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=xlsx`;
 const CACHE_MS = 5 * 60 * 1000; // 5 دقائق
 
+/*
+ * `line` — الخطّ الملاحيّ الذي أبحرت فيه الرحلة.
+ *
+ * بُعدٌ ثانٍ إلى جانب المركب، لأن الخطّين اقتصادان لا مساران: ضبا/سفاجا فيه
+ * تحصيلٌ وسيولة، وجدّة/سواكن لا تحصيل فيه ولا سيولة، وبنودُ مصاريفه أخرى.
+ * فجمعُهما في إجمالٍ واحد يُنتج متوسّطاتٍ لا تصف شيئاً.
+ *
+ * ويبقى نصّاً فارغاً في الصفوف التي سبقت العمود، فلا يسقط صفٌّ لغيابه.
+ */
 export interface MonthRow {
-  vessel: string; month: string; voyages: number; net: number; avgNet: number;
+  vessel: string; line: string; month: string; voyages: number; net: number; avgNet: number;
   revenue: number; expenses: number; liquidity: number;
   trucks: number; vehicles: number; passengers: number;
 }
 export interface VoyageRow {
-  vessel: string; ref: string; date: string; month: string; direction: string;
+  vessel: string; line: string; ref: string; date: string; month: string; direction: string;
   trucks: number; vehicles: number; passengers: number;
   revenue: number; commissions: number; expenses: number; net: number; liquidity: number; bunker: number;
 }
@@ -69,6 +78,8 @@ export interface FleetSource {
 
 export interface FleetData {
   vessels: string[];
+  /** الخطوط الموجودة فعلاً في البيانات — فارغةٌ حتى يُبنى عمود «الخطّ» في الشيت. */
+  lines: string[];
   months: string[];
   monthly: MonthRow[];
   voyages: VoyageRow[];
@@ -159,12 +170,12 @@ function report(H: any[], c: Record<string, number>, labels: Record<string, stri
 }
 
 const MONTHLY_LABELS: Record<string, string> = {
-  vessel: 'المركب', month: 'الشهر', voyages: 'عدد الرحلات', net: 'صافي الربح',
+  vessel: 'المركب', line: 'الخطّ', month: 'الشهر', voyages: 'عدد الرحلات', net: 'صافي الربح',
   revenue: 'الإيراد', expenses: 'المصروفات', liquidity: 'السيولة',
   trucks: 'الشاحنات', vehicles: 'السيارات', passengers: 'الركاب',
 };
 const VOYAGE_LABELS: Record<string, string> = {
-  vessel: 'المركب', ref: 'المرجع', date: 'التاريخ', month: 'الشهر', direction: 'النوع',
+  vessel: 'المركب', line: 'الخطّ', ref: 'المرجع', date: 'التاريخ', month: 'الشهر', direction: 'النوع',
   trucks: 'الشاحنات', vehicles: 'السيارات', passengers: 'الركاب', revenue: 'الإيراد',
   commissions: 'العمولات', expenses: 'المصروفات', net: 'الصافي', liquidity: 'السيولة',
   bunker: 'البانكر',
@@ -180,6 +191,7 @@ function parseMonthly(ws: XLSX.WorkSheet): Parsed<MonthRow> {
   const H = rows[hr];
   const c = {
     vessel: colIndex(H, 'المركب'),
+    line: colIndex(H, 'الخط'),
     month: colIndex(H, 'الشهر'),
     voyages: colIndex(H, 'عدد', 'الرحلات'),
     net: colIndex(H, 'اجمالي', 'الصافي') >= 0 ? colIndex(H, 'اجمالي', 'الصافي') : colIndex(H, 'إجمالي', 'الصافي'),
@@ -199,7 +211,7 @@ function parseMonthly(ws: XLSX.WorkSheet): Parsed<MonthRow> {
     const voyages = num(row[c.voyages]);
     const net = num(row[c.net]);
     out.push({
-      vessel, month, voyages, net,
+      vessel, line: c.line >= 0 ? norm(row[c.line]) : '', month, voyages, net,
       avgNet: voyages ? net / voyages : 0,
       revenue: num(row[c.revenue]), expenses: num(row[c.expenses]), liquidity: num(row[c.liquidity]),
       trucks: num(row[c.trucks]), vehicles: num(row[c.vehicles]), passengers: num(row[c.passengers]),
@@ -215,6 +227,7 @@ function parseVoyages(ws: XLSX.WorkSheet): Parsed<VoyageRow> {
   const H = rows[hr];
   const c = {
     vessel: colIndex(H, 'المركب'),
+    line: colIndex(H, 'الخط'),
     ref: colIndex(H, 'ref'),
     date: colIndex(H, 'التاريخ'),
     month: colIndex(H, 'الشهر'),
@@ -237,7 +250,8 @@ function parseVoyages(ws: XLSX.WorkSheet): Parsed<VoyageRow> {
     const month = toMonth(row[c.month]) || toMonth(row[c.date]);
     if (!month) continue;
     out.push({
-      vessel, ref: String(row[c.ref] ?? ''), date: toDate(row[c.date]), month,
+      vessel, line: c.line >= 0 ? norm(row[c.line]) : '',
+      ref: String(row[c.ref] ?? ''), date: toDate(row[c.date]), month,
       direction: norm(row[c.direction]),
       trucks: num(row[c.trucks]), vehicles: num(row[c.vehicles]), passengers: num(row[c.passengers]),
       revenue: num(row[c.revenue]), commissions: num(row[c.commissions]), expenses: num(row[c.expenses]),
@@ -303,10 +317,11 @@ export class FleetService {
         throw new Error('لم يتم العثور على بيانات في تبويب LookerMonthly (تأكد أن الشيت عام ومشارَك برابط)');
       }
       const vessels = [...new Set(monthly.map((x) => x.vessel))].sort();
+      const lines = [...new Set(monthly.map((x) => x.line).filter(Boolean))].sort();
       const months = [...new Set(monthly.map((x) => x.month))].sort();
       const now = new Date().toISOString();
       const data: FleetData = {
-        vessels, months, monthly, voyages, generatedAt: now,
+        vessels, lines, months, monthly, voyages, generatedAt: now,
         source: {
           sheetId: SHEET_ID,
           sheetUrl: `https://docs.google.com/spreadsheets/d/${SHEET_ID}`,

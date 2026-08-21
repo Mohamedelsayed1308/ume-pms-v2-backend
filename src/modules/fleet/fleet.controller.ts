@@ -35,11 +35,13 @@ export class FleetController {
     const fromM = typeof f.from === 'string' ? f.from : '';
     const toM = typeof f.to === 'string' ? f.to : '';
     const selVessels: string[] | null = Array.isArray(f.vessels) ? f.vessels.slice(0, 20) : null;
+    const selLines: string[] | null = Array.isArray(f.lines) ? f.lines.slice(0, 10) : null;
     const monthly = data.monthly.filter(
       (r) =>
         (!fromM || r.month >= fromM) &&
         (!toM || r.month <= toM) &&
-        (!selVessels || selVessels.includes(r.vessel)),
+        (!selVessels || selVessels.includes(r.vessel)) &&
+        (!selLines || selLines.includes(r.line)),
     );
     const scoped = monthly.length ? monthly : data.monthly; // fallback لو الفلاتر ما طابقتش شيء
 
@@ -51,9 +53,11 @@ export class FleetController {
       `- اعتمد فقط على البيانات المعطاة أدناه. لو رقم مش موجود، قول إنه غير متاح بدل ما تخمّن.\n` +
       `- رد بالعربي باختصار ووضوح، وبأرقام محددة. استخدم جداول أو نقاط عند المقارنة.\n` +
       `- الشهر بصيغة YYYY-MM. المبالغ بالدولار.\n` +
-      `- لما تقارن، رتّب من الأعلى للأقل ووضّح الفرق والنسبة.\n\n` +
-      `المراكب: ${data.vessels.join(', ')} | الشهور المتاحة: ${data.months.join(', ')}.\n` +
-      (fromM || toM || selVessels ? `الفلاتر المطبّقة في الشاشة: ${JSON.stringify({ from: fromM || undefined, to: toM || undefined, vessels: selVessels || undefined })}.\n` : '') +
+      `- لما تقارن، رتّب من الأعلى للأقل ووضّح الفرق والنسبة.\n` +
+      `- الخطّ (line) بُعدٌ مستقل عن المركب: ضبا/سفاجا فيه تحصيل وسيولة، وجدّة/سواكن بلا تحصيل فسيولته صفر بنيوياً — فلا تقارن سيولة خطٍّ بخطّ، ولا تُفسّر الصفر نقصاً في البيانات.\n` +
+      `- المركب الواحد قد يمشي خطّين، فاذكر الخطّ عند المقارنة إن اختلف.\n\n` +
+      `المراكب: ${data.vessels.join(', ')} | الخطوط: ${(data.lines || []).join(', ') || '—'} | الشهور المتاحة: ${data.months.join(', ')}.\n` +
+      (fromM || toM || selVessels || selLines ? `الفلاتر المطبّقة في الشاشة: ${JSON.stringify({ from: fromM || undefined, to: toM || undefined, vessels: selVessels || undefined, lines: selLines || undefined })}.\n` : '') +
       `بيانات الأداء الشهري لكل مركب ضمن الفلاتر (JSON):\n${JSON.stringify(scoped)}`;
 
     const messages: Anthropic.MessageParam[] = [
