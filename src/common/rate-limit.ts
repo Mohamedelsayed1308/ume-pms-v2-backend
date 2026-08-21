@@ -30,10 +30,19 @@ export const LOGIN_BLOCK_MS = 60_000;
  *
  * وإن غابت الترويسة — تشغيلٌ محلّي أو بلا بروكسي — رجع إلى `req.ip`.
  */
-export function clientIp(req: Record<string, any>): string {
+export interface ProxyAwareRequest {
+  headers?: Record<string, string | string[] | undefined>;
+  ip?: string;
+  socket?: { remoteAddress?: string };
+}
+
+export function clientIp(req: ProxyAwareRequest): string {
   const raw = req?.headers?.['x-forwarded-for'];
-  const chain = Array.isArray(raw) ? raw.join(',') : typeof raw === 'string' ? raw : '';
-  const hops = chain.split(',').map((s) => s.trim()).filter(Boolean);
+  const chain = Array.isArray(raw) ? raw.join(',') : (raw ?? '');
+  const hops = chain
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
   if (hops.length) return hops[hops.length - 1];
   return req?.ip || req?.socket?.remoteAddress || 'unknown';
 }

@@ -8,7 +8,9 @@ import 'reflect-metadata';
  */
 jest.mock('@anthropic-ai/sdk', () => ({
   __esModule: true,
-  default: class { messages = { create: jest.fn() }; },
+  default: class {
+    messages = { create: jest.fn() };
+  },
 }));
 
 import { Reflector } from '@nestjs/core';
@@ -78,43 +80,90 @@ describe('P1.1 · تفويض لوحة الأسطول', () => {
       new ScreenGuard(new Reflector(), new ScreenAuthzService(repoOf(users)));
 
     it('4. مستخدمٌ بلا الصلاحية → 403', async () => {
-      const g = guard({ u1: { id: 'u1', role: 'user', is_active: true, allowed_screens: ['/dashboard/tasks'] } });
-      await expect(g.canActivate(ctxFor('dashboard', { id: 'u1' })))
-        .rejects.toBeInstanceOf(ForbiddenException);
+      const g = guard({
+        u1: {
+          id: 'u1',
+          role: 'user',
+          is_active: true,
+          allowed_screens: ['/dashboard/tasks'],
+        },
+      });
+      await expect(
+        g.canActivate(ctxFor('dashboard', { id: 'u1' })),
+      ).rejects.toBeInstanceOf(ForbiddenException);
     });
 
     it('5. مستخدمٌ بشاشة السفن → يمرّ', async () => {
-      const g = guard({ u2: { id: 'u2', role: 'user', is_active: true, allowed_screens: ['/dashboard/vessels'] } });
-      await expect(g.canActivate(ctxFor('dashboard', { id: 'u2' }))).resolves.toBe(true);
+      const g = guard({
+        u2: {
+          id: 'u2',
+          role: 'user',
+          is_active: true,
+          allowed_screens: ['/dashboard/vessels'],
+        },
+      });
+      await expect(
+        g.canActivate(ctxFor('dashboard', { id: 'u2' })),
+      ).resolves.toBe(true);
     });
 
     it('6. مستخدمٌ بشاشة التقارير وحدها → يمرّ (أيٌّ من الشاشتين يكفي)', async () => {
-      const g = guard({ u3: { id: 'u3', role: 'user', is_active: true, allowed_screens: ['/dashboard/reports'] } });
-      await expect(g.canActivate(ctxFor('dashboard', { id: 'u3' }))).resolves.toBe(true);
+      const g = guard({
+        u3: {
+          id: 'u3',
+          role: 'user',
+          is_active: true,
+          allowed_screens: ['/dashboard/reports'],
+        },
+      });
+      await expect(
+        g.canActivate(ctxFor('dashboard', { id: 'u3' })),
+      ).resolves.toBe(true);
     });
 
     it('7. الأدمن يمرّ — وفق سياسة النظام القائمة', async () => {
-      const g = guard({ a1: { id: 'a1', role: 'admin', is_active: true, allowed_screens: null } });
-      await expect(g.canActivate(ctxFor('dashboard', { id: 'a1' }))).resolves.toBe(true);
+      const g = guard({
+        a1: { id: 'a1', role: 'admin', is_active: true, allowed_screens: null },
+      });
+      await expect(
+        g.canActivate(ctxFor('dashboard', { id: 'a1' })),
+      ).resolves.toBe(true);
     });
 
     it('8. مستخدمٌ معطَّل → 403 ولو كانت الشاشة في قائمته', async () => {
-      const g = guard({ u4: { id: 'u4', role: 'user', is_active: false, allowed_screens: SCREENS } });
-      await expect(g.canActivate(ctxFor('dashboard', { id: 'u4' })))
-        .rejects.toBeInstanceOf(ForbiddenException);
+      const g = guard({
+        u4: {
+          id: 'u4',
+          role: 'user',
+          is_active: false,
+          allowed_screens: SCREENS,
+        },
+      });
+      await expect(
+        g.canActivate(ctxFor('dashboard', { id: 'u4' })),
+      ).rejects.toBeInstanceOf(ForbiddenException);
     });
 
     it('9. طلبٌ بلا مستخدم → 403 (والمجهول لا يصل هنا أصلاً — يردّه JwtAuthGuard بـ401)', async () => {
       const g = guard({});
-      await expect(g.canActivate(ctxFor('dashboard', undefined)))
-        .rejects.toBeInstanceOf(ForbiddenException);
+      await expect(
+        g.canActivate(ctxFor('dashboard', undefined)),
+      ).rejects.toBeInstanceOf(ForbiddenException);
     });
 
     it('10. ‏`?refresh=1` لا يفتح باباً — القيد على الموجّه لا على المُعامل', async () => {
       // الحارس يسبق الموجّه، فلا يبلغ `refresh` الخدمة أصلاً لمن رُدَّ.
-      const g = guard({ u5: { id: 'u5', role: 'user', is_active: true, allowed_screens: ['/dashboard/tasks'] } });
-      await expect(g.canActivate(ctxFor('dashboard', { id: 'u5' })))
-        .rejects.toBeInstanceOf(ForbiddenException);
+      const g = guard({
+        u5: {
+          id: 'u5',
+          role: 'user',
+          is_active: true,
+          allowed_screens: ['/dashboard/tasks'],
+        },
+      });
+      await expect(
+        g.canActivate(ctxFor('dashboard', { id: 'u5' })),
+      ).rejects.toBeInstanceOf(ForbiddenException);
     });
   });
 });

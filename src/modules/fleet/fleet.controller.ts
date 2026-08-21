@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Body, Query, Request, UseGuards, BadRequestException, InternalServerErrorException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Query,
+  Request,
+  UseGuards,
+  BadRequestException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/jwt-auth.guard';
 import { ScreenGuard } from '../../common/screen.guard';
 import { RequireScreen } from '../../common/require-screen.decorator';
@@ -15,7 +25,10 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 @Controller('api/fleet')
 @UseGuards(JwtAuthGuard, ScreenGuard)
 export class FleetController {
-  constructor(private svc: FleetService, private authz: ScreenAuthzService) {}
+  constructor(
+    private svc: FleetService,
+    private authz: ScreenAuthzService,
+  ) {}
 
   /*
    * اللوحة تُرجع دفتر الأسطول كلَّه: إيراداً ومصاريفَ وصافياً وسيولةً، لكلّ
@@ -36,14 +49,24 @@ export class FleetController {
 
   @Post('assistant')
   async assistant(
-    @Body() body: { message?: string; history?: { role: 'user' | 'assistant'; content: string }[]; filters?: any },
+    @Body()
+    body: {
+      message?: string;
+      history?: { role: 'user' | 'assistant'; content: string }[];
+      filters?: any;
+    },
     @Request() req: any,
   ) {
-    await this.authz.assertAny(req.user?.id, ['/dashboard/vessels', '/dashboard/reports']); // تفويض خادمي
+    await this.authz.assertAny(req.user?.id, [
+      '/dashboard/vessels',
+      '/dashboard/reports',
+    ]); // تفويض خادمي
     const message = (body?.message || '').trim();
     if (!message) throw new BadRequestException('message is required');
     if (!process.env.ANTHROPIC_API_KEY)
-      throw new InternalServerErrorException('ANTHROPIC_API_KEY not configured');
+      throw new InternalServerErrorException(
+        'ANTHROPIC_API_KEY not configured',
+      );
 
     const data = await this.svc.getDashboard(false);
     const today = new Date().toISOString().slice(0, 10);
@@ -52,8 +75,12 @@ export class FleetController {
     const f = body?.filters || {};
     const fromM = typeof f.from === 'string' ? f.from : '';
     const toM = typeof f.to === 'string' ? f.to : '';
-    const selVessels: string[] | null = Array.isArray(f.vessels) ? f.vessels.slice(0, 20) : null;
-    const selLines: string[] | null = Array.isArray(f.lines) ? f.lines.slice(0, 10) : null;
+    const selVessels: string[] | null = Array.isArray(f.vessels)
+      ? f.vessels.slice(0, 20)
+      : null;
+    const selLines: string[] | null = Array.isArray(f.lines)
+      ? f.lines.slice(0, 10)
+      : null;
     const monthly = data.monthly.filter(
       (r) =>
         (!fromM || r.month >= fromM) &&
@@ -75,14 +102,22 @@ export class FleetController {
       `- الخطّ (line) بُعدٌ مستقل عن المركب: ضبا/سفاجا فيه تحصيل وسيولة، وجدّة/سواكن بلا تحصيل فسيولته صفر بنيوياً — فلا تقارن سيولة خطٍّ بخطّ، ولا تُفسّر الصفر نقصاً في البيانات.\n` +
       `- المركب الواحد قد يمشي خطّين، فاذكر الخطّ عند المقارنة إن اختلف.\n\n` +
       `المراكب: ${data.vessels.join(', ')} | الخطوط: ${(data.lines || []).join(', ') || '—'} | الشهور المتاحة: ${data.months.join(', ')}.\n` +
-      (fromM || toM || selVessels || selLines ? `الفلاتر المطبّقة في الشاشة: ${JSON.stringify({ from: fromM || undefined, to: toM || undefined, vessels: selVessels || undefined, lines: selLines || undefined })}.\n` : '') +
+      (fromM || toM || selVessels || selLines
+        ? `الفلاتر المطبّقة في الشاشة: ${JSON.stringify({ from: fromM || undefined, to: toM || undefined, vessels: selVessels || undefined, lines: selLines || undefined })}.\n`
+        : '') +
       `بيانات الأداء الشهري لكل مركب ضمن الفلاتر (JSON):\n${JSON.stringify(scoped)}`;
 
     const messages: Anthropic.MessageParam[] = [
       ...((body.history || [])
-        .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && m.content)
+        .filter(
+          (m) =>
+            m && (m.role === 'user' || m.role === 'assistant') && m.content,
+        )
         .slice(-8)
-        .map((m) => ({ role: m.role, content: m.content })) as Anthropic.MessageParam[]),
+        .map((m) => ({
+          role: m.role,
+          content: m.content,
+        })) as Anthropic.MessageParam[]),
       { role: 'user', content: message },
     ];
 
@@ -101,7 +136,9 @@ export class FleetController {
       return { reply: reply || 'تمام.' };
     } catch (err: any) {
       console.error('Fleet assistant error:', err?.message, err?.status);
-      throw new InternalServerErrorException(err?.message || 'Claude API failed');
+      throw new InternalServerErrorException(
+        err?.message || 'Claude API failed',
+      );
     }
   }
 }

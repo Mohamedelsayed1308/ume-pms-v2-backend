@@ -28,7 +28,10 @@ import { AccountingModule } from './modules/accounting/accounting.module';
 import { ReceiptsModule } from './modules/receipts/receipts.module';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { R3aRunnerModule } from './migrations/r3a-runner.module';
-import { shouldSynchronize, assertNoAutoDdlInProduction } from './common/schema-policy';
+import {
+  shouldSynchronize,
+  assertNoAutoDdlInProduction,
+} from './common/schema-policy';
 import { LOGIN_THROTTLE } from './common/rate-limit';
 
 @Module({
@@ -39,7 +42,10 @@ import { LOGIN_THROTTLE } from './common/rate-limit';
      * تسجيل الدخول وحده. فلا حدَّ على بقيّة النظام في هذه المرحلة.
      */
     ThrottlerModule.forRoot([LOGIN_THROTTLE]),
-    ServeStaticModule.forRoot({ rootPath: join(process.cwd(), 'uploads'), serveRoot: '/uploads' }),
+    ServeStaticModule.forRoot({
+      rootPath: join(process.cwd(), 'uploads'),
+      serveRoot: '/uploads',
+    }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
@@ -47,26 +53,30 @@ import { LOGIN_THROTTLE } from './common/rate-limit';
         // غياب المتغيّر أو عدم صلاحيته ⇒ توقّف فوري (fail-fast) بدل الرجوع لقيم مضمّنة.
         const url = (config.get<string>('DATABASE_URL') || '').trim();
         if (!url) {
-          throw new Error('DATABASE_URL is not set. The application will not start without it; no database credentials are embedded in source.');
+          throw new Error(
+            'DATABASE_URL is not set. The application will not start without it; no database credentials are embedded in source.',
+          );
         }
         if (!/^postgres(ql)?:\/\/.+/.test(url)) {
           // لا تُطبع القيمة إطلاقاً — الرسالة تصف الشكل المتوقّع فقط
-          throw new Error('DATABASE_URL is not a valid PostgreSQL connection string. Expected format: postgresql://USER:PASSWORD@HOST:PORT/DATABASE');
+          throw new Error(
+            'DATABASE_URL is not a valid PostgreSQL connection string. Expected format: postgresql://USER:PASSWORD@HOST:PORT/DATABASE',
+          );
         }
         // ── R3A.1 · سلامة المخطط ────────────────────────────────────────────
         // الإنتاج لا يعدّل مخططه تلقائياً. القرار صريح من NODE_ENV، وfail-closed:
         // البيئة غير المعلَنة تُعامَل إنتاجاً. حدث فقدان بيانات فعلي بالسلوك القديم.
         const nodeEnv = config.get<string>('NODE_ENV');
         const synchronize = shouldSynchronize(nodeEnv);
-        assertNoAutoDdlInProduction(nodeEnv, synchronize);   // حاجز — يمنع أي تسرّب مستقبلي
+        assertNoAutoDdlInProduction(nodeEnv, synchronize); // حاجز — يمنع أي تسرّب مستقبلي
 
         return {
           type: 'postgres' as const,
-          url,                                 // Session Pooler · المنفذ يأتي من الرابط (5432)
-          ssl: { rejectUnauthorized: false },  // كما هو — دون تغيير
+          url, // Session Pooler · المنفذ يأتي من الرابط (5432)
+          ssl: { rejectUnauthorized: false }, // كما هو — دون تغيير
           autoLoadEntities: true,
-          synchronize,                         // إنتاج ⇒ false · تطوير/اختبار ⇒ true
-          migrationsRun: false,                // لا تُشغَّل هجرات عند الإقلاع — تنفيذ صريح فقط
+          synchronize, // إنتاج ⇒ false · تطوير/اختبار ⇒ true
+          migrationsRun: false, // لا تُشغَّل هجرات عند الإقلاع — تنفيذ صريح فقط
         };
       },
     }),

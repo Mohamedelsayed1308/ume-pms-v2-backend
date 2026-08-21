@@ -2,7 +2,13 @@ import 'reflect-metadata';
 import { HttpStatus } from '@nestjs/common';
 import { ThrottlerException } from '@nestjs/throttler';
 import {
-  clientIp, LOGIN_THROTTLE, LOGIN_THROTTLER, LOGIN_LIMIT, LOGIN_TTL_MS, LOGIN_BLOCK_MS,
+  clientIp,
+  LOGIN_THROTTLE,
+  LOGIN_THROTTLER,
+  LOGIN_LIMIT,
+  LOGIN_TTL_MS,
+  LOGIN_BLOCK_MS,
+  ProxyAwareRequest,
 } from './rate-limit';
 
 /**
@@ -25,7 +31,9 @@ describe('P1.2 · سياسة تحديد المعدّل', () => {
   });
 
   it('2. التجاوز يردّ 429 — لا 401 ولا 403', () => {
-    expect(new ThrottlerException().getStatus()).toBe(HttpStatus.TOO_MANY_REQUESTS);
+    expect(new ThrottlerException().getStatus()).toBe(
+      HttpStatus.TOO_MANY_REQUESTS,
+    );
   });
 
   it('3. رسالة التجاوز لا تكشف شيئاً عن الحساب', () => {
@@ -39,14 +47,23 @@ describe('P1.2 · سياسة تحديد المعدّل', () => {
 });
 
 describe('P1.2 · تمييز العميل خلف بروكسي', () => {
-  const req = (headers: any, ip?: string) => ({ headers, ip, socket: { remoteAddress: undefined } });
+  const req = (
+    headers: Record<string, string | string[] | undefined>,
+    ip?: string,
+  ): ProxyAwareRequest => ({
+    headers,
+    ip,
+    socket: { remoteAddress: undefined },
+  });
 
   it('5. بلا ترويسة — يرجع إلى req.ip (تشغيلٌ محلّي)', () => {
     expect(clientIp(req({}, '127.0.0.1'))).toBe('127.0.0.1');
   });
 
   it('6. بروكسي واحد — يأخذ عنوان العميل', () => {
-    expect(clientIp(req({ 'x-forwarded-for': '203.0.113.7' }, '10.0.0.1'))).toBe('203.0.113.7');
+    expect(
+      clientIp(req({ 'x-forwarded-for': '203.0.113.7' }, '10.0.0.1')),
+    ).toBe('203.0.113.7');
   });
 
   it('7. ترويسة مزوَّرة من العميل — يأخذ آخر قيمة لا أولاها', () => {
@@ -63,11 +80,15 @@ describe('P1.2 · تمييز العميل خلف بروكسي', () => {
   });
 
   it('9. ترويسة مصفوفة (وسيطان) — تُدمج ويُؤخذ آخرها', () => {
-    expect(clientIp(req({ 'x-forwarded-for': ['1.2.3.4', '203.0.113.7'] }))).toBe('203.0.113.7');
+    expect(
+      clientIp(req({ 'x-forwarded-for': ['1.2.3.4', '203.0.113.7'] })),
+    ).toBe('203.0.113.7');
   });
 
   it('10. ترويسة فارغة أو مسافات — لا تُنتج مفتاحاً فارغاً', () => {
-    expect(clientIp(req({ 'x-forwarded-for': '  , ' }, '10.0.0.9'))).toBe('10.0.0.9');
-    expect(clientIp(req({}))).toBe('unknown');   // لا ترويسة ولا ip ولا مقبس
+    expect(clientIp(req({ 'x-forwarded-for': '  , ' }, '10.0.0.9'))).toBe(
+      '10.0.0.9',
+    );
+    expect(clientIp(req({}))).toBe('unknown'); // لا ترويسة ولا ip ولا مقبس
   });
 });
