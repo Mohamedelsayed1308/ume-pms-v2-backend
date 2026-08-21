@@ -1,17 +1,35 @@
 import { Controller, Get, Post, Body, Query, Request, UseGuards, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/jwt-auth.guard';
+import { ScreenGuard } from '../../common/screen.guard';
+import { RequireScreen } from '../../common/require-screen.decorator';
 import { ScreenAuthzService } from '../../common/screen-authz.service';
 import Anthropic from '@anthropic-ai/sdk';
 import { FleetService } from './fleet.service';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+/*
+ * `ScreenGuard` هنا لا يقيّد شيئاً بنفسه — يقرأ `@RequireScreen` من الموجّه.
+ * فالمساعد أدناه يبقى على تفويضه الخادمي كما هو، والقيد يقع على اللوحة وحدها.
+ */
 @Controller('api/fleet')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, ScreenGuard)
 export class FleetController {
   constructor(private svc: FleetService, private authz: ScreenAuthzService) {}
 
+  /*
+   * اللوحة تُرجع دفتر الأسطول كلَّه: إيراداً ومصاريفَ وصافياً وسيولةً، لكلّ
+   * مركبٍ ولكلّ سنة. وكانت تكتفي بـ`JwtAuthGuard` — فأيّ مستخدمٍ مسجَّل يقرؤها
+   * ولو كانت صلاحيته شاشةً واحدة لا تمتّ للأسطول بصلة.
+   *
+   * والشاشتان هما نفسهما اللتان يشترطهما المساعد أسفله — فمصدرُ البيانات واحد،
+   * ولا معنى لأن يُحرَس السؤال عنها ولا تُحرَس هي.
+   *
+   * و`?refresh=1` يدخل تحت القيد نفسه: مَن لا يملك الشاشة لا يقرأ ولا يُجبر
+   * الخادم على إعادة الجلب.
+   */
   @Get('dashboard')
+  @RequireScreen('/dashboard/vessels', '/dashboard/reports')
   dashboard(@Query('refresh') refresh?: string) {
     return this.svc.getDashboard(refresh === '1' || refresh === 'true');
   }
