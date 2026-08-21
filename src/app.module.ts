@@ -1,8 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { ServeStaticModule } from '@nestjs/serve-static';
-import { join } from 'path';
 import { AuthModule } from './modules/auth/auth.module';
 import { SuppliersModule } from './modules/suppliers/suppliers.module';
 import { VesselsModule } from './modules/vessels/vessels.module';
@@ -42,10 +40,21 @@ import { LOGIN_THROTTLE } from './common/rate-limit';
      * تسجيل الدخول وحده. فلا حدَّ على بقيّة النظام في هذه المرحلة.
      */
     ThrottlerModule.forRoot([LOGIN_THROTTLE]),
-    ServeStaticModule.forRoot({
-      rootPath: join(process.cwd(), 'uploads'),
-      serveRoot: '/uploads',
-    }),
+    /*
+     * ── حُذف `ServeStaticModule` على `/uploads` ──
+     *
+     * كان يخدم مجلّد `uploads/` علناً بلا مصادقة، وهو بقيّةٌ من مرحلةٍ سبقت
+     * انتقال المرفقات إلى Supabase Storage في 2026-07-17.
+     *
+     * ولم يكن يخدم شيئاً: المجلّد مُتجاهَلٌ في `.gitignore` فلا يُشحن مع البناء،
+     * وقرص الحاوية على Railway يزول مع كلّ نشرة. فحتى الملفّ القديم الوحيد
+     * الذي بحوزتنا يردّ `404` على الإنتاج.
+     *
+     * فالمسار كان باباً مفتوحاً لا يقف خلفه شيء — وأيّ ملفٍّ يصل ذلك المجلّد
+     * مستقبلاً كان سيصير عامّاً بلا قصد.
+     *
+     * والمرفقات اليوم تُخزَّن وتُقرأ عبر `AttachmentsModule` من Supabase.
+     */
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
