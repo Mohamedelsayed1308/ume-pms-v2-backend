@@ -1,6 +1,8 @@
 import { Controller, Post, Put, Body, Get, Param, UseGuards, Request, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { ThrottlerGuard, Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from '../../common/jwt-auth.guard';
+import { LOGIN_THROTTLER, LOGIN_LIMIT, LOGIN_TTL_MS } from '../../common/rate-limit';
 
 function ensureAdmin(req: any) {
   if (req.user?.role !== 'admin') throw new ForbiddenException('صلاحيات الأدمن مطلوبة');
@@ -16,7 +18,20 @@ function isNonProduction(): boolean {
 export class AuthController {
   constructor(private authService: AuthService) {}
 
+  /*
+   * الموجّه الوحيد المحدود بمعدّل في هذه المرحلة.
+   *
+   * وكان مفتوحاً بلا حدّ محاولات — تخمينٌ آليٌّ بلا مقاومة. والحدّ على الموجّه
+   * وحده لا على النظام كلّه: خمس محاولات في الدقيقة لكلّ عنوان، فمن أخطأ
+   * كلمته مرّتين لا يشعر بشيء.
+   *
+   * والردّ عند التجاوز `429` برسالةٍ عامّة — لا تقول أَوُجد البريد أم لا، ولا
+   * أيّ الحقلين كان خطأً. والخدمة أصلاً تردّ «Invalid credentials» في الحالتين،
+   * فلا يُستدلّ على وجود حسابٍ من فرقٍ في الجواب.
+   */
   @Post('login')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ [LOGIN_THROTTLER]: { limit: LOGIN_LIMIT, ttl: LOGIN_TTL_MS } })
   login(@Body() body: { email: string; password: string }) {
     return this.authService.login(body.email, body.password);
   }

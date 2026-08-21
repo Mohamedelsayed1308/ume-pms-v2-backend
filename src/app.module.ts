@@ -26,12 +26,19 @@ import { AuditModule } from './modules/audit/audit.module';
 import { AskUmeModule } from './modules/ask-ume/ask-ume.module';
 import { AccountingModule } from './modules/accounting/accounting.module';
 import { ReceiptsModule } from './modules/receipts/receipts.module';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { R3aRunnerModule } from './migrations/r3a-runner.module';
 import { shouldSynchronize, assertNoAutoDdlInProduction } from './common/schema-policy';
+import { LOGIN_THROTTLE } from './common/rate-limit';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    /*
+     * المُحدِّد مُسجَّل ولا يحرس شيئاً بنفسه — `ThrottlerGuard` يُوضع على موجّه
+     * تسجيل الدخول وحده. فلا حدَّ على بقيّة النظام في هذه المرحلة.
+     */
+    ThrottlerModule.forRoot([LOGIN_THROTTLE]),
     ServeStaticModule.forRoot({ rootPath: join(process.cwd(), 'uploads'), serveRoot: '/uploads' }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
