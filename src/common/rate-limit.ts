@@ -18,33 +18,66 @@ export const LOGIN_TTL_MS = 60_000;
 export const LOGIN_BLOCK_MS = 60_000;
 
 /**
- * عنوان العميل الحقيقي — لا عنوان البروكسي.
+ * عدد الوسطاء الموثوقين أمام التطبيق.
  *
- * `req.ip` خلف حافّة Railway يُرجع عنوان البروكسي نفسه لكلّ الطلبات، فيقع
- * المستخدمون جميعاً في دلوٍ واحد: خمس محاولاتٍ من أيٍّ كان تُوقف الشركة كلَّها
- * دقيقة. حدٌّ يمنع الهجوم ويمنع أصحاب البيت معه لا يصلح.
+ * صفرٌ = **غير معلوم**، وهو الافتراضي عمداً.
  *
- * فيُقرأ `x-forwarded-for`، **وتُؤخذ آخر قيمةٍ فيه لا أولاها**: العميل يستطيع
- * إرسال الترويسة بنفسه فتُصدَّر قائمتَه، وتُلحق الحافّةُ عنوانَه الحقيقي في
- * آخرها. فالأول مزوَّرٌ محتمل، والأخير هو ما رآه الوسيط الموثوق.
+ * فحصتُ حافّة Railway بطلبٍ حقيقي فردّت:
+ *   `x-railway-edge: zrh1` · `x-hikari-trace: zrh1.1vv1` · `server: railway-hikari`
+ * ومعرّفان في أثرٍ واحد يُرجّحان حافّةً ثمّ موجّهاً داخلياً — **ولا يُثبتان عدد
+ * ما يُكتب في `x-forwarded-for`**. ولا سبيل لرؤية الترويسة كما يستلمها التطبيق
+ * من خارجه.
  *
- * وإن غابت الترويسة — تشغيلٌ محلّي أو بلا بروكسي — رجع إلى `req.ip`.
+ * فمتى أثبتَّ العدد — بسطرٍ يطبع الترويسة مرّةً ثم يُزال — اضبط المتغيّر،
+ * فيصير المفتاح مقاوماً للتزوير.
  */
+export const TRUST_PROXY_HOPS = Number(process.env.TRUST_PROXY_HOPS) || 0;
+
 export interface ProxyAwareRequest {
   headers?: Record<string, string | string[] | undefined>;
   ip?: string;
   socket?: { remoteAddress?: string };
 }
 
-export function clientIp(req: ProxyAwareRequest): string {
+/**
+ * مفتاح تمييز العميل — لا عنوان البروكسي.
+ *
+ * `req.ip` خلف الحافّة يُرجع عنوان البروكسي نفسه لكلّ الطلبات، فيقع المستخدمون
+ * جميعاً في دلوٍ واحد: خمس محاولاتٍ من أيٍّ كان تُوقف الشركة كلَّها دقيقة.
+ *
+ * ── ولماذا السلسلة كلُّها حين يُجهل العدد ──
+ * أخذُ **آخر** قفزةٍ يصحّ لو كان الوسيط واحداً؛ فإن كانا اثنين رجع عنوان الموجّه
+ * الداخلي — وعاد الانهيار الذي جئنا نمنعه. وأخذُ **أوّلها** يقبل التزوير.
+ *
+ * والخطران غير متكافئين: الانهيار يوقف الشركة، والتزوير يُعيدنا إلى ما نحن عليه
+ * اليوم لا أسوأ. فحين يُجهل العدد تُستعمل السلسلة كلُّها مفتاحاً: عنوان العميل
+ * فيها أياً كان عدد القفزات، فلا يلتقي عميلان في دلوٍ أبداً — ويبقى التزوير
+ * ممكناً، معلوماً، مكتوباً.
+ *
+ * ومتى ضُبط `TRUST_PROXY_HOPS` أُخذ الموضع الدقيق فسقط التزوير.
+ *
+ * وإن غابت الترويسة — تشغيلٌ محلّي أو بلا بروكسي — رجع إلى `req.ip`.
+ */
+export function clientIp(
+  req: ProxyAwareRequest,
+  trustedHops: number = TRUST_PROXY_HOPS,
+): string {
   const raw = req?.headers?.['x-forwarded-for'];
-  const chain = Array.isArray(raw) ? raw.join(',') : (raw ?? '');
-  const hops = chain
+  const joined = Array.isArray(raw) ? raw.join(',') : (raw ?? '');
+  const chain = joined
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-  if (hops.length) return hops[hops.length - 1];
-  return req?.ip || req?.socket?.remoteAddress || 'unknown';
+
+  if (!chain.length) return req?.ip || req?.socket?.remoteAddress || 'unknown';
+
+  // عددٌ معلومٌ وسلسلةٌ تكفيه ⇒ الموضع الدقيق، مقاومٌ للتزوير
+  if (trustedHops > 0 && chain.length >= trustedHops) {
+    return chain[chain.length - trustedHops];
+  }
+
+  // مجهولٌ أو سلسلةٌ أقصر من المتوقَّع ⇒ السلسلة كلُّها: لا انهيار، والتزوير معلوم
+  return chain.join('|');
 }
 
 /**
