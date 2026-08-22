@@ -125,6 +125,27 @@ export interface VesselResult {
   remainingAtDuba: number;
   /** المستحقّ لحساب المركب = التوزيع + إيجاره ووقوده وعمولته الفعليّة */
   dueToAccount: number;
+
+  /*
+   * ── أثر الشراكة ──
+   *
+   * سؤالُ الإدارة: ماذا كان يجني المركب لو عمل وحده؟
+   *
+   * منفرداً  = نقده في ضبا + تحصيله في صفاجا + Over Pax الخاصّ به
+   *            − إيجاره − وقوده − عمولته، كلٌّ بمقداره هو لا بحصّةٍ مقسومة
+   *
+   * شراكةً   = التوزيع الذي ناله + تحصيله في صفاجا
+   *            (وتسوية صفاجا داخل التوزيع أصلاً، فلا تُحسب مرّتين)
+   *
+   * والفرق **صفريّ المجموع**: ما تكسبه سفينةٌ من الشراكة تخسره الأخرى بالضبط.
+   * فالرقم لا يقول «الشراكة رابحة» بل يقول **من يدعم من، وبكم**.
+   */
+  /** الحصيلة لو عمل المركب وحده */
+  standalone: number;
+  /** الحصيلة في الشراكة */
+  partnered: number;
+  /** شراكةً − منفرداً · موجبٌ يعني أنّ الشراكة تدعمه */
+  partnershipGain: number;
   /** فرق سيولة الدفتر عن نقد ضبا المُدخَل — للمراجعة لا للحساب */
   liquidityGap: number | null;
 }
@@ -309,6 +330,18 @@ export function calculateDistribution(input: ModelInput): ModelResult {
     const deductedFromDuba = rentShare + fuelShare + feeShare + dividendPayable;
     const remainingAtDuba = adjustedProfit + safagaAdjust - deductedFromDuba;
     const liq = x.v.liquidity;
+
+    /*
+     * المقارنة على التوزيع **بالسنت** لا بالدولار الصحيح.
+     *
+     * التدوير كسرٌ دون الدولار، ولو دخل المقارنة لكسر صفريّة المجموع: ما
+     * تكسبه سفينةٌ لا يساوي ما تخسره الأخرى إلّا بسنتات. والفارق هنا بالآلاف،
+     * فالكسر ضجيجٌ لا معنى له.
+     */
+    const standalone = n(x.v.cashDuba) + n(x.v.netCollected) + n(x.v.overPax)
+      - x.rent - x.fuel - x.fee;
+    const partnered = dividend + n(x.v.netCollected);
+
     return {
       key: x.v.key,
       name: x.v.name,
@@ -331,6 +364,9 @@ export function calculateDistribution(input: ModelInput): ModelResult {
       deductedFromDuba: r2(deductedFromDuba),
       remainingAtDuba: r2(remainingAtDuba),
       dueToAccount: r2(dividendPayable + x.rent + x.fuel + x.fee),
+      standalone: r2(standalone),
+      partnered: r2(partnered),
+      partnershipGain: r2(partnered - standalone),
       liquidityGap: liq == null ? null : r2(n(liq) - n(x.v.cashDuba)),
     };
   });

@@ -281,6 +281,77 @@ describe('profit-model — معادلة المستند المعتمد', () => {
     });
   });
 
+  /*
+   * سؤال الإدارة: ماذا كان يجني المركب لو عمل وحده؟
+   *
+   * والخاصّيّة التي تحرسه: **المجموع صفريّ**. ما تكسبه سفينةٌ من الشراكة تخسره
+   * الأخرى بالضبط — فالشراكة تنقل ولا تخلق. وأيّ خللٍ في الاشتقاق يكسر ذلك.
+   */
+  describe('أثر الشراكة — منفرداً مقابل شراكةً', () => {
+    const result = calculateDistribution({
+      days: 14, commissionRate: 6.5, perVoyageFee: 500,
+      vessels: [
+        vessel({ key: 'amal', name: 'أمل', voyages: 5, dailyRate: 13000,
+          sdBase: 507055, fuel: 114060.84, cashDuba: 696618.22, netCollected: 143066.14 }),
+        vessel({ key: 'poseidon', name: 'بوسيدون', voyages: 4, dailyRate: 14000,
+          sdBase: 475750, fuel: 224744.78, cashDuba: 792948.03, netCollected: 157468.89 }),
+      ],
+    });
+    const amal = result.vessels.find((v) => v.key === 'amal')!;
+    const pos = result.vessels.find((v) => v.key === 'poseidon')!;
+
+    it('منفرداً = نقده وتحصيله ناقص إيجاره ووقوده وعمولته', () => {
+      // 792,948.03 + 157,468.89 − 196,000 − 224,744.78 − (475,750×6.5% + 4×500)
+      near(pos.standalone, 496748.39);
+      near(amal.standalone, 508164.94);
+    });
+
+    it('شراكةً = التوزيع مع تحصيله', () => {
+      near(pos.partnered, pos.dividend + 157468.89, 0.02);
+      near(amal.partnered, amal.dividend + 143066.14, 0.02);
+    });
+
+    it('المجموع صفريّ — الشراكة تنقل ولا تخلق', () => {
+      const gains = result.vessels.reduce((a, v) => a + v.partnershipGain, 0);
+      near(gains, 0, 0.02);
+    });
+
+    it('من يدعم من: بوسيدون رابح وأمل خاسر في هذه الفترة', () => {
+      expect(pos.partnershipGain).toBeGreaterThan(0);
+      expect(amal.partnershipGain).toBeLessThan(0);
+      near(pos.partnershipGain, -amal.partnershipGain, 0.02);
+    });
+
+    it('مركبٌ واحد: لا شراكة فلا فرق', () => {
+      const solo = calculateDistribution({
+        days: 14, commissionRate: 6.5, perVoyageFee: 500,
+        vessels: [
+          vessel({ key: 'poseidon', name: 'بوسيدون', voyages: 4, dailyRate: 14000,
+            sdBase: 475750, fuel: 224744.78, cashDuba: 792948.03, netCollected: 157468.89 }),
+        ],
+      });
+      expect(solo.partners).toBe(1);
+      near(solo.vessels[0].partnershipGain, 0, 0.02);
+    });
+
+    it('ثلاثة شركاء: المجموع يبقى صفريّاً', () => {
+      const three = calculateDistribution({
+        days: 14, commissionRate: 6.5, perVoyageFee: 500,
+        vessels: [
+          vessel({ key: 'amal', name: 'أمل', voyages: 5, dailyRate: 13000,
+            sdBase: 507055, fuel: 114060.84, cashDuba: 696618.22, netCollected: 143066.14 }),
+          vessel({ key: 'poseidon', name: 'بوسيدون', voyages: 4, dailyRate: 14000,
+            sdBase: 475750, fuel: 224744.78, cashDuba: 792948.03, netCollected: 157468.89 }),
+          vessel({ key: 'daleela', name: 'دليلة', voyages: 3, dailyRate: 12000,
+            sdBase: 200000, fuel: 40000, cashDuba: 300000, netCollected: 50000 }),
+        ],
+      });
+      expect(three.partners).toBe(3);
+      const gains = three.vessels.reduce((a, v) => a + v.partnershipGain, 0);
+      near(gains, 0, 0.05);
+    });
+  });
+
   describe('الحراسة على المدخلات', () => {
     it('غياب نقد ضبا يُعلَن نقصاً لا يُعرض رقماً سالباً كحقيقة', () => {
       const r = calculateDistribution({
