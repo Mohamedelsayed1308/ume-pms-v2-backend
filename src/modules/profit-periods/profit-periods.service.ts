@@ -4,6 +4,15 @@ import { Repository } from 'typeorm';
 import { ProfitPeriod } from './profit-period.entity';
 import axios from 'axios';
 import * as XLSX from 'xlsx';
+import { calculateDistribution, daysBetween } from './profit-model';
+
+/**
+ * التوزيع شراكةُ خطّ ضبا/سفاجا وحده.
+ *
+ * دليلة تُبحر على جدّة/سواكن منذ يناير ٢٠٢٦، ولهذا تظهر صفراً في مستندات
+ * التوزيع رغم نشاطها. والقيد بالخطّ هو ما يجعل الكشف يُطابق الورقة.
+ */
+export const DISTRIBUTION_LINE = 'ضبا/سفاجا';
 
 @Injectable()
 export class ProfitPeriodsService {
@@ -49,6 +58,15 @@ export class ProfitPeriodsService {
    * والرقم **يتكرّر كل سنة**، فالسنة تُشتقّ من `dateFrom` وتدخل الانتقاء — وإلا
    * جُمعت رحلةُ 2025 مع رحلة 2026 تحملان الرقم نفسه.
    *
+   * ── ولماذا يُقيَّد بالخطّ ──
+   * دليلة تعمل على خطّين: ٤١ رحلة على ضبا/سفاجا حتّى سبتمبر ٢٠٢٥، ثمّ ١٢٠ رحلة
+   * على جدّة/سواكن من يناير ٢٠٢٦. و**أرقام الرحلات تبدأ من ١ في كلّ خطّ**، فمدىً
+   * بالرقم وحده يخلط سلسلتين لا تجمعهما فترة.
+   *
+   * والتوزيع شراكةُ خطّ ضبا/سفاجا وحده — ولهذا تظهر دليلة صفراً في المستندات
+   * الثلاثة رغم أنّها كانت تُبحر. فبلا هذا القيد تتسرّب رحلاتها من الخطّ الآخر
+   * فتنقلب القسمة من شريكين إلى ثلاثة، ويتغيّر كلّ رقمٍ في الكشف.
+   *
    * ── ما لا يأتي منه ──
    * `cash_safaga` **دفعاتٌ مصروفة** لا إيراد، ولا وجود لها في دفتر المركب. تُترك
    * كما هي ولا تُصفَّر: تصفيرُها يرفع نتيجة النشاط بمقدارها بلا أن يُنبّه أحد.
@@ -56,6 +74,7 @@ export class ProfitPeriodsService {
   async fetchFromUnifiedSheet(
     dateFrom: string, dateTo: string,
     ranges?: Record<string, { from?: number; to?: number } | undefined>,
+    line?: string,
   ) {
     const SHEET_ID = process.env.FLEET_SHEET_ID || '1G7VU_z7WDZK6kq-7Sk_iLztJzmP-HlXe4ke6UtFn4fM';
     let rows: any[][];
@@ -75,6 +94,7 @@ export class ProfitPeriodsService {
     const KEYS: Record<string, string> = { POSEIDON: 'poseidon', AMAL: 'amal', DALEELA: 'daleela' };
     const year = Number(String(dateFrom).slice(0, 4)) || null;
     const blank = () => ({ revenue: 0, voyages: 0, commission: 0, bunker: 0,
+      sdBase: 0, liquidity: 0, overPax: 0,
       refs: [] as number[], firstDate: null as string | null, lastDate: null as string | null,
       by: 'date' as 'date' | 'ref' });
     const out: any = { poseidon: blank(), amal: blank(), daleela: blank() };
@@ -90,6 +110,16 @@ export class ProfitPeriodsService {
 
     const dates: Record<string, string[]> = { poseidon: [], amal: [], daleela: [] };
 
+    // الخطّ يُكتب بالشدّة وبدونها ويحمل مسافاتٍ زائدة — تُسوّى قبل المقارنة،
+    // وإلّا رُفض صفٌّ صحيح لفرقٍ في تشكيلٍ لا يراه القارئ.
+    const normLine = (s: unknown) =>
+      String(s || '').replace(/[ً-ْـ]/g, '').replace(/\s+/g, '').trim();
+    // التسوية **قبل** الرجوع إلى الافتراضيّ: خطٌّ من مسافاتٍ وحدها يجتاز
+    // `||` لأنّه غير فارغ، ثمّ يُسوّى إلى فراغ فيُعطّل الحارس صامتاً.
+    const effectiveLine = normLine(line) ? String(line) : DISTRIBUTION_LINE;
+    const wantLine = normLine(effectiveLine);
+    let offLine = 0;
+
     for (const row of rows) {
       const raw = row && row[10];
       if (!raw) continue;
@@ -97,6 +127,9 @@ export class ProfitPeriodsService {
       try { p = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { continue; }
       const key = KEYS[String(p?.vessel || '').toUpperCase()];
       if (!key) continue;
+
+      // خطٌّ آخر: يُعدّ ويُبلَّغ به، ولا يُجمع. الصمت هنا يُغيّر القسمة كلّها.
+      if (wantLine && p.line && normLine(p.line) !== wantLine) { offLine++; continue; }
 
       // التاريخ من المغادرة، وعند غيابه من الوصول — كما تفعل بقيّة الشاشات
       const d = String(p.dateExp || p.dateImp || '').slice(0, 10);
@@ -113,6 +146,13 @@ export class ProfitPeriodsService {
       out[key].revenue += Number(p.income) || 0;
       out[key].commission += Number(p.comm) || 0;
       out[key].bunker += Number(p.bnk) || 0;
+      // أساس عمولة المستند ليس الإيراد بل شاحنات رحلة الذهاب وحدها. طوبق
+      // `trE` على ستّ حالاتٍ في المستندات فأصاب خمساً بصفر فرق، والسادسة
+      // زادت بمقدار تحصيل صفاجا — تسويةٌ بشريّة مكانها حقل التعديل لا هنا.
+      out[key].sdBase += Number(p.trE) || 0;
+      // سيولة الدفتر — تُنقل اقتراحاً لنقد ضبا، ولا تحلّ محلّه: طابقته في
+      // ٤–١٧ يوليو بسنتٍ واحد، وزادت عليه في غيرها بآلافٍ قليلة.
+      out[key].liquidity += Number(p.liq) || 0;
       out[key].voyages += 1;
       if (d) dates[key].push(d);
     }
@@ -122,6 +162,8 @@ export class ProfitPeriodsService {
       out[k].revenue = Math.round(out[k].revenue * 100) / 100;
       out[k].commission = Math.round(out[k].commission * 100) / 100;
       out[k].bunker = Math.round(out[k].bunker * 100) / 100;
+      out[k].sdBase = Math.round(out[k].sdBase * 100) / 100;
+      out[k].liquidity = Math.round(out[k].liquidity * 100) / 100;
       out[k].refs.sort((a: number, b: number) => a - b);
       dates[k].sort();
       out[k].firstDate = dates[k][0] || null;
@@ -141,7 +183,11 @@ export class ProfitPeriodsService {
       fetchedAt: new Date().toISOString(),
       matched,
       year,
+      line: effectiveLine,
+      offLine,
       note: 'الكاش المصروف لا يأتي من الشيت — يبقى كما هو',
+      // ما لا يعرفه دفتر الرحلات: أرصدة الخزينة. تُدخَل يداً، ولا يُسكَت عنها.
+      manualInputs: ['نقد ضبا لكلّ مركب', 'صافي التحصيل في صفاجا'],
     };
     return out;
   }
@@ -180,12 +226,90 @@ export class ProfitPeriodsService {
     return res.data;
   }
 
-  // ── حساب التوزيع (منطق Excel) ─────────────────────────────────────────
-  // الإيراد من الشيت يتضمن Over Pax بالفعل → لا يُضاف مرة ثانية
-  // Over Pax يُوزَّع: بدوي = Poseidon×66.67% + Daleela×33.33%
-  //                  اتحاد = Poseidon×33.33% + Amal×100% + Daleela×66.67%
-  // البنكر يُضاف للرصيد النهائي: بدوي += bunker_badawi, اتحاد += bunker_ittihad
+  /**
+   * حساب التوزيع على معادلة المستند المعتمد.
+   *
+   * المعادلة نفسها في `profit-model.ts` — دالّةٌ خالصة تحرسها اختباراتٌ تُعيد
+   * إنتاج مستندَي يوليو ٢٠٢٦ رقماً رقماً. هنا مجرّد ترجمةٍ من صفوف الجدول
+   * إلى مدخلات المحرّك.
+   *
+   * ويُعاد معها ناتج المعادلة السابقة تحت `legacy` — لا لأنّها صحيحة، بل
+   * لأنّ فتراتٍ حُسبت بها وعُرضت على الشركاء، ومحوُ الرقم القديم يُخفي الفرق
+   * بدل أن يُظهره. الفرق بينهما هو نفسه معلومةٌ تستحقّ العرض.
+   */
   calculate(p: ProfitPeriod) {
+    const n = (v: any) => Number(v) || 0;
+    const days = daysBetween(p.date_from, p.date_to);
+
+    const model = calculateDistribution({
+      days,
+      commissionRate: n(p.commission_rate) || 6.5,
+      // الرسم الثابت ٥٠٠ للرحلة في المستندات الثلاثة. وصفرُ المخزَّن يعني
+      // «لم يُملأ» لا «لا رسم» — فترةٌ قديمة حُفظت قبل أن يُستعمل الحقل.
+      perVoyageFee: n(p.per_voyage_fee) || 500,
+      vessels: [
+        {
+          key: 'poseidon', name: 'بوسيدون',
+          voyages: n(p.poseidon_voyages),
+          sdBase: n(p.poseidon_sd_base), sdAdjust: n(p.poseidon_sd_adjust),
+          fuel: n(p.poseidon_fuel), fuelAdjust: n(p.poseidon_fuel_adjust),
+          cashDuba: n(p.poseidon_cash_duba),
+          netCollected: n(p.poseidon_net_collected),
+          dailyRate: n(p.poseidon_daily_rate) || 14000,
+          revenue: n(p.poseidon_revenue),
+          overPax: n(p.poseidon_over_pax),
+          offHireSettlement: n(p.poseidon_off_hire),
+          liquidity: n(p.poseidon_liquidity) || undefined,
+        },
+        {
+          key: 'amal', name: 'أمل',
+          voyages: n(p.amal_voyages),
+          sdBase: n(p.amal_sd_base), sdAdjust: n(p.amal_sd_adjust),
+          fuel: n(p.amal_fuel), fuelAdjust: n(p.amal_fuel_adjust),
+          cashDuba: n(p.amal_cash_duba),
+          netCollected: n(p.amal_net_collected),
+          dailyRate: n(p.amal_daily_rate) || 13000,
+          revenue: n(p.amal_revenue),
+          overPax: n(p.amal_over_pax),
+          offHireSettlement: n(p.amal_off_hire),
+          liquidity: n(p.amal_liquidity) || undefined,
+        },
+        {
+          key: 'daleela', name: 'دليلة',
+          voyages: n(p.daleela_voyages),
+          sdBase: n(p.daleela_sd_base), sdAdjust: n(p.daleela_sd_adjust),
+          fuel: n(p.daleela_fuel), fuelAdjust: n(p.daleela_fuel_adjust),
+          cashDuba: n(p.daleela_cash_duba),
+          netCollected: n(p.daleela_net_collected),
+          dailyRate: n(p.daleela_daily_rate) || 12000,
+          revenue: n(p.daleela_revenue),
+          overPax: n(p.daleela_over_pax),
+          offHireSettlement: n(p.daleela_off_hire),
+          liquidity: n(p.daleela_liquidity) || undefined,
+        },
+      ],
+    });
+
+    // تعديلٌ يدويّ بلا سببٍ مكتوب: يُحسَب ويُعلَن، ولا يمرّ صامتاً.
+    const hasAdjust =
+      n(p.poseidon_sd_adjust) || n(p.poseidon_fuel_adjust) ||
+      n(p.amal_sd_adjust) || n(p.amal_fuel_adjust) ||
+      n(p.daleela_sd_adjust) || n(p.daleela_fuel_adjust);
+    if (hasAdjust && !String(p.adjust_reason || '').trim()) {
+      model.warnings.push('تعديلٌ يدويّ بلا سببٍ مكتوب — سجّل السبب في «سبب التعديل»');
+    }
+
+    return { ...model, legacy: this.calculateLegacy(p) };
+  }
+
+  /**
+   * المعادلة السابقة — محفوظةٌ للمقارنة وحدها.
+   *
+   * تبدأ من الإيراد لا من النقد، ولا تطرح الوقود ولا العمولة، وتُضيف الوقود
+   * حيث يطرحه المستند. أثرها في الفترات الثلاث المقارَنة: مبالغةٌ في نصيب
+   * كلّ شريك بين ٤٢٨ ألفاً و٦٨٣ ألف دولار.
+   */
+  private calculateLegacy(p: ProfitPeriod) {
     const n = (v: any) => Number(v) || 0;
 
     const DAILY_RATES = { poseidon: 14000, amal: 13000, daleela: 12000 };

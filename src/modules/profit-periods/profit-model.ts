@@ -1,0 +1,356 @@
+/**
+ * محرّك توزيع الأرباح — معادلة المستند المعتمد.
+ *
+ * ── لماذا وُجد هذا الملفّ ──
+ * كانت المعادلة مكتوبةً مرّتين: مرّةً في الخدمة ومرّةً في صفحة الفرونت.
+ * نسختان تنحرفان مع أوّل تعديل، ولا تُختبر إحداهما. فنُقلت إلى هنا: دالّةٌ
+ * خالصة بلا Nest ولا TypeORM ولا شبكة، يستوردها الباك وتُرآى في الفرونت،
+ * وتحرسها اختباراتٌ تُعيد إنتاج المستندات الورقيّة رقماً رقماً.
+ *
+ * ── المعادلة ──
+ * المستند لا يبدأ من الإيراد بل من **النقد**. هذا هو الفرق الجوهريّ:
+ * الإيراد ليس مالاً وصل، وبينه وبين الخزينة مصروفاتُ الرحلة كلّها.
+ *
+ *   الأساس المشترك = مجموع نقد ضبا ÷ عدد الشركاء
+ *   + حصّة Over Pax (تخصّ كلّ شريك وحده)
+ *   = معدّل الربح
+ *   − حصّة الإيجار = مجموع الإيجارات ÷ عدد الشركاء
+ *   − حصّة الوقود  = مجموع الوقود ÷ عدد الشركاء
+ *   − حصّة العمولة = مجموع (أساس×٦.٥٪ + ٥٠٠×رحلات) ÷ عدد الشركاء
+ *   ± تسوية صفاجا = متوسّط التحصيل − تحصيل المركب نفسه
+ *   = التوزيع المقترح
+ *
+ * كلّ عبءٍ يُقسم مناصفةً **قبل** الطرح، فلا يفترق الشريكان إلا في بندين:
+ * Over Pax وتسوية صفاجا.
+ *
+ * ── التدوير إلى الدولار الصحيح ──
+ * المستند يُنزل التوزيع إلى الدولار الصحيح ويُبقي الكسر رصيداً في ضبا، ويكتبه
+ * صراحةً في سطر «Remaining Balance at Duba». في مستند مارس ٢٠٢٦: التوزيع
+ * المحسوب ٧٥٬٠٢٧.٦٥ فكُتب ٧٥٬٠٢٧ والمتبقّي ٠.٦٥. ولولا هذا لبدا الفارق خطأً
+ * وهو سطرٌ في الورقة.
+ *
+ * ── ما ثبت ──
+ * أُعيدت أربع فتراتٍ من مدخلاتها وحدها: مارس ٢٠٢٦ بالسنت، ويوليو بفارقٍ دون
+ * خمسة سنتات. الاختبارات تُثبّت ذلك.
+ *
+ * ── أساس العمولة ──
+ * ليس الإيراد ولا صافيه، بل **شاحنات رحلة الذهاب وحدها** — الحقل `trE` في
+ * دفتر الرحلات. طوبق على ستّ حالاتٍ فأصاب خمساً بصفر فرق. والسادسة زادت
+ * بمقدار تحصيل صفاجا بالضبط، وهي تسويةٌ بشريّة تُسجَّل في حقل التعديل.
+ */
+
+/** مركبٌ واحد داخل الفترة. كلّ حقلٍ هنا إمّا من دفتر الرحلات أو من الخزينة. */
+export interface VesselInput {
+  key: string;
+  name: string;
+  /** عدد الرحلات — من دفتر الرحلات */
+  voyages: number;
+  /** أساس العمولة: مجموع `trE` — شاحنات الذهاب */
+  sdBase: number;
+  /** تعديلٌ يدويّ على الأساس. يستوجب سبباً مكتوباً. */
+  sdAdjust: number;
+  /** الوقود: مجموع `bnk` */
+  fuel: number;
+  /** تعديلٌ يدويّ على الوقود. يستوجب سبباً مكتوباً. */
+  fuelAdjust: number;
+  /** النقد المتاح في ضبا — رصيد خزينةٍ فعليّ، لا يُشتقّ من الدفتر */
+  cashDuba: number;
+  /** صافي التحصيل في صفاجا — فعليّ كذلك */
+  netCollected: number;
+  /** السعر اليوميّ للإيجار */
+  dailyRate: number;
+  /** الإيراد — للعرض والمراجعة فقط، لا يدخل أيّ حساب */
+  revenue?: number;
+  /**
+   * Over Pax **كما نشأ على هذا المركب** — لا كما آل إلى الشريك.
+   *
+   * إيراد الركّاب الزائدين عن المئة في الرحلة الواحدة يُفرَد عن إيراد الرحلة
+   * ويُقسم بقاعدةٍ أخرى: ثلثاه لبدوي وثلثه للاتحاد. فما نشأ على بوسيدون لا
+   * يذهب إليه كلّه. والقسمة تجري في المحرّك، فيبقى المُدخَل رقماً واحداً
+   * يُقرأ من دفتر الرحلة بلا حسابٍ مسبق.
+   */
+  overPax?: number;
+  /**
+   * تسوية إيقاف المركب — بندٌ في المستند لم يُرَ إلا صفراً.
+   *
+   * يُخزَّن ويُنبَّه عليه ولا يدخل الحساب: موضعه في السلسلة غير معروف، وإدخاله
+   * بالتخمين يُغيّر توزيعاً حقيقياً بناءً على ظنّ.
+   */
+  offHireSettlement?: number;
+  /** سيولة الدفتر `liq` — اقتراحٌ لنقد ضبا، للمقارنة لا للحساب */
+  liquidity?: number;
+}
+
+export interface ModelInput {
+  days: number;
+  /** نسبة العمولة، ٦.٥ */
+  commissionRate: number;
+  /** رسمٌ ثابت لكلّ رحلة، ٥٠٠ */
+  perVoyageFee: number;
+  vessels: VesselInput[];
+}
+
+export interface VesselResult {
+  key: string;
+  name: string;
+  voyages: number;
+  revenue: number;
+  /** الأساس بعد التعديل */
+  sdBase: number;
+  sdAdjust: number;
+  /** عمولة هذا المركب قبل القسمة */
+  fee: number;
+  /** الوقود بعد التعديل */
+  fuel: number;
+  fuelAdjust: number;
+  /** الإيجار الفعليّ لهذا المركب: أيام × سعر يوميّ */
+  rent: number;
+  cashDuba: number;
+  netCollected: number;
+  /** Over Pax كما نشأ على هذا المركب */
+  overPax: number;
+  /** نصيب هذا الشريك من Over Pax بعد قاعدة الثلثين */
+  overPaxShare: number;
+  /** معدّل الربح = الأساس المشترك + نصيب Over Pax */
+  adjustedProfit: number;
+  /** تسوية صفاجا لهذا الشريك: متوسّط التحصيل − تحصيله */
+  safagaAdjust: number;
+  /** التوزيع المحسوب بالسنت */
+  dividend: number;
+  /** التوزيع كما يكتبه المستند — بالدولار الصحيح */
+  dividendPayable: number;
+  /** المخصوم من ضبا = حصص الإيجار والوقود والعمولة + التوزيع المكتوب */
+  deductedFromDuba: number;
+  /** المتبقّي في ضبا — كسرُ التدوير، دون الدولار دائماً */
+  remainingAtDuba: number;
+  /** المستحقّ لحساب المركب = التوزيع + إيجاره ووقوده وعمولته الفعليّة */
+  dueToAccount: number;
+  /** فرق سيولة الدفتر عن نقد ضبا المُدخَل — للمراجعة لا للحساب */
+  liquidityGap: number | null;
+}
+
+export interface ModelResult {
+  days: number;
+  partners: number;
+  /** الأساس المشترك = مجموع نقد ضبا ÷ عدد الشركاء */
+  baseShare: number;
+  totalCashDuba: number;
+  totalOverPax: number;
+  rentShare: number;
+  fuelShare: number;
+  feeShare: number;
+  totalRent: number;
+  totalFuel: number;
+  totalFee: number;
+  totalRevenue: number;
+  avgNetCollected: number;
+  vessels: VesselResult[];
+  /** مدخلاتٌ ناقصة تمنع الاعتماد على النتيجة */
+  missing: string[];
+  /** ملاحظاتٌ لا تمنع الحساب لكنّها تستوجب النظر */
+  warnings: string[];
+}
+
+const n = (v: unknown): number => {
+  const x = Number(v);
+  return Number.isFinite(x) ? x : 0;
+};
+const r2 = (v: number): number => Math.round(v * 100) / 100;
+
+/** عدد أيام الفترة — الطرفان محسوبان. ١٨ إلى ٣١ يوليو = ١٤ يوماً. */
+export function daysBetween(from: string, to: string): number {
+  if (!from || !to) return 0;
+  const a = new Date(from).getTime();
+  const b = new Date(to).getTime();
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return 0;
+  return Math.max(0, Math.round((b - a) / 86_400_000) + 1);
+}
+
+/**
+ * الشريك يُحتسب إن كان له نشاطٌ في الفترة.
+ *
+ * القسمة على «عدد الشركاء» هي عصب المعادلة، فمن يدخل القسمة يُغيّر كلّ رقم.
+ * مركبٌ راسٍ بلا رحلاتٍ ولا نقدٍ ولا تحصيلٍ ليس شريكاً في هذه الفترة، وإدخاله
+ * يقسم الأعباء على ثلاثةٍ بدل اثنين فيرفع نصيب الجميع بلا وجه حقّ. ولهذا
+ * تخرج دليلة من القسمة في المستندات الثلاثة: صفرٌ في كلّ عمود.
+ */
+function isActive(v: VesselInput): boolean {
+  return n(v.voyages) > 0 || n(v.cashDuba) !== 0 || n(v.netCollected) !== 0;
+}
+
+/**
+ * قسمة Over Pax على الشريكين بقاعدة الثلثين.
+ *
+ * نصّ مستند مارس ٢٠٢٦ صراحةً: ركّاب رحلة بوسيدون رقم ٣٠ زادوا عن المئة
+ * (١٠١ راكباً)، وصافي إيرادهم ٦٬٤٤٢.٦٧ «يُقسم ٦٦.٦٧٪ لبدوي و٣٣.٣٣٪ للاتحاد».
+ * فالقسمة بالمنشأ لا بالمركب: ما نشأ على بوسيدون ثلثاه لبدوي وثلثه للاتحاد،
+ * وما نشأ على دليلة ثلثه لبدوي وثلثاه للاتحاد.
+ *
+ * وبدوي هو بوسيدون، والاتحاد أمل ودليلة. فإن كانت دليلة شريكاً مستقلاً في
+ * القسمة لم تُعرَف حصّتها — ولا مستندَ يُبيّنها — فتُترك على منشئها ويُنبَّه.
+ *
+ * ── ولماذا ٠.٦٦٦٧ لا ثلثان ──
+ * المستند يكتب النسبة عدداً عشرياً: «66.67%» و«33.33%». والفرق بينهما وبين
+ * الثلثين ٠.٢٢ دولار في مستند مارس — صغيرٌ لكنّه يكسر التطابق. والمرجع هو
+ * ما كُتب لا ما يُشتقّ، فالنسبتان كما هما، ومجموعهما واحدٌ صحيح.
+ */
+const OVER_PAX_MAJOR = 0.6667;
+const OVER_PAX_MINOR = 0.3333;
+function splitOverPax(active: VesselInput[]): { share: Record<string, number>; unproven: boolean } {
+  const raw: Record<string, number> = {};
+  for (const v of active) raw[v.key] = n(v.overPax);
+
+  const share: Record<string, number> = {};
+  for (const v of active) share[v.key] = 0;
+
+  const has = (k: string) => Object.prototype.hasOwnProperty.call(share, k);
+  const add = (k: string, amount: number) => {
+    if (has(k)) share[k] += amount;
+  };
+
+  // دليلة شريكاً مستقلاً مع وجود Over Pax: حالةٌ لم يُرها أيّ مستند
+  const unproven = has('daleela') && Object.values(raw).some((x) => x !== 0);
+
+  for (const v of active) {
+    const amount = raw[v.key] || 0;
+    if (!amount) continue;
+    if (unproven || !has('poseidon') || !has('amal')) {
+      add(v.key, amount);        // بلا قاعدةٍ مُثبتة: يبقى على منشئه
+      continue;
+    }
+    if (v.key === 'poseidon') {
+      add('poseidon', amount * OVER_PAX_MAJOR);
+      add('amal', amount * OVER_PAX_MINOR);
+    } else if (v.key === 'daleela') {
+      add('poseidon', amount * OVER_PAX_MINOR);
+      add('amal', amount * OVER_PAX_MAJOR);
+    } else {
+      add('amal', amount);       // ما نشأ على أمل فهو للاتحاد كلّه
+    }
+  }
+  return { share, unproven };
+}
+
+export function calculateDistribution(input: ModelInput): ModelResult {
+  const days = Math.max(0, n(input.days));
+  const rate = n(input.commissionRate);
+  const perVoyage = n(input.perVoyageFee);
+
+  const active = (input.vessels || []).filter(isActive);
+  const partners = active.length;
+
+  const missing: string[] = [];
+  const warnings: string[] = [];
+
+  if (!partners) missing.push('لا مركب نشط في الفترة');
+  if (!days) missing.push('عدد الأيام صفر — راجع تاريخَي الفترة');
+
+  const per = active.map((v) => {
+    const sdBase = r2(n(v.sdBase) + n(v.sdAdjust));
+    const fuel = r2(n(v.fuel) + n(v.fuelAdjust));
+    const fee = r2(sdBase * (rate / 100) + n(v.voyages) * perVoyage);
+    const rent = r2(days * n(v.dailyRate));
+    return { v, sdBase, fuel, fee, rent };
+  });
+
+  const sum = (f: (x: (typeof per)[number]) => number) => per.reduce((a, x) => a + f(x), 0);
+
+  const { share: overPaxShare, unproven: overPaxUnproven } = splitOverPax(active);
+
+  const totalCashDuba = r2(sum((x) => n(x.v.cashDuba)));
+  const totalOverPax = r2(sum((x) => n(x.v.overPax)));
+  const totalRent = r2(sum((x) => x.rent));
+  const totalFuel = r2(sum((x) => x.fuel));
+  const totalFee = r2(sum((x) => x.fee));
+  const totalRevenue = r2(sum((x) => n(x.v.revenue)));
+  const totalColl = sum((x) => n(x.v.netCollected));
+
+  const div = partners || 1;
+  const baseShare = totalCashDuba / div;
+  const rentShare = totalRent / div;
+  const fuelShare = totalFuel / div;
+  const feeShare = totalFee / div;
+  const avgNetCollected = totalColl / div;
+
+  // نقد ضبا هو أساس التوزيع كلّه. غيابه لا يُنتج صفراً بل رقماً سالباً كبيراً
+  // يبدو نتيجةً وهو نقصُ مُدخَل — فيُعلَن نقصاً صريحاً بدل أن يُعرض كحقيقة.
+  if (partners && totalCashDuba === 0) {
+    missing.push('نقد ضبا غير مُدخَل — التوزيع لا يُحتسب بدونه');
+  }
+  for (const x of per) {
+    if (n(x.v.cashDuba) === 0 && n(x.v.voyages) > 0) {
+      missing.push(`نقد ضبا غير مُدخَل لـ ${x.v.name}`);
+    }
+    if (n(x.v.sdAdjust) !== 0 || n(x.v.fuelAdjust) !== 0) {
+      warnings.push(`${x.v.name}: تعديلٌ يدويّ مُطبَّق على الأساس أو الوقود`);
+    }
+    if (n(x.v.offHireSettlement) !== 0) {
+      warnings.push(
+        `${x.v.name}: تسوية إيقافٍ بمقدار ${r2(n(x.v.offHireSettlement))} — ` +
+          'موضعها في سلسلة المستند غير معروف فلم تدخل الحساب',
+      );
+    }
+  }
+  if (overPaxUnproven) {
+    warnings.push(
+      'دليلة شريكٌ مستقلّ مع وجود Over Pax — قاعدة قسمته في هذه الحال لم ' +
+        'يُبيّنها مستند، فبقي كلٌّ على منشئه',
+    );
+  }
+
+  const vessels: VesselResult[] = per.map((x) => {
+    const opShare = overPaxShare[x.v.key] || 0;
+    const adjustedProfit = baseShare + opShare;
+    const safagaAdjust = avgNetCollected - n(x.v.netCollected);
+    const dividend = adjustedProfit - rentShare - fuelShare - feeShare + safagaAdjust;
+    // المستند يُنزل التوزيع إلى الدولار الصحيح ويُبقي الكسر رصيداً في ضبا،
+    // ويكتبه سطراً مستقلّاً. فالكسر ليس فارقاً بل بندٌ في الورقة.
+    const dividendPayable = Math.floor(r2(dividend));
+    const deductedFromDuba = rentShare + fuelShare + feeShare + dividendPayable;
+    const remainingAtDuba = adjustedProfit + safagaAdjust - deductedFromDuba;
+    const liq = x.v.liquidity;
+    return {
+      key: x.v.key,
+      name: x.v.name,
+      voyages: n(x.v.voyages),
+      revenue: r2(n(x.v.revenue)),
+      sdBase: x.sdBase,
+      sdAdjust: r2(n(x.v.sdAdjust)),
+      fee: x.fee,
+      fuel: x.fuel,
+      fuelAdjust: r2(n(x.v.fuelAdjust)),
+      rent: x.rent,
+      cashDuba: r2(n(x.v.cashDuba)),
+      netCollected: r2(n(x.v.netCollected)),
+      overPax: r2(n(x.v.overPax)),
+      overPaxShare: r2(opShare),
+      adjustedProfit: r2(adjustedProfit),
+      safagaAdjust: r2(safagaAdjust),
+      dividend: r2(dividend),
+      dividendPayable,
+      deductedFromDuba: r2(deductedFromDuba),
+      remainingAtDuba: r2(remainingAtDuba),
+      dueToAccount: r2(dividendPayable + x.rent + x.fuel + x.fee),
+      liquidityGap: liq == null ? null : r2(n(liq) - n(x.v.cashDuba)),
+    };
+  });
+
+  return {
+    days,
+    partners,
+    baseShare: r2(baseShare),
+    totalCashDuba,
+    totalOverPax,
+    rentShare: r2(rentShare),
+    fuelShare: r2(fuelShare),
+    feeShare: r2(feeShare),
+    totalRent,
+    totalFuel,
+    totalFee,
+    totalRevenue,
+    avgNetCollected: r2(avgNetCollected),
+    vessels,
+    missing,
+    warnings,
+  };
+}

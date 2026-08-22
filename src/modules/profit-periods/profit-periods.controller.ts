@@ -42,12 +42,15 @@ export class ProfitPeriodsController {
   async fetchSheet(@Body() body: {
     date_from: string; date_to: string;
     ranges?: Record<string, { from?: number; to?: number }>;
+    line?: string;
   }) {
     if (!body?.date_from || !body?.date_to) {
       throw new HttpException('الفترة الزمنية مطلوبة', 400);
     }
     try {
-      return await this.svc.fetchFromUnifiedSheet(body.date_from, body.date_to, body.ranges);
+      return await this.svc.fetchFromUnifiedSheet(
+        body.date_from, body.date_to, body.ranges, body.line,
+      );
     } catch (e: any) {
       throw new HttpException(e?.message || 'تعذّر الجلب من الشيت', 502);
     }
