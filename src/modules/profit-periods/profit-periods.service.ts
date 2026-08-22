@@ -7,6 +7,27 @@ import * as XLSX from 'xlsx';
 import { calculateDistribution, daysBetween } from './profit-model';
 
 /**
+ * تفصيل رحلةٍ واحدة كما يحمله دفتر المركب.
+ *
+ * يُخزَّن مع الفترة لا يُجلَب عند العرض — **لأنّ الدفتر يتغيّر**. رأينا ذلك:
+ * تحصيل صفاجا لأمل في ١٨–٣١ يوليو صُحِّح بعد إصدار المستند بـ ١٢٬٨٩٨.٩٠.
+ * فجلبُ التفصيل لاحقاً يعرض أرقاماً لا تجمع إلى التوزيع المحفوظ — وذلك أسوأ
+ * من ألّا يُعرض شيء. والمخزَّن دليلٌ على ما حُسب، لا صورةٌ متحرّكة.
+ *
+ * وعمودا `Dianna` و`Mafis` في المستند لا وجود لهما في الدفتر: فيه عمود
+ * `TRUCK` واحد، ومن يُعدّ المستند هو من يقسمه. فتُعرض الشاحنات مجموعةً.
+ */
+export interface VoyageRow {
+  ref: number | null;
+  dateExp: string; dateImp: string;
+  nTruckE: number; nTruckI: number; truck: number;
+  nVehE: number; nVehI: number; veh: number;
+  nPaxE: number; nPaxI: number; pax: number;
+  income: number; comm: number; man: number; net: number;
+  cashDuba: number; cashSafaga: number; overPax: number;
+}
+
+/**
  * التوزيع شراكةُ خطّ ضبا/سفاجا وحده.
  *
  * دليلة تُبحر على جدّة/سواكن منذ يناير ٢٠٢٦، ولهذا تظهر صفراً في مستندات
@@ -97,6 +118,8 @@ export class ProfitPeriodsService {
       sdBase: 0, liquidity: 0, overPax: 0,
       // الخزينة — يحسبها دفتر المركب منذ أغسطس ٢٠٢٦، ولا تُدخَل يداً
       cashDuba: 0, cashSafaga: 0, offHire: 0, treasuryRows: 0,
+      // تفصيل كلّ رحلة — يُخزَّن مع الفترة دليلاً على ما حُسب منه
+      voyageRows: [] as VoyageRow[],
       refs: [] as number[], firstDate: null as string | null, lastDate: null as string | null,
       by: 'date' as 'date' | 'ref' });
     const out: any = { poseidon: blank(), amal: blank(), daleela: blank() };
@@ -173,6 +196,22 @@ export class ProfitPeriodsService {
       out[key].offHire += Number(p.offHire) || 0;
       if (cd || cs) out[key].treasuryRows += 1;
 
+      const r2 = (x: any) => Math.round((Number(x) || 0) * 100) / 100;
+      const i0 = (x: any) => Math.round(Number(x) || 0);
+      out[key].voyageRows.push({
+        ref: isFinite(Number(p.ref)) ? Number(p.ref) : null,
+        dateExp: String(p.dateExp || '').slice(0, 10),
+        dateImp: String(p.dateImp || '').slice(0, 10),
+        nTruckE: i0(p.nTruck_E), nTruckI: i0(p.nTruck_I),
+        truck: r2((Number(p.trE) || 0) + (Number(p.trI) || 0)),
+        nVehE: i0(p.nVeh_E), nVehI: i0(p.nVeh_I),
+        veh: r2((Number(p.vhE) || 0) + (Number(p.vhI) || 0)),
+        nPaxE: i0(p.nPax_E), nPaxI: i0(p.nPax_I),
+        pax: r2((Number(p.pxE) || 0) + (Number(p.pxI) || 0)),
+        income: r2(p.income), comm: r2(p.comm), man: r2(p.man), net: r2(p.net),
+        cashDuba: r2(cd), cashSafaga: r2(cs), overPax: r2(p.overPax),
+      });
+
       out[key].voyages += 1;
       if (d) dates[key].push(d);
     }
@@ -192,6 +231,9 @@ export class ProfitPeriodsService {
         out[k].treasuryMissing = out[k].voyages - out[k].treasuryRows;
       }
       out[k].refs.sort((a: number, b: number) => a - b);
+      // الترتيب برقم الرحلة ثمّ بالتاريخ — كما يسردها المستند
+      out[k].voyageRows.sort((a: VoyageRow, b: VoyageRow) =>
+        (a.ref ?? 0) - (b.ref ?? 0) || a.dateExp.localeCompare(b.dateExp));
       dates[k].sort();
       out[k].firstDate = dates[k][0] || null;
       out[k].lastDate = dates[k][dates[k].length - 1] || null;

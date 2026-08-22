@@ -27,8 +27,19 @@ function sheetOf(payloads: Record<string, unknown>[]): Buffer {
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
 }
 
+/*
+ * رحلةٌ صناعيّة بِرِجليها.
+ *
+ * الرِّجلان مقصودتان: تفصيل الرحلة يعرض «ذهاب / إياب» لكلّ بند، وقالبٌ بِرِجلٍ
+ * واحدة يمرّ فوق خطأٍ في الجمع دون أن يكشفه.
+ */
 const voyage = (o: Record<string, unknown>) => ({
-  year: 2026, income: 100000, comm: 5000, bnk: 20000, trE: 60000, liq: 90000, ...o,
+  year: 2026, income: 100000, comm: 5000, bnk: 20000, liq: 90000,
+  trE: 60000, trI: 40000, nTruck_E: 100, nTruck_I: 95,
+  vhE: 1000, vhI: 2000, nVeh_E: 5, nVeh_I: 8,
+  pxE: 500, pxI: 700, nPax_E: 50, nPax_I: 60,
+  man: 30000, net: 25000, cashDuba: 18000, cashSafaga: 7000,
+  ...o,
 });
 
 /*
@@ -124,5 +135,52 @@ describe('fetchFromUnifiedSheet — انتقاء الرحلات', () => {
       daleela: { from: 45, to: 49 },
     });
     expect(out.daleela.voyages).toBe(0);
+  });
+
+  /*
+   * تفصيل الرحلات يُخزَّن مع الفترة لا يُجلَب عند العرض — لأنّ الدفتر يتغيّر.
+   * فما يُخرجه الجلب يجب أن يجمع إلى المجاميع نفسها، وإلا عُرض كشفٌ لا يتّسق
+   * مع توزيعه.
+   */
+  describe('تفصيل الرحلات', () => {
+    it('صفٌّ لكلّ رحلة، مرتّباً بالرقم', async () => {
+      const out = await svc.fetchFromUnifiedSheet('2026-07-18', '2026-07-31', {
+        poseidon: { from: 69, to: 72 },
+      });
+      const rows = out.poseidon.voyageRows;
+      expect(rows).toHaveLength(4);
+      expect(rows.map((r: { ref: number }) => r.ref)).toEqual([69, 70, 71, 72]);
+    });
+
+    it('مجموع التفصيل يساوي مجاميع المركب — وإلا كذب أحدهما', async () => {
+      const out = await svc.fetchFromUnifiedSheet('2026-07-18', '2026-07-31', {
+        poseidon: { from: 69, to: 72 },
+      });
+      const rows = out.poseidon.voyageRows as Array<Record<string, number>>;
+      const sum = (f: string) =>
+        Math.round(rows.reduce((a, r) => a + r[f], 0) * 100) / 100;
+      expect(sum('income')).toBe(out.poseidon.revenue);
+      expect(sum('cashDuba')).toBe(out.poseidon.cashDuba);
+      expect(sum('cashSafaga')).toBe(out.poseidon.cashSafaga);
+      expect(sum('comm')).toBe(out.poseidon.commission);
+    });
+
+    it('الشاحنات والمركبات والركّاب مجموعةً بأعدادها', async () => {
+      const out = await svc.fetchFromUnifiedSheet('2026-07-18', '2026-07-31', {
+        poseidon: { from: 69, to: 72 },
+      });
+      const r = out.poseidon.voyageRows[0];
+      // الدفتر الصناعيّ يضع trE=60000 · trI=40000 · nTruck_E=100 · nTruck_I=95
+      expect(r.truck).toBe(100000);
+      expect(r.nTruckE).toBe(100);
+      expect(r.nTruckI).toBe(95);
+    });
+
+    it('لا تفصيل لمركبٍ خارج الفترة', async () => {
+      const out = await svc.fetchFromUnifiedSheet('2026-07-18', '2026-07-31', {
+        poseidon: { from: 69, to: 72 },
+      });
+      expect(out.daleela.voyageRows).toEqual([]);
+    });
   });
 });

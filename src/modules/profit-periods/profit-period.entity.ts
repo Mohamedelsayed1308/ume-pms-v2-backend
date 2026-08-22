@@ -89,6 +89,18 @@ export class ProfitPeriod {
   /** سبب التعديل اليدويّ على الأساس أو الوقود. لا تسويةَ بلا سبب. */
   @Column({ type: 'text', nullable: true }) adjust_reason: string;
 
+  /**
+   * تفصيل رحلات الفترة كما كان في الدفتر لحظة الجلب.
+   *
+   * لقطةٌ لا رابط: الدفتر يتغيّر — تحصيل صفاجا لأمل في ١٨–٣١ يوليو صُحِّح بعد
+   * إصدار المستند بـ ١٢٬٨٩٨.٩٠. فلو جُلب التفصيل عند العرض لأظهر أرقاماً لا
+   * تجمع إلى التوزيع المحفوظ. والمخزَّن دليلٌ على ما حُسب.
+   *
+   * الشكل: `{ poseidon: VoyageRow[], amal: [...], daleela: [...], fetchedAt }`
+   * ‏— انظر `VoyageRow` في `profit-periods.service.ts`.
+   */
+  @Column({ type: 'jsonb', nullable: true }) voyage_detail: unknown;
+
   // ── مدخلات يدوية ──────────────────────────────────────────────────────
   @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 }) poseidon_rent: number;
   @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 }) amal_rent: number;
