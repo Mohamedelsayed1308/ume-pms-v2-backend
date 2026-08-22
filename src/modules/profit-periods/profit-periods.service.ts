@@ -95,6 +95,8 @@ export class ProfitPeriodsService {
     const year = Number(String(dateFrom).slice(0, 4)) || null;
     const blank = () => ({ revenue: 0, voyages: 0, commission: 0, bunker: 0,
       sdBase: 0, liquidity: 0, overPax: 0,
+      // الخزينة — يحسبها دفتر المركب منذ أغسطس ٢٠٢٦، ولا تُدخَل يداً
+      cashDuba: 0, cashSafaga: 0, offHire: 0, treasuryRows: 0,
       refs: [] as number[], firstDate: null as string | null, lastDate: null as string | null,
       by: 'date' as 'date' | 'ref' });
     const out: any = { poseidon: blank(), amal: blank(), daleela: blank() };
@@ -150,9 +152,27 @@ export class ProfitPeriodsService {
       // `trE` على ستّ حالاتٍ في المستندات فأصاب خمساً بصفر فرق، والسادسة
       // زادت بمقدار تحصيل صفاجا — تسويةٌ بشريّة مكانها حقل التعديل لا هنا.
       out[key].sdBase += Number(p.trE) || 0;
-      // سيولة الدفتر — تُنقل اقتراحاً لنقد ضبا، ولا تحلّ محلّه: طابقته في
-      // ٤–١٧ يوليو بسنتٍ واحد، وزادت عليه في غيرها بآلافٍ قليلة.
+      // سيولة الدفتر — بقيت للمراجعة وحدها بعد أن صار نقد ضبا محسوباً في الدفتر
       out[key].liquidity += Number(p.liq) || 0;
+
+      /*
+       * الخزينة من الدفتر مباشرةً.
+       *
+       * `cashSafaga` صافي رِجل الصادر — طوبق بالسنت على مستند ١٨–٣١ يوليو.
+       * و`cashDuba` صافي رِجل الوارد مردوداً إليه بنكرها، لأنّ المستند يخصم
+       * حصّة الوقود المشتركة لاحقاً فبقاؤه مخصوماً يطرحه مرّتين.
+       *
+       * و`treasuryRows` تعدّ الرحلات التي وصلت خزينتها فعلاً: دفترٌ لم تُملأ
+       * أعمدته يُنتج أصفاراً تبدو أرقاماً، والعدّ يكشفها قبل أن تُصدَّق.
+       */
+      const cd = Number(p.cashDuba) || 0;
+      const cs = Number(p.cashSafaga) || 0;
+      out[key].cashDuba += cd;
+      out[key].cashSafaga += cs;
+      out[key].overPax += Number(p.overPax) || 0;
+      out[key].offHire += Number(p.offHire) || 0;
+      if (cd || cs) out[key].treasuryRows += 1;
+
       out[key].voyages += 1;
       if (d) dates[key].push(d);
     }
@@ -164,6 +184,13 @@ export class ProfitPeriodsService {
       out[k].bunker = Math.round(out[k].bunker * 100) / 100;
       out[k].sdBase = Math.round(out[k].sdBase * 100) / 100;
       out[k].liquidity = Math.round(out[k].liquidity * 100) / 100;
+      for (const f of ['cashDuba', 'cashSafaga', 'overPax', 'offHire'] as const) {
+        out[k][f] = Math.round(out[k][f] * 100) / 100;
+      }
+      // رحلاتٌ لها نشاط ولا خزينة: عمودٌ لم يُملأ في الدفتر، يُبلَّغ ولا يُبتلع
+      if (out[k].voyages > 0 && out[k].treasuryRows < out[k].voyages) {
+        out[k].treasuryMissing = out[k].voyages - out[k].treasuryRows;
+      }
       out[k].refs.sort((a: number, b: number) => a - b);
       dates[k].sort();
       out[k].firstDate = dates[k][0] || null;
@@ -185,9 +212,8 @@ export class ProfitPeriodsService {
       year,
       line: effectiveLine,
       offLine,
-      note: 'الكاش المصروف لا يأتي من الشيت — يبقى كما هو',
-      // ما لا يعرفه دفتر الرحلات: أرصدة الخزينة. تُدخَل يداً، ولا يُسكَت عنها.
-      manualInputs: ['نقد ضبا لكلّ مركب', 'صافي التحصيل في صفاجا'],
+      note: 'الخزينة تأتي من دفتر المركب — لا إدخال يدويّ',
+      manualInputs: [],
     };
     return out;
   }
