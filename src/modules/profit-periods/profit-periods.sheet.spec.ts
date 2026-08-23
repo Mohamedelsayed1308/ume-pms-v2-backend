@@ -38,7 +38,14 @@ const voyage = (o: Record<string, unknown>) => ({
   trE: 60000, trI: 40000, nTruck_E: 100, nTruck_I: 95,
   vhE: 1000, vhI: 2000, nVeh_E: 5, nVeh_I: 8,
   pxE: 500, pxI: 700, nPax_E: 50, nPax_I: 60,
-  man: 30000, net: 25000, cashDuba: 18000, cashSafaga: 7000,
+  /*
+   * والقالب **متّسقٌ مع نفسه** عمداً:
+   *   net       = الإيراد − العمولة − المصاريف  =  100000 − 5000 − 30000
+   *   ضبا+صفاجا = net + البنكر                  =  65000 + 20000
+   * فأيّ إنذارِ نزاهةٍ يقع إنّما يقع من قيمةٍ تُبدَّل في الاختبار نفسه، لا من
+   * قالبٍ معطوب. وقالبٌ لا يتّسق يُطلق إنذاراً في كل اختبارٍ فيُفقده معناه.
+   */
+  man: 30000, net: 65000, cashDuba: 78000, cashSafaga: 7000,
   ...o,
 });
 
@@ -176,11 +183,81 @@ describe('fetchFromUnifiedSheet — انتقاء الرحلات', () => {
       expect(r.nTruckI).toBe(95);
     });
 
+    it('يحمل كلّ صفٍّ فجوتَي النزاهة', async () => {
+      const out = await svc.fetchFromUnifiedSheet('2026-07-18', '2026-07-31', {
+        poseidon: { from: 69, to: 72 },
+      });
+      const r = out.poseidon.voyageRows[0];
+      expect(r).toHaveProperty('balanceGap');
+      expect(r).toHaveProperty('treasuryGap');
+    });
+
     it('لا تفصيل لمركبٍ خارج الفترة', async () => {
       const out = await svc.fetchFromUnifiedSheet('2026-07-18', '2026-07-31', {
         poseidon: { from: 69, to: 72 },
       });
       expect(out.daleela.voyageRows).toEqual([]);
+    });
+  });
+
+  /*
+   * حارسا النزاهة.
+   *
+   * الأوّل يكشف رصيداً لا يساوي بنوده — ثمانٍ وثلاثون رحلة في الدفاتر اليوم.
+   * والثاني يكشف صيغةً دِيست بقيمةٍ مكتوبة، وهو الأهمّ: الدفتر يحرّره موظّفون
+   * مختلفون يومياً، فعمود `CHECK` في الشيت لا يُوثَق به — من يلصق رقماً فوق
+   * صيغةٍ يُسكتها بلا أثر.
+   */
+  describe('حارسا النزاهة', () => {
+    const clean = [
+      voyage({ vessel: 'POSEIDON', line: 'ضبا/سفاجا', ref: 69, dateExp: '2026-07-19' }),
+    ];
+    // income 100000 − comm 5000 − man 30000 = 65000، والصفّ يقول net 25000
+    const badBalance = [
+      voyage({ vessel: 'POSEIDON', line: 'ضبا/سفاجا', ref: 70, dateExp: '2026-07-22',
+        income: 100000, comm: 5000, man: 30000, net: 25000,
+        cashDuba: 18000, cashSafaga: 7000, bnk: 0 }),
+    ];
+    // ضبا + صفاجا = 25000 لكن net + bnk = 45000 — صيغةٌ دِيست
+    const badTreasury = [
+      voyage({ vessel: 'POSEIDON', line: 'ضبا/سفاجا', ref: 71, dateExp: '2026-07-26',
+        income: 100000, comm: 5000, man: 30000, net: 65000, bnk: 0,
+        cashDuba: 18000, cashSafaga: 7000 }),
+    ];
+
+    const run = async (payloads: Record<string, unknown>[]) => {
+      mockedAxios.get.mockResolvedValue({ data: sheetOf(payloads) });
+      return svc.fetchFromUnifiedSheet('2026-07-18', '2026-07-31', undefined);
+    };
+
+    it('الدفتر المتّسق لا يُطلق إنذاراً', async () => {
+      const out = await run(clean);
+      expect(out.poseidon.balanceMismatch).toEqual([]);
+      expect(out.poseidon.treasuryMismatch).toEqual([]);
+    });
+
+    it('رصيدٌ يخالف بنوده يُعلَن برقم الرحلة ومقدار الفرق', async () => {
+      const out = await run(badBalance);
+      expect(out.poseidon.balanceMismatch).toHaveLength(1);
+      expect(out.poseidon.balanceMismatch[0].ref).toBe(70);
+      expect(out.poseidon.balanceMismatch[0].gap).toBe(-40000);
+      expect(out.poseidon.voyageRows[0].balanceGap).toBe(-40000);
+    });
+
+    it('صيغةُ خزينةٍ دِيست تُكشَف وإن كان الرصيد سليماً', async () => {
+      const out = await run(badTreasury);
+      expect(out.poseidon.balanceMismatch).toEqual([]);      // الرصيد متّسق
+      expect(out.poseidon.treasuryMismatch).toHaveLength(1);  // والخزينة لا
+      expect(out.poseidon.treasuryMismatch[0].gap).toBe(-40000);
+    });
+
+    it('رحلةٌ بلا خزينة لا تُعدّ مخالفةً — عمودٌ لم يُملأ بعد', async () => {
+      const out = await run([
+        voyage({ vessel: 'POSEIDON', line: 'ضبا/سفاجا', ref: 72, dateExp: '2026-07-29',
+          income: 100000, comm: 5000, man: 30000, net: 65000, bnk: 0,
+          cashDuba: 0, cashSafaga: 0 }),
+      ]);
+      expect(out.poseidon.treasuryMismatch).toEqual([]);
     });
   });
 });

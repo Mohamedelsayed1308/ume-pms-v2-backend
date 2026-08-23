@@ -25,7 +25,28 @@ export interface VoyageRow {
   nPaxE: number; nPaxI: number; pax: number;
   income: number; comm: number; man: number; net: number;
   cashDuba: number; cashSafaga: number; overPax: number;
+
+  /*
+   * ── حارسا النزاهة ──
+   *
+   * `balanceGap` = BALANCE − (الإيراد − العمولة − المصاريف)
+   *   رصيدٌ لا يساوي بنوده. ثمانٍ وثلاثون رحلة في الدفاتر تحمله اليوم، وأكبرها
+   *   بوسيدون ٧٨ بفارق ٣٤٠٬٧٦٠.٠٧ — خليّتا ميناءٍ فيها ٩٩٬٠٠٠ و٢٥٣٬٠٠٠ بينما
+   *   الرحلة التي تسبقها بيومين فيها ٤٬٥٠٠ و١١٬٥٠٠.
+   *
+   * `treasuryGap` = (نقد ضبا + تحصيل صفاجا) − (BALANCE + البنكر)
+   *   يكشف صيغةً دِيست بقيمةٍ مكتوبة. والدفتر يحرّره موظّفون مختلفون يومياً،
+   *   فلا يُوثَق بعمود `CHECK` فيه: من يلصق رقماً فوق صيغةٍ يُسكتها بلا أثر.
+   *   ولهذا يُعاد الفحص هنا لا يُقرأ من هناك.
+   *
+   * ويُخزَّنان مع اللقطة، فيبقى الكشف المحفوظ شاهداً على حال الدفتر يومئذٍ.
+   */
+  balanceGap: number;
+  treasuryGap: number;
 }
+
+/** ما دون هذا تدويرٌ. وأصغر مخالفةٍ حقيقيّة في الدفاتر ٤٥٧.٥٤ — فلا ضجيج بينهما. */
+export const INTEGRITY_TOLERANCE = 0.02;
 
 /**
  * التوزيع شراكةُ خطّ ضبا/سفاجا وحده.
@@ -120,6 +141,9 @@ export class ProfitPeriodsService {
       cashDuba: 0, cashSafaga: 0, offHire: 0, treasuryRows: 0,
       // تفصيل كلّ رحلة — يُخزَّن مع الفترة دليلاً على ما حُسب منه
       voyageRows: [] as VoyageRow[],
+      // رحلاتٌ لا يتّسق فيها الدفتر مع نفسه — تُعدّ وتُسمّى، ولا تُبتلع
+      balanceMismatch: [] as { ref: number | null; date: string; gap: number }[],
+      treasuryMismatch: [] as { ref: number | null; date: string; gap: number }[],
       refs: [] as number[], firstDate: null as string | null, lastDate: null as string | null,
       by: 'date' as 'date' | 'ref' });
     const out: any = { poseidon: blank(), amal: blank(), daleela: blank() };
@@ -198,6 +222,16 @@ export class ProfitPeriodsService {
 
       const r2 = (x: any) => Math.round((Number(x) || 0) * 100) / 100;
       const i0 = (x: any) => Math.round(Number(x) || 0);
+      const vIncome = r2(p.income), vComm = r2(p.comm), vMan = r2(p.man), vNet = r2(p.net);
+      const vBnk = r2(p.bnk);
+      const balanceGap = r2(vNet - (vIncome - vComm - vMan));
+      const treasuryGap = r2(cd + cs - (vNet + vBnk));
+      if (Math.abs(balanceGap) > INTEGRITY_TOLERANCE) {
+        out[key].balanceMismatch.push({ ref: Number(p.ref) || null, date: d, gap: balanceGap });
+      }
+      if ((cd || cs) && Math.abs(treasuryGap) > INTEGRITY_TOLERANCE) {
+        out[key].treasuryMismatch.push({ ref: Number(p.ref) || null, date: d, gap: treasuryGap });
+      }
       out[key].voyageRows.push({
         ref: isFinite(Number(p.ref)) ? Number(p.ref) : null,
         dateExp: String(p.dateExp || '').slice(0, 10),
@@ -208,8 +242,9 @@ export class ProfitPeriodsService {
         veh: r2((Number(p.vhE) || 0) + (Number(p.vhI) || 0)),
         nPaxE: i0(p.nPax_E), nPaxI: i0(p.nPax_I),
         pax: r2((Number(p.pxE) || 0) + (Number(p.pxI) || 0)),
-        income: r2(p.income), comm: r2(p.comm), man: r2(p.man), net: r2(p.net),
+        income: vIncome, comm: vComm, man: vMan, net: vNet,
         cashDuba: r2(cd), cashSafaga: r2(cs), overPax: r2(p.overPax),
+        balanceGap, treasuryGap,
       });
 
       out[key].voyages += 1;
