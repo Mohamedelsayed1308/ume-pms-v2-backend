@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { ProfitPeriod } from './profit-period.entity';
 import axios from 'axios';
 import * as XLSX from 'xlsx';
-import { calculateDistribution, daysBetween } from './profit-model';
+import { calculateDistribution, calculateProposed, daysBetween } from './profit-model';
 
 /**
  * تفصيل رحلةٍ واحدة كما يحمله دفتر المركب.
@@ -339,12 +339,31 @@ export class ProfitPeriodsService {
    * ويُعاد معها ناتج المعادلة السابقة تحت `legacy` — لا لأنّها صحيحة، بل
    * لأنّ فتراتٍ حُسبت بها وعُرضت على الشركاء، ومحوُ الرقم القديم يُخفي الفرق
    * بدل أن يُظهره. الفرق بينهما هو نفسه معلومةٌ تستحقّ العرض.
+   *
+   * و`proposed` هي **الطريقة المقترحة** — تبدأ من صافي الإيراد لا من النقد،
+   * ولا عمولة توكيل فيها. تُحسب بجوار المعتمدة ولا تحلّ محلّها، والغرض
+   * المقارنة. مدخلاتها هي مدخلات المعتمدة نفسها، فلا يفترقان في رقمٍ مقروء.
    */
+  /**
+   * صافي إيراد مركبٍ في الفترة — مجموع عمود «الصافي» في تفصيل الرحلات الملتقَط.
+   *
+   * ليس عموداً محفوظاً في الجدول، فلا هجرة له. واللقطة `voyage_detail` مخزَّنةٌ
+   * مع الفترة أصلاً وتحمل `net` لكلّ رحلة، فتُجمع منها. و`undefined` إن لم توجد
+   * لقطةٌ للمركب — والمحرّك يُعلن الطريقة «غير متاحة» ولا يحسبها بأصفار.
+   */
+  private netRevenueOf(p: ProfitPeriod, key: string): number | undefined {
+    const detail = p.voyage_detail as Record<string, unknown> | null | undefined;
+    const rows = detail && (detail as any)[key];
+    if (!Array.isArray(rows) || !rows.length) return undefined;
+    const sum = rows.reduce((a: number, r: any) => a + (Number(r?.net) || 0), 0);
+    return Math.round(sum * 100) / 100;
+  }
+
   calculate(p: ProfitPeriod) {
     const n = (v: any) => Number(v) || 0;
     const days = daysBetween(p.date_from, p.date_to);
 
-    const model = calculateDistribution({
+    const input = {
       days,
       commissionRate: n(p.commission_rate) || 6.5,
       // الرسم الثابت ٥٠٠ للرحلة في المستندات الثلاثة. وصفرُ المخزَّن يعني
@@ -363,6 +382,7 @@ export class ProfitPeriodsService {
           overPax: n(p.poseidon_over_pax),
           offHireSettlement: n(p.poseidon_off_hire),
           liquidity: n(p.poseidon_liquidity) || undefined,
+          netRevenue: this.netRevenueOf(p, 'poseidon'),
         },
         {
           key: 'amal', name: 'أمل',
@@ -376,6 +396,7 @@ export class ProfitPeriodsService {
           overPax: n(p.amal_over_pax),
           offHireSettlement: n(p.amal_off_hire),
           liquidity: n(p.amal_liquidity) || undefined,
+          netRevenue: this.netRevenueOf(p, 'amal'),
         },
         {
           key: 'daleela', name: 'دليلة',
@@ -389,9 +410,12 @@ export class ProfitPeriodsService {
           overPax: n(p.daleela_over_pax),
           offHireSettlement: n(p.daleela_off_hire),
           liquidity: n(p.daleela_liquidity) || undefined,
+          netRevenue: this.netRevenueOf(p, 'daleela'),
         },
       ],
-    });
+    };
+
+    const model = calculateDistribution(input);
 
     // تعديلٌ يدويّ بلا سببٍ مكتوب: يُحسَب ويُعلَن، ولا يمرّ صامتاً.
     const hasAdjust =
@@ -402,7 +426,7 @@ export class ProfitPeriodsService {
       model.warnings.push('تعديلٌ يدويّ بلا سببٍ مكتوب — سجّل السبب في «سبب التعديل»');
     }
 
-    return { ...model, legacy: this.calculateLegacy(p) };
+    return { ...model, proposed: calculateProposed(input), legacy: this.calculateLegacy(p) };
   }
 
   /**

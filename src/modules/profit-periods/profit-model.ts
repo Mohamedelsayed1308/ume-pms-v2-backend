@@ -87,6 +87,12 @@ export interface VesselInput {
   offHireSettlement?: number;
   /** سيولة الدفتر `liq` — اقتراحٌ لنقد ضبا، للمقارنة لا للحساب */
   liquidity?: number;
+  /**
+   * صافي الإيراد — `الإيراد − العمولة − المصاريف`، مجموع عمود «الصافي» في
+   * تفصيل الرحلات. لا تستعمله المعادلة المعتمدة، وعليه تقوم **الطريقة
+   * المقترحة** وحدها. و`undefined` تعني «لم تُلتقط» لا «صفر».
+   */
+  netRevenue?: number;
 }
 
 export interface ModelInput {
@@ -407,5 +413,144 @@ export function calculateDistribution(input: ModelInput): ModelResult {
     vessels,
     missing,
     warnings,
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * الطريقة المقترحة — تُحسب بجوار المعتمدة ولا تحلّ محلّها
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/** مركبٌ واحد في الطريقة المقترحة. */
+export interface ProposedVesselResult {
+  key: string;
+  name: string;
+  /** صافي الإيراد: الإيراد − العمولة − المصاريف */
+  netRevenue: number;
+  rent: number;
+  /** الصافي بعد الخصم = صافي الإيراد − الإيجار */
+  afterRent: number;
+  /** تحصيل صفاجا — يُطرح كاملاً، لا بفارق المتوسّط */
+  safaga: number;
+  overPaxShare: number;
+  /** الرصيد طرف البسّام */
+  balanceAtBassam: number;
+  /** البنكر — يُردّ لصاحبه كاملاً بلا قسمة */
+  fuel: number;
+  /** المستحقّ لحساب المركب */
+  total: number;
+}
+
+export interface ProposedResult {
+  /** تُحسب أو لا: تحتاج صافي إيراد كلّ شريكٍ فاعل */
+  available: boolean;
+  reason?: string;
+  partners: number;
+  /** مجموع «الصافي بعد الخصم» قبل القسمة */
+  totalAfterRent: number;
+  /** توزيع النسب = المجموع ÷ الشركاء */
+  pooled: number;
+  vessels: ProposedVesselResult[];
+  grandTotal: number;
+}
+
+/**
+ * الطريقة المقترحة — كما تحسبها ورقة الزميل.
+ *
+ * ── السلسلة ──
+ *   صافي الإيراد (الإيراد − العمولة − المصاريف)
+ *   − الإيجار                     ← لكلّ مركبٍ إيجاره
+ *   = الصافي بعد الخصم
+ *   ÷ الشركاء                     ← توزيع النسب: المجموع مناصفةً
+ *   − تحصيل صفاجا                 ← لكلّ مركبٍ تحصيله كاملاً
+ *   + حصّة Over Pax
+ *   = الرصيد طرف البسّام
+ *   + الإيجار                     ← يُردّ لصاحبه
+ *   + البنكر                      ← يُردّ لصاحبه
+ *   = المستحقّ لحساب المركب
+ *
+ * ── وأين تفترق عن المعتمدة ──
+ * **١ · تبدأ من الإيراد لا من النقد.** المعتمدة تقسم نقد ضبا الفعليّ؛ وهذه
+ * تقسم صافي الإيراد المشتقّ من الدفتر. فما بين الرقمين — فروق التحصيل
+ * والتوقيت — يظهر في النتيجة.
+ *
+ * **٢ · لا عمولة توكيل فيها.** المعتمدة تخصم `الأساس × ٦.٥٪ + ٥٠٠ × رحلة`
+ * مناصفةً وتردّ لكلٍّ عمولته؛ وهذه لا تذكرها. وهو الفرق الوحيد المرصود في
+ * فترة ٢٠ يونيو – ٣ يوليو: ٣٬٠٢٩.٣٣ تنتقل بين الشريكين.
+ *
+ * **٣ · صفاجا تُطرح كاملة لا بفارق المتوسّط.** والنتيجة واحدة رياضيّاً حين
+ * يكون الشركاء اثنين، لأنّ القسمة تسبق الطرح.
+ *
+ * **٤ · البنكر يُردّ بلا قسمة.** المعتمدة تخصم نصف المجموع ثمّ تردّ لكلٍّ وقوده؛
+ * وهذه تردّه وحسب. ولا يظهر أثر ذلك هنا لأنّ صافي الإيراد لا يطرح البنكر أصلاً.
+ *
+ * **٥ · لا تدوير إلى الدولار الصحيح.** المعتمدة تُنزل التوزيع وتُبقي الكسر
+ * رصيداً في ضبا؛ وهذه تُبقي الكسور.
+ *
+ * ── وما ثبت ──
+ * أُعيد إنتاج ورقة ٢٠ يونيو – ٣ يوليو ٢٠٢٦ بالسنت من مدخلاتها وحدها:
+ * أمل ٩٤٧٬٢٦٤.٠٣ وبوسيدون ٥٨٢٬٠٥٢.٧١.
+ *
+ * ── ولماذا قد لا تُحسب ──
+ * صافي الإيراد ليس عموداً محفوظاً، بل يُجمع من تفصيل الرحلات الملتقَط مع
+ * الفترة. ففترةٌ حُفظت قبل أن يوجد التفصيل لا صافي لها — وحسابها بأصفارٍ
+ * يُنتج رقماً يبدو سليماً وهو باطل. فتُعلَن «غير متاحة» ولا تُخمَّن.
+ */
+export function calculateProposed(input: ModelInput): ProposedResult {
+  const days = Math.max(0, n(input.days));
+  const active = (input.vessels || []).filter(isActive);
+  const partners = active.length;
+
+  const empty: ProposedResult = {
+    available: false, partners, totalAfterRent: 0, pooled: 0, vessels: [], grandTotal: 0,
+  };
+  if (!partners) return { ...empty, reason: 'لا شريكَ فاعلاً في هذه الفترة' };
+
+  const naked = active.filter((v) => v.netRevenue == null || !Number.isFinite(Number(v.netRevenue)));
+  if (naked.length) {
+    return {
+      ...empty,
+      reason:
+        `صافي الإيراد غير ملتقَط لـ ${naked.map((v) => v.name).join(' و')} — ` +
+        'يُجمع من تفصيل الرحلات، فأعد الجلب لتُحسب هذه الطريقة',
+    };
+  }
+
+  const { share: overPaxShare } = splitOverPax(active);
+
+  const per = active.map((v) => {
+    const netRevenue = n(v.netRevenue);
+    const rent = days * n(v.dailyRate);
+    return { v, netRevenue, rent, afterRent: netRevenue - rent };
+  });
+
+  const totalAfterRent = per.reduce((a, x) => a + x.afterRent, 0);
+  const pooled = totalAfterRent / partners;
+
+  const vessels: ProposedVesselResult[] = per.map((x) => {
+    const safaga = n(x.v.netCollected);
+    const opShare = overPaxShare[x.v.key] || 0;
+    const balanceAtBassam = pooled - safaga + opShare;
+    const fuel = n(x.v.fuel) + n(x.v.fuelAdjust);
+    return {
+      key: x.v.key,
+      name: x.v.name,
+      netRevenue: r2(x.netRevenue),
+      rent: r2(x.rent),
+      afterRent: r2(x.afterRent),
+      safaga: r2(safaga),
+      overPaxShare: r2(opShare),
+      balanceAtBassam: r2(balanceAtBassam),
+      fuel: r2(fuel),
+      total: r2(balanceAtBassam + x.rent + fuel),
+    };
+  });
+
+  return {
+    available: true,
+    partners,
+    totalAfterRent: r2(totalAfterRent),
+    pooled: r2(pooled),
+    vessels,
+    grandTotal: r2(vessels.reduce((a, v) => a + v.total, 0)),
   };
 }

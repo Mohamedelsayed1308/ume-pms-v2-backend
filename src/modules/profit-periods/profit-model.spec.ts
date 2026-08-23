@@ -12,7 +12,10 @@
  * وأساس العمولة والوقود في كلٍّ منها طوبق على تبويب DATA في الشيت الموحّد
  * فجاء `trE` و`bnk` مطابقَين بصفر فرق.
  */
-import { calculateDistribution, daysBetween, VesselInput } from './profit-model';
+import {
+  calculateDistribution, calculateProposed, daysBetween,
+  VesselInput, ProposedResult,
+} from './profit-model';
 
 const vessel = (o: Partial<VesselInput> & { key: string; name: string }): VesselInput => ({
   voyages: 0, sdBase: 0, sdAdjust: 0, fuel: 0, fuelAdjust: 0,
@@ -633,5 +636,116 @@ describe('profit-model — معادلة المستند المعتمد', () => {
         expect(Number.isFinite(v.fee)).toBe(true);
       }
     });
+  });
+});
+
+describe('الطريقة المقترحة — ورقة الزميل', () => {
+  const vessel = (o: Partial<VesselInput> & { key: string; name: string }): VesselInput => ({
+    voyages: 0, sdBase: 0, sdAdjust: 0, fuel: 0, fuelAdjust: 0,
+    cashDuba: 0, netCollected: 0, dailyRate: 0, ...o,
+  });
+  const near = (got: number, want: number, tol = 0.02) => {
+    expect(Math.abs(got - want)).toBeLessThanOrEqual(tol);
+  };
+
+  /*
+   * ورقة «الأسبوع الرابع من يونيو من يوليو الأوّل ٢٠٢٦»
+   * أمل ٥٧–٦١ · بوسيدون ٧٣–٧٧ · خمسة عشر يوماً
+   *
+   * أرقام الورقة منقولةٌ حرفياً، وصافيا الإيراد مطابقان لعمود «الصافي» في
+   * تفصيل الرحلات: بوسيدون ١٬١٠٦٬٣٤٨.٦٨ بالسنت.
+   */
+  const sheet = () => calculateProposed({
+    days: 15, commissionRate: 6.5, perVoyageFee: 500,
+    vessels: [
+      vessel({ key: 'amal', name: 'أمل', voyages: 5, dailyRate: 13000,
+        netRevenue: 476459.13, netCollected: 154460.00, fuel: 315841.35 }),
+      vessel({ key: 'poseidon', name: 'بوسيدون', voyages: 5, dailyRate: 14000,
+        netRevenue: 1106348.68, netCollected: 220809.35, overPax: 5936.93 }),
+    ],
+  });
+  const of = (r: ProposedResult, k: string) => r.vessels.find((v) => v.key === k)!;
+
+  it('الصافي بعد الخصم = صافي الإيراد − الإيجار', () => {
+    const r = sheet();
+    near(of(r, 'amal').afterRent, 281459.13);
+    near(of(r, 'poseidon').afterRent, 896348.68);
+  });
+
+  it('توزيع النسب = ٥٨٨٬٩٠٣.٩١ للاثنين', () => {
+    const r = sheet();
+    near(r.totalAfterRent, 1177807.81);
+    near(r.pooled, 588903.91);
+  });
+
+  it('حصّة Over Pax بالقاعدة الثابتة نفسها', () => {
+    const r = sheet();
+    near(of(r, 'poseidon').overPaxShare, 3958.15);   // ٦٦.٦٧٪ لبدوي
+    near(of(r, 'amal').overPaxShare, 1978.78);       // ٣٣.٣٣٪ للاتحاد
+  });
+
+  it('الرصيد طرف البسّام: أمل ٤٣٦٬٤٢٢.٦٩ · بوسيدون ٣٧٢٬٠٥٢.٧١', () => {
+    const r = sheet();
+    near(of(r, 'amal').balanceAtBassam, 436422.69);
+    near(of(r, 'poseidon').balanceAtBassam, 372052.71);
+  });
+
+  it('المستحقّ: أمل ٩٤٧٬٢٦٤.٠٣ · بوسيدون ٥٨٢٬٠٥٢.٧١', () => {
+    const r = sheet();
+    near(of(r, 'amal').total, 947264.03);
+    near(of(r, 'poseidon').total, 582052.71);
+    near(r.grandTotal, 1529316.74);
+  });
+
+  /*
+   * الفرق عن المعتمدة في هذه الفترة نفسها = عمولة التوكيل وحدها.
+   * المعتمدة تخصمها مناصفةً وتردّ لكلٍّ عمولته، وهذه لا تذكرها — فينتقل
+   * ٣٬٠٢٩.٣٣ بين الشريكين ولا يتغيّر المجموع إلا بكسرَي التدوير.
+   */
+  it('المجموعان يتقاربان، والفرق ينتقل بين الشريكين لا يضيع', () => {
+    const r = sheet();
+    const a = of(r, 'amal').total, p = of(r, 'poseidon').total;
+    near(a + p, r.grandTotal);
+    // المعتمدة على الفترة نفسها: ٩٤٤٬٢٣٤.٣٠ و٥٨٥٬٠٨١.٦٠
+    near(a - 944234.30, 3029.73, 0.02);
+    near(p - 585081.60, -3028.89, 0.02);
+    near((a - 944234.30) + (p - 585081.60), 0.84, 0.02);
+  });
+
+  it('البنكر يُردّ لصاحبه كاملاً بلا قسمة', () => {
+    const r = sheet();
+    expect(of(r, 'amal').fuel).toBe(315841.35);
+    expect(of(r, 'poseidon').fuel).toBe(0);
+    near(of(r, 'amal').total - of(r, 'amal').balanceAtBassam, 195000 + 315841.35);
+  });
+
+  /*
+   * صافي الإيراد ليس عموداً محفوظاً بل يُجمع من تفصيل الرحلات. وغيابه لا
+   * يُعوَّض بصفر: الصفر يُنتج رقماً يبدو سليماً وهو باطل.
+   */
+  it('غياب صافي الإيراد يُعلَن ولا يُحسب بأصفار', () => {
+    const r = calculateProposed({
+      days: 15, commissionRate: 6.5, perVoyageFee: 500,
+      vessels: [
+        vessel({ key: 'amal', name: 'أمل', voyages: 5, dailyRate: 13000, netRevenue: 476459.13 }),
+        vessel({ key: 'poseidon', name: 'بوسيدون', voyages: 5, dailyRate: 14000 }),
+      ],
+    });
+    expect(r.available).toBe(false);
+    expect(r.reason).toContain('بوسيدون');
+    expect(r.vessels).toHaveLength(0);
+  });
+
+  it('المركب الراسي لا يدخل القسمة', () => {
+    const r = calculateProposed({
+      days: 15, commissionRate: 6.5, perVoyageFee: 500,
+      vessels: [
+        vessel({ key: 'amal', name: 'أمل', voyages: 5, dailyRate: 13000, netRevenue: 400000 }),
+        vessel({ key: 'poseidon', name: 'بوسيدون', voyages: 5, dailyRate: 14000, netRevenue: 600000 }),
+        vessel({ key: 'daleela', name: 'دليلة', dailyRate: 12000 }),
+      ],
+    });
+    expect(r.available).toBe(true);
+    expect(r.partners).toBe(2);
   });
 });
