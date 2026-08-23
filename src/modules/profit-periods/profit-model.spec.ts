@@ -287,6 +287,166 @@ describe('profit-model — معادلة المستند المعتمد', () => {
    * والخاصّيّة التي تحرسه: **المجموع صفريّ**. ما تكسبه سفينةٌ من الشراكة تخسره
    * الأخرى بالضبط — فالشراكة تنقل ولا تخلق. وأيّ خللٍ في الاشتقاق يكسر ذلك.
    */
+  /*
+   * خمسة مستنداتٍ وصلت في ٢٢ أغسطس ٢٠٢٦، وكشفت خطأً في اتّجاه قسمة Over Pax.
+   *
+   * كان المحرّك يُعطي ما نشأ على أمل **كلّه** للاتحاد — بُني على مستندٍ واحد
+   * نشأ فيه Over Pax على بوسيدون وحده، فلم تُرَ الحالة المقابلة. والقاعدة:
+   * ٦٦.٦٧٪ لشريك المركب الذي نشأ عليه، و٣٣.٣٣٪ للآخر — والاتّجاه ينقلب معه.
+   *
+   * ولا تدخل القسمة إلا **حصّة ضبا** من Over Pax؛ ما حُصّل في صفاجا يبقى خارجها.
+   */
+  describe('مستنداتٌ تُثبت اتّجاه قسمة Over Pax', () => {
+    /** المشترك بين الفترات: لا عمولة في هذه المستندات، والوقود يُدخَل مباشرةً. */
+    const period = (o: {
+      days: number;
+      amal: { duba: number; coll: number; op?: number; fuel: number; voy: number };
+      pos: { duba: number; coll: number; op?: number; fuel: number; voy: number };
+      fee?: number;
+    }) => calculateDistribution({
+      days: o.days, commissionRate: 6.5, perVoyageFee: o.fee ?? 0,
+      vessels: [
+        vessel({ key: 'amal', name: 'أمل', voyages: o.amal.voy, dailyRate: 13000,
+          fuel: o.amal.fuel, cashDuba: o.amal.duba, netCollected: o.amal.coll,
+          overPax: o.amal.op ?? 0 }),
+        vessel({ key: 'poseidon', name: 'بوسيدون', voyages: o.pos.voy, dailyRate: 14000,
+          fuel: o.pos.fuel, cashDuba: o.pos.duba, netCollected: o.pos.coll,
+          overPax: o.pos.op ?? 0 }),
+      ],
+    });
+    const of = (r: ReturnType<typeof calculateDistribution>, k: string) =>
+      r.vessels.find((v) => v.key === k)!;
+
+    /*
+     * ٣١ يناير – ١٣ فبراير ٢٠٢٦
+     * «MV Amal Voy.#02 … ١٤٨ راكباً … ١٨٬٦٣٧.٨٩ تُقسم ٦٦.٦٧٪ للاتحاد و٣٣.٣٣٪ لبدوي»
+     * وهي الحالة التي كشفت الخطأ: Over Pax نشأ على **أمل**.
+     */
+    it('٣١ يناير – ١٣ فبراير · Over Pax على أمل', () => {
+      const r = period({
+        days: 14,
+        amal: { duba: 154873.84, coll: 0, op: 18637.88, fuel: 0, voy: 2 },
+        pos: { duba: 392683.89, coll: -41089.79, fuel: 136085.62, voy: 6 },
+      });
+      const a = of(r, 'amal'), p = of(r, 'poseidon');
+      near(a.overPaxShare, 12425.87, 0.02);   // ٦٦.٦٧٪ للاتحاد
+      near(p.overPaxShare, 6212.01, 0.02);    // ٣٣.٣٣٪ لبدوي
+      near(a.adjustedProfit, 286204.74, 0.02);
+      near(p.adjustedProfit, 279990.87, 0.02);
+      near(r.fuelShare, 68042.81);
+      near(a.safagaAdjust, -20544.90);
+      expect(a.dividendPayable).toBe(8617);
+      expect(p.dividendPayable).toBe(43492);
+      near(a.remainingAtDuba, 0.03, 0.02);
+      near(p.remainingAtDuba, 0.96, 0.02);
+    });
+
+    /*
+     * ١٤ – ٢٧ فبراير ٢٠٢٦ — الفترة الوحيدة التي نشأ فيها Over Pax على المركبين معاً.
+     * أمل ٣ و٥ → ٣٣٬٠٥٠.٨٣ · بوسيدون ١٦ → ٦٬٣٨٩.٥١ ومنه ٤٬٩٨١.٠٥ في صفاجا،
+     * فالداخل من بوسيدون ١٬٤٠٨.٤٦ وحدها.
+     */
+    it('١٤ – ٢٧ فبراير · Over Pax على المركبين، والاتّجاهان معاً', () => {
+      const r = period({
+        days: 14,
+        amal: { duba: 284041.05, coll: 0, op: 33050.83, fuel: 0, voy: 3 },
+        pos: { duba: 656127.70, coll: -51966.21, op: 1408.46, fuel: 136872.23, voy: 7 },
+      });
+      const a = of(r, 'amal'), p = of(r, 'poseidon');
+      // أمل: ٦٦.٦٧٪ من ٣٣٬٠٥٠.٨٣ + ٣٣.٣٣٪ من ١٬٤٠٨.٤٦
+      near(a.overPaxShare, 22504.27, 0.35);
+      near(p.overPaxShare, 11954.56, 0.35);
+      near(a.adjustedProfit, 492588.65, 0.35);
+      near(p.adjustedProfit, 482038.93, 0.35);
+      /*
+       * وتسوية صفاجا هنا لا تُطابق: المستند ‎(٢٤٬٣٢٢.٩٢)‎ والمحرّك ‎(٢٥٬٩٨٣.١١)‎.
+       * والفرق ١٬٦٦٠.١٨ = ٣٣.٣٣٪ من ٤٬٩٨١.٠٥، وهي حصّة Over Pax **المحصَّلة في
+       * صفاجا**. فالمستند يُدخلها في جانب صفاجا لا في وعاء ضبا.
+       *
+       * ولم تُنمذَج: نقطتا بيانٍ لا تكفيان لقاعدة، والمستند يحسبها لأمل ويعكسها
+       * لبوسيدون بدل أن يشتقّها لكلٍّ — فصيغةٌ عامّة منهما تخمين.
+       */
+      near(a.safagaAdjust + 1660.18, -24322.92, 0.35);
+    });
+
+    /*
+     * ٢٨ فبراير – ١٣ مارس ٢٠٢٦ · أمل ٦ و٧ و٨ → ٤٦٬٣٣٩.٧٨ كلّه في ضبا.
+     * تُطابق بالسنت — ولا شيء فيها يحتاج تسامحاً.
+     */
+    it('٢٨ فبراير – ١٣ مارس · بالسنت', () => {
+      const r = period({
+        days: 14,
+        amal: { duba: 342146.37, coll: 0, op: 46339.78, fuel: 0, voy: 4 },
+        pos: { duba: 512367.37, coll: -19534.05, fuel: 102682.63, voy: 6 },
+      });
+      const a = of(r, 'amal'), p = of(r, 'poseidon');
+      near(a.overPaxShare, 30894.73, 0.02);
+      near(p.overPaxShare, 15445.05, 0.02);
+      near(a.adjustedProfit, 458151.60, 0.02);
+      near(p.adjustedProfit, 442701.92, 0.02);
+      near(r.fuelShare, 51341.32);
+      expect(a.dividendPayable).toBe(208043);
+      expect(p.dividendPayable).toBe(212127);
+      near(a.remainingAtDuba, 0.26, 0.02);
+      near(p.remainingAtDuba, 0.63, 0.02);
+    });
+
+    /*
+     * ٢٠ يونيو – ٣ يوليو ٢٠٢٦ · بوسيدون ٦٣ و٦٤ → ١٧٬٧١١.٧٦، منه ١٦٬٤٨٥.٣٤ في
+     * ضبا. وهذه الفترة عجز عنها المحرّك قبل أن تصل أرقام ضبا الدقيقة.
+     */
+    it('٢٠ يونيو – ٣ يوليو · وحصّة ضبا وحدها تدخل', () => {
+      /*
+       * ووقود أمل هنا **بنكر الدفتر كاملاً** ٣٠٥٬٢١٤.١٦، لا ١٢٥٬٦٥٨.٠٥ التي
+       * يعرضها سطر `Fuel Supply` في المستند. والدليل حصّة الوقود نفسها:
+       * ٢٢١٬١٢٢.٣٢ × ٢ = ٤٤٢٬٢٤٤.٦٤ = ٣٠٥٬٢١٤.١٦ + ١٣٧٬٠٣٠.٤٧.
+       *
+       * فسطر العرض في المستند ليس أساس القسمة دائماً — والأساس هو البنكر.
+       */
+      const r = period({
+        days: 14, fee: 500,
+        amal: { duba: 630303.15, coll: 119336.32, fuel: 305214.16, voy: 5 },
+        pos: { duba: 876600.95, coll: 85097.59, op: 16485.34, fuel: 137030.47, voy: 5 },
+      });
+      const a = of(r, 'amal'), p = of(r, 'poseidon');
+      near(a.overPaxShare, 5494.56, 0.02);
+      near(p.overPaxShare, 10990.78, 0.02);
+      near(a.adjustedProfit, 758946.61, 0.02);
+      near(p.adjustedProfit, 764442.83, 0.02);
+      near(r.fuelShare, 221122.32, 0.02);
+      // والفرق ٤٠٨.٧٧ = ٣٣.٣٣٪ من ١٬٢٢٦.٤٢ المحصَّلة في صفاجا — كفبراير سواءً
+      near(a.safagaAdjust + 408.77, -16710.60, 0.02);
+    });
+
+    /*
+     * ٩ – ٢٩ مايو ٢٠٢٦ · إحدى وعشرون يوماً بلا Over Pax — تُثبت أنّ عدد الأيّام
+     * ليس أربعة عشر دائماً، وأنّ الإيجار والعمولة يتبعانه.
+     */
+    it('٩ – ٢٩ مايو · ٢١ يوماً وبلا Over Pax', () => {
+      const r = calculateDistribution({
+        days: 21, commissionRate: 6.5, perVoyageFee: 500,
+        vessels: [
+          vessel({ key: 'amal', name: 'أمل', voyages: 6, dailyRate: 13000,
+            sdBase: 0, fuel: 141907.44, cashDuba: 724856.02, netCollected: 81237.23 }),
+          vessel({ key: 'poseidon', name: 'بوسيدون', voyages: 7, dailyRate: 14000,
+            sdBase: 1193833.00, fuel: 452484.90, cashDuba: 1142806.87, netCollected: 104176.24 }),
+        ],
+      });
+      const a = of(r, 'amal'), p = of(r, 'poseidon');
+      near(r.totalCashDuba, 1867662.89);
+      near(a.adjustedProfit, 933831.45, 0.02);
+      near(p.adjustedProfit, 933831.45, 0.02);
+      near(a.rent, 273000);
+      near(p.rent, 294000);
+      near(r.rentShare, 283500);
+      near(r.fuelShare, 297196.17);
+      near(r.feeShare, 42049.57, 0.02);   // ١٬١٩٣٬٨٣٣ × ٦.٥٪ + ١٣ × ٥٠٠ ÷ ٢
+      near(a.safagaAdjust, 11469.51, 0.02);
+      near(a.dividendPayable, 322554.33, 1.0);
+      near(p.dividendPayable, 299615.53, 1.0);
+    });
+  });
+
   describe('أثر الشراكة — منفرداً مقابل شراكةً', () => {
     const result = calculateDistribution({
       days: 14, commissionRate: 6.5, perVoyageFee: 500,
