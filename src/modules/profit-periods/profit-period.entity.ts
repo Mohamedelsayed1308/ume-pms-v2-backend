@@ -39,6 +39,39 @@ export class ProfitPeriod {
   @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 }) amal_over_pax_safaga: number;
   @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 }) daleela_over_pax_safaga: number;
 
+  /*
+   * `Fuel Supply` — يُضاف إلى التحويل البنكيّ لسداد مورّد الوقود.
+   *
+   * غير بنكر الدفتر: في ١–١٥ أغسطس بنكر أمل ٣١٥٬٨٤١.٣٥ يُخصم مناصفةً و`Fuel
+   * Supply` صفر؛ وفي ٢٠ يونيو – ٣ يوليو بنكره ٣٠٥٬٢١٤.١٦ والمُسدَّد ١٢٥٬٦٥٨.٠٥
+   * — جزءٌ منه لا كلّه. وكلاهما يُدخَل يداً بقرار المالك.
+   *
+   * الهجرة: docs/profit-ratification-up.sql
+   */
+  @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 }) poseidon_fuel_supply: number;
+  @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 }) amal_fuel_supply: number;
+  @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 }) daleela_fuel_supply: number;
+
+  /*
+   * المصادقة — تجميد الرقم الذي يُحوَّل إلى البنك.
+   *
+   * واللقطة تحفظ المدخلات والمخرجات معاً: المدخلات ليُقارَن بها ما يُسحب
+   * لاحقاً، والمخرجات لأنّها الرقم الذي صدر ولا يجوز أن يتغيّر بعد اليوم.
+   */
+  @Column({ type: 'timestamptz', nullable: true }) ratified_at: Date | null;
+  @Column({ type: 'varchar', length: 200, nullable: true }) ratified_by: string | null;
+  @Column({ type: 'jsonb', nullable: true }) ratified_snapshot: unknown;
+
+  /*
+   * آخر سحبٍ بعد المصادقة — يستقرّ هنا ولا يدهس المُجمَّد.
+   *
+   * الفترة تُقفل بالمصادقة، فلا يكتب فيها جلبٌ ولا حفظ. والسحب الجديد يحتاج
+   * مكاناً يُقارَن منه — ولولاه لضاع المسحوب أو دَهَس المُصادَق، وكلاهما
+   * يُفسد المصادقة.
+   */
+  @Column({ type: 'jsonb', nullable: true }) latest_snapshot: unknown;
+  @Column({ type: 'timestamptz', nullable: true }) latest_fetched_at: Date | null;
+
   // ── بنكر (مجلوب من الشيت) ─────────────────────────────────────────────
   @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 }) bunker_badawi: number;
   @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 }) bunker_ittihad: number;

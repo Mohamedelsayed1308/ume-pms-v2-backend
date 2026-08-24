@@ -1,14 +1,31 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, HttpException, UseGuards } from '@nestjs/common';
+import {
+  Controller, Get, Post, Put, Delete, Body, Param, Query, Req,
+  HttpException, UseGuards,
+} from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/jwt-auth.guard';
 import { ScreenGuard } from '../../common/screen.guard';
 import { RequireScreen } from '../../common/require-screen.decorator';
 import { ProfitPeriodsService } from './profit-periods.service';
+import { ProfitRatificationService } from './profit-ratification.service';
 
 @Controller('api/profit-periods')
 @UseGuards(JwtAuthGuard, ScreenGuard)
 @RequireScreen('/dashboard/profit-distribution')
 export class ProfitPeriodsController {
-  constructor(private svc: ProfitPeriodsService) {}
+  constructor(
+    private svc: ProfitPeriodsService,
+    private ratify: ProfitRatificationService,
+  ) {}
+
+  private who(req: any): string {
+    return String(req?.user?.username || req?.user?.email || req?.user?.id || '');
+  }
+
+  private async needPeriod(id: string) {
+    const p = await this.svc.findOne(id);
+    if (!p) throw new HttpException('الفترة غير موجودة', 404);
+    return p;
+  }
 
   @Get()
   findAll() { return this.svc.findAll(); }
@@ -29,6 +46,49 @@ export class ProfitPeriodsController {
 
   @Delete(':id')
   remove(@Param('id') id: string) { return this.svc.remove(id); }
+
+  /*
+   * ── المصادقة والرصيد التراكميّ ─────────────────────────────────────────
+   *
+   * المُصادَق عليه هو **الرقم الذي يُحوَّل إلى البنك**. فبعدها تُقفل الفترة:
+   * لا يكتب فيها حفظٌ ولا جلب، والسحب الجديد يستقرّ في لقطةٍ ثانية ويُقارَن.
+   */
+
+  /** دفتر الفروق كاملاً — ومعه الرصيد الجاري للشريكين. */
+  @Get('settlements/statement')
+  statement() { return this.ratify.statement(); }
+
+  @Post(':id/ratify')
+  async doRatify(@Param('id') id: string, @Req() req: any) {
+    const period = await this.needPeriod(id);
+    const result = this.svc.calculate(period);
+    return this.ratify.ratify(period, result, this.who(req));
+  }
+
+  @Post(':id/unratify')
+  async doUnratify(@Param('id') id: string, @Body() body: { reason?: string }, @Req() req: any) {
+    const period = await this.needPeriod(id);
+    return this.ratify.unratify(period, String(body?.reason || ''), this.who(req));
+  }
+
+  /**
+   * يُسجّل سحباً جديداً على فترةٍ مُصادَقة ويقيّد الفرق.
+   *
+   * والمدخلات تأتي من الشاشة لأنّ مدى الرحلات اختيارُ مستخدمٍ لا يُخزَّن —
+   * لكنّ **الحساب يجري هنا** بالمحرّك نفسه، فلا يُقيَّد رقمٌ حسبه العميل.
+   */
+  @Post(':id/record-latest')
+  async recordLatest(
+    @Param('id') id: string,
+    @Body() body: { fields?: any; fetchedAt?: string },
+    @Req() req: any,
+  ) {
+    const period = await this.needPeriod(id);
+    if (!body?.fields) throw new HttpException('لا مدخلاتٍ للمقارنة', 400);
+    const probe = { ...period, ...body.fields, id: period.id } as any;
+    const latest = this.svc.calculate(probe);
+    return this.ratify.recordLatest(period, latest, this.who(req), body.fetchedAt);
+  }
 
   @Get(':id/calculate')
   async calculate(@Param('id') id: string) {

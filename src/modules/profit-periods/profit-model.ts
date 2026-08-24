@@ -106,6 +106,22 @@ export interface VesselInput {
    * بالتخمين يُغيّر توزيعاً حقيقياً بناءً على ظنّ.
    */
   offHireSettlement?: number;
+  /**
+   * `Fuel Supply` — يُضاف إلى **التحويل البنكيّ** لسداد مورّد الوقود.
+   *
+   * وهو **غير بنكر الدفتر**، وأربعة مستنداتٍ تُثبت ذلك:
+   *
+   *   مارس ١٤–٢٧       للمركبين بنكر  ·  Fuel Supply = ٠.٠٠
+   *   يونيو ٢٠–٣ يوليو  بنكر أمل ٣٠٥٬٢١٤.١٦  ·  Fuel Supply ١٢٥٬٦٥٨.٠٥
+   *   يوليو ١٨–٣١       بنكر أمل ١١٤٬٠٦٠.٨٤  ·  Fuel Supply ١١٤٬٠٦٠.٨٤
+   *   أغسطس ١–١٥       بنكر أمل ٣١٥٬٨٤١.٣٥  ·  Fuel Supply = ٠.٠٠
+   *
+   * فيونيو حاسمة: المُسدَّد **جزءٌ** من البنكر لا كلّه. ولهذا لا يُشتقّ أحدهما
+   * من الآخر، وكلاهما يُدخَل يداً بقرار المالك.
+   *
+   * والبنكر يُخصم مناصفةً في التوزيع، وهذا يُضاف كاملاً لصاحبه في التحويل.
+   */
+  fuelSupply?: number;
   /** سيولة الدفتر `liq` — اقتراحٌ لنقد ضبا، للمقارنة لا للحساب */
   liquidity?: number;
   /**
@@ -167,6 +183,24 @@ export interface VesselResult {
   remainingAtDuba: number;
   /** المستحقّ لحساب المركب = التوزيع + إيجاره ووقوده وعمولته الفعليّة */
   dueToAccount: number;
+  /** `Fuel Supply` كما أُدخل */
+  fuelSupply: number;
+  /**
+   * **الرقم الذي يُحوَّل إلى الحساب البنكيّ** — وهو ما يُصادَق عليه.
+   *
+   *   التحويل = التوزيع + إيجاره + **حصّة** العمولة + Fuel Supply
+   *
+   * وينفرد عن `dueToAccount` في أمرين، والمستند يقطع بهما:
+   *
+   *   ١ · يُردّ **حصّة** العمولة (مكرَّرةً في العمودين) لا عمولة المركب نفسه.
+   *       والمستندات الأربعة تكتب الرقم نفسه للطرفين — فهي الحصّة قطعاً.
+   *   ٢ · لا يُردّ البنكر، بل `Fuel Supply` وحده.
+   *
+   * وطوبق على مستند ١–١٥ أغسطس ٢٠٢٦ بالسنت للطرفين:
+   *   أمل      ٣٩٨٬١٨٢.٧٢ + ١٩٥٬٠٠٠ + ٣٨٬٢٣٩.٢٨ + ٠ = ٦٣١٬٤٢٢.٠٠
+   *   بوسيدون  ٣٢٨٬٨٥٧.٧٣ + ٢١٠٬٠٠٠ + ٣٨٬٢٣٩.٢٨ + ٠ = ٥٧٧٬٠٩٧.٠١
+   */
+  transferToAccount: number;
 
   /*
    * ── أثر الشراكة ──
@@ -209,6 +243,14 @@ export interface ModelResult {
   totalFee: number;
   totalRevenue: number;
   avgNetCollected: number;
+  totalFuelSupply: number;
+  /**
+   * التحويل مجموعاً لكلّ شريك — وهو وعاء الرصيد التراكميّ.
+   *
+   * `badawi` هو UME وبوسيدون. و`ittihad` أمل ودليلة. والمال يستقرّ عند
+   * الشريك لا عند المركب، فالمصادقة والفرق يُمسكان به.
+   */
+  partnerTransfer: { badawi: number; ittihad: number };
   vessels: VesselResult[];
   /** مدخلاتٌ ناقصة تمنع الاعتماد على النتيجة */
   missing: string[];
@@ -389,6 +431,7 @@ export function calculateDistribution(input: ModelInput): ModelResult {
   const totalFuel = r2(sum((x) => x.fuel));
   const totalFee = r2(sum((x) => x.fee));
   const totalRevenue = r2(sum((x) => n(x.v.revenue)));
+  const totalFuelSupply = r2(sum((x) => n(x.v.fuelSupply)));
   const totalColl = sum((x) => n(x.v.netCollected));
 
   const div = partners || 1;
@@ -481,6 +524,8 @@ export function calculateDistribution(input: ModelInput): ModelResult {
       deductedFromDuba: r2(deductedFromDuba),
       remainingAtDuba: r2(remainingAtDuba),
       dueToAccount: r2(dividendPayable + x.rent + x.fuel + x.fee),
+      fuelSupply: r2(n(x.v.fuelSupply)),
+      transferToAccount: r2(dividendPayable + x.rent + feeShare + n(x.v.fuelSupply)),
       standalone: r2(standalone),
       partnered: r2(partnered),
       partnershipGain: r2(partnered - standalone),
@@ -502,6 +547,13 @@ export function calculateDistribution(input: ModelInput): ModelResult {
     totalFuel,
     totalFee,
     totalRevenue,
+    totalFuelSupply,
+    partnerTransfer: {
+      badawi: r2(vessels.filter((v) => v.key === 'poseidon')
+        .reduce((a, v) => a + v.transferToAccount, 0)),
+      ittihad: r2(vessels.filter((v) => v.key !== 'poseidon')
+        .reduce((a, v) => a + v.transferToAccount, 0)),
+    },
     avgNetCollected: r2(avgNetCollected),
     vessels,
     missing,

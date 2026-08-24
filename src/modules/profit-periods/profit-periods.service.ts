@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ProfitPeriod } from './profit-period.entity';
@@ -25,6 +25,16 @@ export interface VoyageRow {
   nPaxE: number; nPaxI: number; pax: number;
   income: number; comm: number; man: number; net: number;
   cashDuba: number; cashSafaga: number; overPax: number;
+  /**
+   * رسوم ميناء مصر — `EGY - PORT EXP.` في الدفتر (الحقل `pg`).
+   *
+   * **وهو البند التقديريّ.** يُكتب ١١٬٥٠٠ في كلّ رحلة حتّى تصل الفاتورة، ثمّ
+   * يُستبدل بالفعليّ. فيُلتقط مع اللقطة ليُعرف — حين يتغيّر التوزيع بعد
+   * المصادقة — أفي بندٍ تقديريٍّ كان الفرق أم في بندٍ نهائيّ.
+   *
+   * ورسوم ميناء السعوديّة `pk` تختلف من رحلةٍ لأخرى لأنّها واقعة، فلا تُلتقط.
+   */
+  egyPort: number;
 
   /*
    * ── حارسا النزاهة ──
@@ -75,7 +85,27 @@ export class ProfitPeriodsService {
     return this.repo.save(period);
   }
 
+  /**
+   * التعديل — ويمتنع على فترةٍ مُصادَقٍ عليها.
+   *
+   * المصادقة تُجمّد الرقم الذي يُحوَّل إلى البنك. فالكتابة فوقها تُغيّر رقماً
+   * صدر وتُلغي معنى التجميد، ولا يظهر ذلك في أيّ مكان. والطريق إلى التعديل
+   * فكُّ المصادقة بسببٍ مكتوب — فيبقى الأثر.
+   *
+   * ويُستثنى حقلا اللقطة الحديثة: يكتبهما النظام لا المستخدم، ولا يمسّان
+   * المُجمَّد بل يستقرّان بجواره ليُقارَن.
+   */
   async update(id: string, data: any) {
+    const cur = await this.findOne(id);
+    if (cur?.ratified_at) {
+      const allowed = new Set(['latest_snapshot', 'latest_fetched_at']);
+      const touched = Object.keys(data || {}).filter((k) => !allowed.has(k));
+      if (touched.length) {
+        throw new BadRequestException(
+          'الفترة مُصادَقٌ عليها ومُقفلة — فُكَّ المصادقة بسببٍ مكتوب قبل التعديل',
+        );
+      }
+    }
     await this.repo.update(id, data);
     return this.findOne(id);
   }
@@ -244,6 +274,7 @@ export class ProfitPeriodsService {
         pax: r2((Number(p.pxE) || 0) + (Number(p.pxI) || 0)),
         income: vIncome, comm: vComm, man: vMan, net: vNet,
         cashDuba: r2(cd), cashSafaga: r2(cs), overPax: r2(p.overPax),
+        egyPort: r2(Number(p.pg) || 0),
         balanceGap, treasuryGap,
       });
 
@@ -381,6 +412,7 @@ export class ProfitPeriodsService {
           revenue: n(p.poseidon_revenue),
           overPax: n(p.poseidon_over_pax),
           overPaxSafaga: n(p.poseidon_over_pax_safaga),
+          fuelSupply: n(p.poseidon_fuel_supply),
           offHireSettlement: n(p.poseidon_off_hire),
           liquidity: n(p.poseidon_liquidity) || undefined,
           netRevenue: this.netRevenueOf(p, 'poseidon'),
@@ -396,6 +428,7 @@ export class ProfitPeriodsService {
           revenue: n(p.amal_revenue),
           overPax: n(p.amal_over_pax),
           overPaxSafaga: n(p.amal_over_pax_safaga),
+          fuelSupply: n(p.amal_fuel_supply),
           offHireSettlement: n(p.amal_off_hire),
           liquidity: n(p.amal_liquidity) || undefined,
           netRevenue: this.netRevenueOf(p, 'amal'),
@@ -411,6 +444,7 @@ export class ProfitPeriodsService {
           revenue: n(p.daleela_revenue),
           overPax: n(p.daleela_over_pax),
           overPaxSafaga: n(p.daleela_over_pax_safaga),
+          fuelSupply: n(p.daleela_fuel_supply),
           offHireSettlement: n(p.daleela_off_hire),
           liquidity: n(p.daleela_liquidity) || undefined,
           netRevenue: this.netRevenueOf(p, 'daleela'),

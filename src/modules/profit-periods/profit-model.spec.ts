@@ -307,7 +307,7 @@ describe('profit-model — معادلة المستند المعتمد', () => {
     /** المشترك بين الفترات: لا عمولة في هذه المستندات، والوقود يُدخَل مباشرةً. */
     type Side = {
       duba: number; coll: number; op?: number; opSaf?: number;
-      fuel: number; voy: number; sd?: number;
+      fuel: number; voy: number; sd?: number; fs?: number;
     };
     const period = (o: { days: number; amal: Side; pos: Side; fee?: number }) =>
       calculateDistribution({
@@ -316,11 +316,13 @@ describe('profit-model — معادلة المستند المعتمد', () => {
           vessel({ key: 'amal', name: 'أمل', voyages: o.amal.voy, dailyRate: 13000,
             sdBase: o.amal.sd ?? 0,
             fuel: o.amal.fuel, cashDuba: o.amal.duba, netCollected: o.amal.coll,
-            overPax: o.amal.op ?? 0, overPaxSafaga: o.amal.opSaf ?? 0 }),
+            overPax: o.amal.op ?? 0, overPaxSafaga: o.amal.opSaf ?? 0,
+            fuelSupply: o.amal.fs ?? 0 }),
           vessel({ key: 'poseidon', name: 'بوسيدون', voyages: o.pos.voy, dailyRate: 14000,
             sdBase: o.pos.sd ?? 0,
             fuel: o.pos.fuel, cashDuba: o.pos.duba, netCollected: o.pos.coll,
-            overPax: o.pos.op ?? 0, overPaxSafaga: o.pos.opSaf ?? 0 }),
+            overPax: o.pos.op ?? 0, overPaxSafaga: o.pos.opSaf ?? 0,
+            fuelSupply: o.pos.fs ?? 0 }),
         ],
       });
     const of = (r: ReturnType<typeof calculateDistribution>, k: string) =>
@@ -498,6 +500,55 @@ describe('profit-model — معادلة المستند المعتمد', () => {
     });
 
     /*
+     * سطر التحويل البنكيّ — وهو ما يُصادَق عليه ويُجمَّد.
+     *
+     * المستند يبنيه: التوزيع + إيجاره + **حصّة** العمولة + Fuel Supply.
+     * وحصّة العمولة مكرَّرةٌ في العمودين في المستندات الأربعة، فهي الحصّة
+     * قطعاً لا عمولة المركب.
+     *
+     * وسطر `Fuel Supply` صفرٌ في هذه الفترة رغم أنّ بنكر أمل ٣١٥٬٨٤١.٣٥
+     * يُخصم مناصفةً — وهو الدليل على أنّهما بندان لا واحد.
+     */
+    it('١ – ١٥ أغسطس · التحويل البنكيّ كما يكتبه المستند', () => {
+      const r = period({
+        days: 15, fee: 500,
+        amal: { duba: 637840.48, coll: 154460.00, fuel: 315841.35, voy: 5, sd: 503230, fs: 0 },
+        pos: { duba: 885539.33, coll: 220809.35, op: 981.33, opSaf: 4955.60,
+          fuel: 0, voy: 5, sd: 596440, fs: 0 },
+      });
+      const a = of(r, 'amal'), p = of(r, 'poseidon');
+
+      /*
+       * والتسامح دون الدولار لا لضعفٍ في المعادلة بل لاختلاف تدوير:
+       * محرّكنا يُنزل التوزيع إلى الدولار الصحيح ويُبقي كسره رصيداً، وهذا
+       * المستند يُبقي السنتات ويكتب رصيداً آخر (٠.٦٩ و٠.١١). فالفرق كسرٌ
+       * في سطر التوزيع ينتقل كما هو إلى التحويل.
+       */
+      near(a.transferToAccount, 631422.00, 0.8);   // Amount to be transferred
+      near(p.transferToAccount, 577097.01, 0.8);
+      near(r.partnerTransfer.ittihad, 631422.00, 0.8);
+      near(r.partnerTransfer.badawi, 577097.01, 0.8);
+
+      // ولا يُردّ البنكر في التحويل — بخلاف «المستحقّ لحساب المركب»
+      near(a.dueToAccount - a.transferToAccount, 315841.35 - 3029.33, 0.35);
+    });
+
+    it('Fuel Supply يُضاف للتحويل ولا يمسّ التوزيع', () => {
+      const base = {
+        days: 15, fee: 500,
+        amal: { duba: 637840.48, coll: 154460.00, fuel: 315841.35, voy: 5, sd: 503230 },
+        pos: { duba: 885539.33, coll: 220809.35, op: 981.33, opSaf: 4955.60,
+          fuel: 0, voy: 5, sd: 596440 },
+      };
+      const without = period(base);
+      const withFs = period({ ...base, amal: { ...base.amal, fs: 125658.05 } });
+      const a0 = of(without, 'amal'), a1 = of(withFs, 'amal');
+      expect(a1.dividendPayable).toBe(a0.dividendPayable);      // التوزيع لا يتغيّر
+      near(a1.transferToAccount - a0.transferToAccount, 125658.05, 0.02);
+      near(withFs.totalFuelSupply, 125658.05);
+    });
+
+    /*
      * ٩ – ٢٩ مايو ٢٠٢٦ · إحدى وعشرون يوماً بلا Over Pax — تُثبت أنّ عدد الأيّام
      * ليس أربعة عشر دائماً، وأنّ الإيجار والعمولة يتبعانه.
      */
@@ -571,6 +622,20 @@ describe('profit-model — معادلة المستند المعتمد', () => {
       });
       expect(solo.partners).toBe(1);
       near(solo.vessels[0].partnershipGain, 0, 0.02);
+    });
+
+    it('التحويل يُجمَع للشريكين: دليلة مع الاتحاد لا مع بدوي', () => {
+      const r = calculateDistribution({
+        days: 14, commissionRate: 6.5, perVoyageFee: 500,
+        vessels: [
+          vessel({ key: 'amal', name: 'أمل', voyages: 3, dailyRate: 13000, cashDuba: 200000 }),
+          vessel({ key: 'poseidon', name: 'بوسيدون', voyages: 3, dailyRate: 14000, cashDuba: 300000 }),
+          vessel({ key: 'daleela', name: 'دليلة', voyages: 2, dailyRate: 9000, cashDuba: 120000 }),
+        ],
+      });
+      const t = (k: string) => r.vessels.find((v) => v.key === k)!.transferToAccount;
+      near(r.partnerTransfer.badawi, t('poseidon'), 0.02);
+      near(r.partnerTransfer.ittihad, t('amal') + t('daleela'), 0.02);
     });
 
     it('ثلاثة شركاء: المجموع يبقى صفريّاً', () => {
