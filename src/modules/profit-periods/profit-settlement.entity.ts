@@ -24,9 +24,15 @@ export class ProfitSettlement {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
+  /**
+      * الفترة التي يخصّها القيد — و`null` للرصيد **الافتتاحيّ** وحده.
+      *
+      * الافتتاحيّ ما تراكم قبل أن يوجد النظام، فلا فترةَ له. وتعليقه على فترةٍ
+      * لا يخصّها يجعله يُحذف معها ويُقرأ خطأً على أنّه فرقُها.
+      */
   @Index()
-  @Column({ type: 'uuid' })
-  period_id: string;
+  @Column({ type: 'uuid', nullable: true })
+  period_id: string | null;
 
   @Column({ type: 'timestamptz', default: () => 'now()' })
   occurred_at: Date;
@@ -40,8 +46,8 @@ export class ProfitSettlement {
   @Column({ type: 'decimal', precision: 15, scale: 4 })
   amount: number;
 
-  /** `delta` أو `applied` */
-  @Column({ length: 20 })
+  /** `opening` رصيدٌ افتتاحيّ · `delta` فرقٌ رُصد · `applied` تسويةٌ أُدخلت */
+  @Column({ type: 'varchar', length: 20 })
   kind: string;
 
   @Column({ type: 'text', default: '' })

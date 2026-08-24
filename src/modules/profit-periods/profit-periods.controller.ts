@@ -58,6 +58,15 @@ export class ProfitPeriodsController {
   @Get('settlements/statement')
   statement() { return this.ratify.statement(); }
 
+  /** الرصيد الافتتاحيّ — ما تراكم قبل أن يوجد النظام. يُقيَّد مرّةً واحدة. */
+  @Post('settlements/opening')
+  opening(
+    @Body() body: { entries?: { partner: string; amount: number; note?: string }[] },
+    @Req() req: any,
+  ) {
+    return this.ratify.openBalance(body?.entries || [], this.who(req));
+  }
+
   @Post(':id/ratify')
   async doRatify(@Param('id') id: string, @Req() req: any) {
     const period = await this.needPeriod(id);

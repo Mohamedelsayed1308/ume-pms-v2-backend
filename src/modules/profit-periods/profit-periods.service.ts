@@ -110,7 +110,20 @@ export class ProfitPeriodsService {
     return this.findOne(id);
   }
 
+  /**
+   * الحذف — ويمتنع على فترةٍ مُصادَقٍ عليها.
+   *
+   * لقطة المصادقة تُثبت رقماً حُوِّل إلى بنك، وقيود دفتر الفروق معلّقةٌ عليها
+   * بـ `ON DELETE CASCADE`. فحذفها يمحو الشاهد ويُسقط القيود معاً، ويتغيّر
+   * الرصيد التراكميّ بلا أن يُكتب لذلك سبب.
+   */
   async remove(id: string) {
+    const cur = await this.findOne(id);
+    if (cur?.ratified_at) {
+      throw new BadRequestException(
+        'الفترة مُصادَقٌ عليها — فُكَّ المصادقة بسببٍ مكتوب قبل الحذف',
+      );
+    }
     await this.repo.delete(id);
     return { deleted: true };
   }

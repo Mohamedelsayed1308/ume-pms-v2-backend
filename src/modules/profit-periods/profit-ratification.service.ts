@@ -62,7 +62,7 @@ export class ProfitRatificationService {
   /** دفتر الفروق كاملاً — الأحدث أوّلاً، ومعه أسماء الفترات. */
   async statement() {
     const entries = await this.ledger.find({ order: { occurred_at: 'DESC', created_at: 'DESC' } });
-    const ids = [...new Set(entries.map((e) => e.period_id))];
+    const ids = [...new Set(entries.map((e) => e.period_id).filter(Boolean) as string[])];
     const names: Record<string, string> = {};
     if (ids.length) {
       const ps = await this.periods.find({ where: ids.map((id) => ({ id })) });
@@ -71,12 +71,61 @@ export class ProfitRatificationService {
     return {
       balances: await this.balances(),
       partnerNames: PARTNER_NAMES,
+      hasOpening: entries.some((e) => e.kind === 'opening'),
       entries: entries.map((e) => ({
         ...e,
         amount: this.r2(Number(e.amount)),
-        period_name: names[e.period_id] || '—',
+        period_name: e.period_id ? (names[e.period_id] || '—') : 'رصيدٌ افتتاحيّ',
       })),
     };
+  }
+
+  /**
+   * الرصيد الافتتاحيّ — ما تراكم قبل أن يوجد النظام.
+   *
+   * يُقيَّد بلا فترة، لأنّه لا يخصّ فترة. وموجبٌ لصالح الشريك، وسالبٌ عليه —
+   * والشاشة تكتب المعنى بالكلمات قبل الحفظ، فالإشارة تُراجَع بالعين لا بالظنّ.
+   *
+   * ولا يُكتب مرّتين: وجودُ قيدٍ افتتاحيٍّ لشريكٍ يمنع ثانياً له. فالافتتاح
+   * يقع مرّةً واحدة بطبيعته، وتكراره يُضاعف رصيداً بلا أن يُلاحَظ.
+   */
+  async openBalance(
+    entries: { partner: string; amount: number; note?: string }[],
+    user: string,
+  ) {
+    const existing = await this.ledger.find({ where: { kind: 'opening' } });
+    const at = new Date();
+    const written: string[] = [];
+
+    for (const e of entries || []) {
+      const p = String(e.partner || '') as Partner;
+      if (!(PARTNERS as readonly string[]).includes(p)) {
+        throw new BadRequestException(`شريكٌ غير معروف: ${e.partner}`);
+      }
+      if (existing.some((x) => x.partner === p)) {
+        throw new BadRequestException(
+          `${PARTNER_NAMES[p]}: له رصيدٌ افتتاحيٌّ مقيَّدٌ سلفاً — ولا يُكتب مرّتين`,
+        );
+      }
+      const amount = this.r2(Number(e.amount));
+      if (!Number.isFinite(amount)) {
+        throw new BadRequestException('مبلغٌ غير رقميّ');
+      }
+      if (Math.abs(amount) <= ProfitRatificationService.TOLERANCE) continue;
+
+      await this.ledger.save(this.ledger.create({
+        period_id: null,
+        occurred_at: at,
+        partner: p,
+        amount,
+        kind: 'opening',
+        note: String(e.note || '').trim() || 'رصيدٌ افتتاحيّ — ما تراكم قبل أوّل مصادقة',
+        created_by: user,
+      }));
+      written.push(p);
+    }
+
+    return { written, balances: await this.balances() };
   }
 
   /**
