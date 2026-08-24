@@ -819,6 +819,78 @@ describe('الطريقة المقترحة — ورقة الزميل', () => {
     expect(r.vessels).toHaveLength(0);
   });
 
+  /*
+   * ١ – ١٥ أغسطس ٢٠٢٦ بمدخلاته الصحيحة — Over Pax مفصولاً بين ضبا وصفاجا.
+   *
+   * وهنا تلتقي الطريقة المقترحة بالمستند في سطرين لا في واحد:
+   *
+   *   بوسيدون ٥٧٧٬٠٩٧.١١  ←  `Amount to be transferred` ٥٧٧٬٠٩٧.٠٠
+   *   المجموع ١٬٥٢٤٬٣٦١.١٥ ←  `Cash available at El Bassam` ١٬٥٢٤٬٣٦١.١٥
+   *
+   * ولا يستقيم ذلك إلا بطرح نقد صفاجا **كاملاً** — التحصيل وما حُصّل فيه من
+   * Over Pax معاً — وقسمة حصّة **المجموع** لا جزء ضبا وحده.
+   */
+  it('١ – ١٥ أغسطس · نقد صفاجا يشمل Over Pax المحصَّل فيه', () => {
+    const r = calculateProposed({
+      days: 15, commissionRate: 6.5, perVoyageFee: 500,
+      vessels: [
+        vessel({ key: 'amal', name: 'أمل', voyages: 5, dailyRate: 13000, sdBase: 503230,
+          netRevenue: 476459.13, netCollected: 154460.00, fuel: 315841.35 }),
+        vessel({ key: 'poseidon', name: 'بوسيدون', voyages: 5, dailyRate: 14000, sdBase: 596440,
+          netRevenue: 1106348.68, netCollected: 220809.35,
+          overPax: 981.33, overPaxSafaga: 4955.60 }),
+      ],
+    });
+    const a = of(r, 'amal'), p = of(r, 'poseidon');
+
+    // نقد صفاجا كاملاً
+    near(p.safaga, 225764.95);          // ٢٢٠٬٨٠٩.٣٥ + ٤٬٩٥٥.٦٠
+    near(p.safagaOverPax, 4955.60);
+    near(a.safaga, 154460.00);
+    near(a.safagaOverPax, 0);
+
+    // وحصّة المجموع لا جزء ضبا
+    near(p.overPaxShare, 3958.15);      // ٦٦.٦٧٪ × ٥٬٩٣٦.٩٣
+    near(a.overPaxShare, 1978.78);
+
+    near(p.balanceAtBassam, 367097.11);
+    near(a.balanceAtBassam, 436422.68);
+
+    // وسطرا المستند
+    near(p.total, 577097.00, 0.15);     // Amount to be transferred
+    near(a.total, 947264.03);
+    near(r.grandTotal, 1524361.15, 0.02); // Cash available at El Bassam
+  });
+
+  /*
+   * والجسر بين الطريقتين يبقى مغلقاً بعد نمذجة صفاجا:
+   *
+   *   المقترحة − المعتمدة = (حصّة العمولة − عمولة المركب) + كسر التدوير
+   *
+   * والحدّ الثالث — فرق الخزينة — صفرٌ ما دام الدفتر متّسقاً. ولو كسرت
+   * إحدى الطريقتين معالجة Over Pax صفاجا لظهر فيه رقمٌ فوراً.
+   */
+  it('الجسر إلى المعتمدة يبقى مغلقاً: العمولة والتدوير لا غير', () => {
+    const inp = {
+      days: 15, commissionRate: 6.5, perVoyageFee: 500,
+      vessels: [
+        vessel({ key: 'amal', name: 'أمل', voyages: 5, dailyRate: 13000, sdBase: 503230,
+          netRevenue: 476459.13, cashDuba: 637840.48, netCollected: 154460.00, fuel: 315841.35 }),
+        vessel({ key: 'poseidon', name: 'بوسيدون', voyages: 5, dailyRate: 14000, sdBase: 596440,
+          netRevenue: 1106348.68, cashDuba: 885539.33, netCollected: 220809.35,
+          overPax: 981.33, overPaxSafaga: 4955.60 }),
+      ],
+    };
+    const d = calculateDistribution(inp);
+    const pr = calculateProposed(inp);
+    for (const v of pr.vessels) {
+      const av = d.vessels.find((x) => x.key === v.key)!;
+      const feeGap = d.feeShare - av.fee;
+      const residual = v.total - (av.dueToAccount + feeGap + av.remainingAtDuba);
+      expect(Math.abs(residual)).toBeLessThanOrEqual(0.02);
+    }
+  });
+
   it('المركب الراسي لا يدخل القسمة', () => {
     const r = calculateProposed({
       days: 15, commissionRate: 6.5, perVoyageFee: 500,

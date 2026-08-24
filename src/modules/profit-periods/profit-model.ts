@@ -277,9 +277,17 @@ function isActive(v: VesselInput): boolean {
  */
 const OVER_PAX_BADAWI = 0.6667;
 const OVER_PAX_ETEHAD = 0.3333;
-function splitOverPax(active: VesselInput[]): { share: Record<string, number>; unproven: boolean } {
+function splitOverPax(
+  active: VesselInput[],
+  /**
+   * ما يُقسَم. المعادلة المعتمدة تقسم **جزء ضبا وحده** لأنّ جزء صفاجا يُسوّى في
+   * جانبه. والطريقة المقترحة تطرح نقد صفاجا كاملاً فتقسم **المجموع** — وإلا
+   * طُرح مبلغٌ لم يُعطَ لأحد.
+   */
+  amountOf: (v: VesselInput) => number = (v) => n(v.overPax),
+): { share: Record<string, number>; unproven: boolean } {
   const raw: Record<string, number> = {};
-  for (const v of active) raw[v.key] = n(v.overPax);
+  for (const v of active) raw[v.key] = amountOf(v);
 
   const share: Record<string, number> = {};
   for (const v of active) share[v.key] = 0;
@@ -514,8 +522,10 @@ export interface ProposedVesselResult {
   rent: number;
   /** الصافي بعد الخصم = صافي الإيراد − الإيجار */
   afterRent: number;
-  /** تحصيل صفاجا — يُطرح كاملاً، لا بفارق المتوسّط */
+  /** نقد صفاجا كاملاً — التحصيل + ما حُصّل فيه من Over Pax. يُطرح بتمامه */
   safaga: number;
+  /** ما حُصّل من Over Pax في صفاجا على هذا المركب — داخلٌ في `safaga` */
+  safagaOverPax: number;
   overPaxShare: number;
   /** الرصيد طرف البسّام */
   balanceAtBassam: number;
@@ -546,8 +556,8 @@ export interface ProposedResult {
  *   − الإيجار                     ← لكلّ مركبٍ إيجاره
  *   = الصافي بعد الخصم
  *   ÷ الشركاء                     ← توزيع النسب: المجموع مناصفةً
- *   − تحصيل صفاجا                 ← لكلّ مركبٍ تحصيله كاملاً
- *   + حصّة Over Pax
+ *   − نقد صفاجا                   ← تحصيله + ما حُصّل فيه من Over Pax
+ *   + حصّة Over Pax (المجموع)
  *   = الرصيد طرف البسّام
  *   + الإيجار                     ← يُردّ لصاحبه
  *   + البنكر                      ← يُردّ لصاحبه
@@ -563,7 +573,8 @@ export interface ProposedResult {
  * فترة ٢٠ يونيو – ٣ يوليو: ٣٬٠٢٩.٣٣ تنتقل بين الشريكين.
  *
  * **٣ · صفاجا تُطرح كاملة لا بفارق المتوسّط.** والنتيجة واحدة رياضيّاً حين
- * يكون الشركاء اثنين، لأنّ القسمة تسبق الطرح.
+ * يكون الشركاء اثنين، لأنّ القسمة تسبق الطرح. وتُطرح معها حصّة Over Pax
+ * المحصَّلة في صفاجا، فتُقسم حصّة المجموع لا جزء ضبا وحده.
  *
  * **٤ · البنكر يُردّ بلا قسمة.** المعتمدة تخصم نصف المجموع ثمّ تردّ لكلٍّ وقوده؛
  * وهذه تردّه وحسب. ولا يظهر أثر ذلك هنا لأنّ صافي الإيراد لا يطرح البنكر أصلاً.
@@ -600,7 +611,23 @@ export function calculateProposed(input: ModelInput): ProposedResult {
     };
   }
 
-  const { share: overPaxShare } = splitOverPax(active);
+  /*
+   * وهنا تفترق عن المعتمدة في بندين متلازمين:
+   *
+   *   ١ · تُطرح **كامل** نقد صفاجا — التحصيل وما حُصّل فيه من Over Pax معاً،
+   *       لأنّ الطرح هنا معناه «ما بيده أصلاً»، وما حُصّل في صفاجا بيده.
+   *   ٢ · فتُقسم حصّة **مجموع** Over Pax لا جزء ضبا وحده، وإلا طُرح مبلغٌ لم
+   *       يُعطَ لأحد فاختلّ الميزان.
+   *
+   * ودليلُه المستند: بوسيدون ٥٨٨٬٩٠٣.٩١ − ٢٢٥٬٧٦٤.٩٥ + ٣٬٩٥٨.١٥ + ٢١٠٬٠٠٠
+   * = ٥٧٧٬٠٩٧.١١، وهو `Amount to be transferred` في مستند ١–١٥ أغسطس
+   * (٥٧٧٬٠٩٧.٠٠) بفارق عشرة سنتات. ومجموع الطريقة ١٬٥٢٤٬٣٦١.١٥ هو نفسه
+   * `Cash available at El Bassam` في المستند بالسنت.
+   */
+  const { share: overPaxShare } = splitOverPax(
+    active,
+    (v) => n(v.overPax) + n(v.overPaxSafaga),
+  );
 
   const per = active.map((v) => {
     const netRevenue = n(v.netRevenue);
@@ -612,7 +639,7 @@ export function calculateProposed(input: ModelInput): ProposedResult {
   const pooled = totalAfterRent / partners;
 
   const vessels: ProposedVesselResult[] = per.map((x) => {
-    const safaga = n(x.v.netCollected);
+    const safaga = n(x.v.netCollected) + n(x.v.overPaxSafaga);
     const opShare = overPaxShare[x.v.key] || 0;
     const balanceAtBassam = pooled - safaga + opShare;
     const fuel = n(x.v.fuel) + n(x.v.fuelAdjust);
@@ -623,6 +650,7 @@ export function calculateProposed(input: ModelInput): ProposedResult {
       rent: r2(x.rent),
       afterRent: r2(x.afterRent),
       safaga: r2(safaga),
+      safagaOverPax: r2(n(x.v.overPaxSafaga)),
       overPaxShare: r2(opShare),
       balanceAtBassam: r2(balanceAtBassam),
       fuel: r2(fuel),
