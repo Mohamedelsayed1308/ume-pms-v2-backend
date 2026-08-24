@@ -5,7 +5,21 @@ import { ProfitPeriod } from './profit-period.entity';
 import {
   ProfitSettlement, PARTNERS, PARTNER_NAMES, Partner,
 } from './profit-settlement.entity';
-import { ModelResult } from './profit-model';
+import { ModelResult, ProposedResult } from './profit-model';
+
+/**
+ * ما تُصادَق عليه فترة — ناتج المحرّكين معاً.
+ *
+ * `distribution` سلسلة المستند: منها اكتمالُ المدخلات وحصص الأعباء وأثر
+ * الشراكة. و`proposed` هي **الطريقة المعتمدة للمصادقة** بقرار المالك في
+ * ٢٤ أغسطس ٢٠٢٦ — ومنها يخرج الرقم الذي يُحوَّل إلى البنك.
+ *
+ * ويُحفظان معاً في اللقطة: الرقم من الثانية، والسياق من الأولى.
+ */
+export interface Ratifiable {
+  distribution: ModelResult;
+  proposed: ProposedResult;
+}
 
 /**
  * المصادقة والرصيد التراكميّ.
@@ -158,18 +172,23 @@ export class ProfitRatificationService {
    * ولا تُصادَق فترةٌ ناقصة المدخلات: الرقم الذي يُجمَّد يُحوَّل إلى بنك، ورقمٌ
    * مبنيٌّ على نقصٍ يُجمَّد خطأً ثمّ يُبنى عليه ما بعده.
    */
-  async ratify(period: ProfitPeriod, result: ModelResult, user: string) {
+  async ratify(period: ProfitPeriod, result: Ratifiable, user: string) {
     if (period.ratified_at) {
       throw new BadRequestException('الفترة مُصادَقٌ عليها بالفعل — فُكَّ المصادقة أوّلاً');
     }
-    if (result.missing.length) {
+    if (result.distribution.missing.length) {
       throw new BadRequestException(
-        `لا تُصادَق فترةٌ ناقصة المدخلات: ${result.missing.join(' · ')}`,
+        `لا تُصادَق فترةٌ ناقصة المدخلات: ${result.distribution.missing.join(' · ')}`,
+      );
+    }
+    if (!result.proposed.available) {
+      throw new BadRequestException(
+        `لا يُحسب التحويل: ${result.proposed.reason || 'الطريقة المعتمدة غير متاحة'}`,
       );
     }
 
     const carried = await this.balances();
-    const computed = result.partnerTransfer;
+    const computed = result.proposed.partnerTransfer;
     const paid: Record<Partner, number> = {
       badawi: this.r2(computed.badawi + carried.badawi),
       ittihad: this.r2(computed.ittihad + carried.ittihad),
@@ -199,8 +218,10 @@ export class ProfitRatificationService {
     period.ratified_snapshot = {
       at: at.toISOString(),
       by: user,
-      /** ناتج المحرّك كاملاً — المدخلات مقروءةٌ منه ومن `voyage_detail` */
-      result,
+      /** ناتج الطريقة المعتمدة للمصادقة — ومنها خرج الرقم */
+      result: result.proposed,
+      /** وسلسلة المستند بجوارها: حصص الأعباء وأثر الشراكة والمقارنة */
+      distribution: result.distribution,
       /** المحسوب قبل حمل الرصيد */
       computedTransfer: computed,
       /** الرصيد الذي حُمل من فتراتٍ سابقة */
@@ -260,7 +281,7 @@ export class ProfitRatificationService {
    */
   async recordLatest(
     period: ProfitPeriod,
-    latest: ModelResult,
+    latest: Ratifiable,
     user: string,
     fetchedAt?: string,
   ) {
@@ -272,13 +293,18 @@ export class ProfitRatificationService {
     };
     const at = new Date();
 
-    period.latest_snapshot = { at: at.toISOString(), by: user, fetchedAt: fetchedAt || null, result: latest };
+    period.latest_snapshot = {
+      at: at.toISOString(), by: user, fetchedAt: fetchedAt || null,
+      result: latest.proposed, distribution: latest.distribution,
+    };
     period.latest_fetched_at = at;
     await this.periods.save(period);
 
     const deltas = {} as Record<Partner, number>;
     for (const p of PARTNERS) {
-      deltas[p] = this.r2(latest.partnerTransfer[p] - (Number(snap.computedTransfer?.[p]) || 0));
+      deltas[p] = this.r2(
+        (latest.proposed.partnerTransfer?.[p] || 0) - (Number(snap.computedTransfer?.[p]) || 0),
+      );
     }
 
     // القيد المفتوح يُستبدل، والمُسوّى لا يُمسّ

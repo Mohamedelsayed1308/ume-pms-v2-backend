@@ -562,7 +562,18 @@ export function calculateDistribution(input: ModelInput): ModelResult {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
- * الطريقة المقترحة — تُحسب بجوار المعتمدة ولا تحلّ محلّها
+ * الطريقة المعتمدة للمصادقة — وعليها يُبنى التحويل البنكيّ والرصيد التراكميّ
+ *
+ * ── قرارُ مالكٍ في ٢٤ أغسطس ٢٠٢٦ ──
+ * «تمّ اعتماد تلك الطريقة، وهي ما تُثبت الأرقام النهائيّة للمصادقة» — فحلّت
+ * محلّ سلسلة المستند في تحديد ما يُحوَّل إلى البنك.
+ *
+ * وسلسلة المستند (`calculateDistribution`) تبقى: منها التوزيع وحصص الأعباء
+ * وأثر الشراكة، ومنها المقارنة. لكنّ **الرقم الذي يُجمَّد ويُحوَّل** يخرج من هنا.
+ *
+ * وطوبقت على مستند ١–١٥ أغسطس بالسنت في سطرين لا في واحد:
+ *   بوسيدون ٥٧٧٬٠٩٧.١١  ←  `Amount to be transferred` ٥٧٧٬٠٩٧.٠٠
+ *   المجموع ١٬٥٢٤٬٣٦١.١٥ ←  `Cash available at El Bassam` بالسنت
  * ═══════════════════════════════════════════════════════════════════════════ */
 
 /** مركبٌ واحد في الطريقة المقترحة. */
@@ -581,9 +592,17 @@ export interface ProposedVesselResult {
   overPaxShare: number;
   /** الرصيد طرف البسّام */
   balanceAtBassam: number;
-  /** البنكر — يُردّ لصاحبه كاملاً بلا قسمة */
-  fuel: number;
-  /** المستحقّ لحساب المركب */
+  /**
+   * `Fuel Supply` — يُردّ لصاحبه لسداد المورّد.
+   *
+   * وليس البنكر. **البنكر مطروحٌ أصلاً داخل صافي الإيراد**، لأنّ الدفتر
+   * يجمعه في `المصاريف` (`man = … + bnk + …`). فردُّه هنا يحسبه مرّتين.
+   *
+   * والمستند يردّ `Fuel Supply` وحده: في ١–١٥ أغسطس بنكر أمل ٣١٥٬٨٤١.٣٥
+   * و`Fuel Supply` صفر — والتحويل ٦٣١٬٤٢٢.٠٠ لا ٩٤٧٬٢٦٤.
+   */
+  fuelSupply: number;
+  /** التحويل إلى الحساب البنكيّ — وهو ما يُصادَق عليه */
   total: number;
 }
 
@@ -598,6 +617,13 @@ export interface ProposedResult {
   pooled: number;
   vessels: ProposedVesselResult[];
   grandTotal: number;
+  /**
+   * التحويل مجموعاً لكلّ شريك — وعاء المصادقة والرصيد التراكميّ.
+   *
+   * `badawi` هو UME وبوسيدون · و`ittihad` أمل ودليلة. والمال يستقرّ عند
+   * الشريك لا عند المركب.
+   */
+  partnerTransfer: { badawi: number; ittihad: number };
 }
 
 /**
@@ -612,8 +638,8 @@ export interface ProposedResult {
  *   + حصّة Over Pax (المجموع)
  *   = الرصيد طرف البسّام
  *   + الإيجار                     ← يُردّ لصاحبه
- *   + البنكر                      ← يُردّ لصاحبه
- *   = المستحقّ لحساب المركب
+ *   + Fuel Supply                 ← سدادُ المورّد · لا البنكر
+ *   = التحويل إلى الحساب البنكيّ
  *
  * ── وأين تفترق عن المعتمدة ──
  * **١ · تبدأ من الإيراد لا من النقد.** المعتمدة تقسم نقد ضبا الفعليّ؛ وهذه
@@ -650,6 +676,7 @@ export function calculateProposed(input: ModelInput): ProposedResult {
 
   const empty: ProposedResult = {
     available: false, partners, totalAfterRent: 0, pooled: 0, vessels: [], grandTotal: 0,
+    partnerTransfer: { badawi: 0, ittihad: 0 },
   };
   if (!partners) return { ...empty, reason: 'لا شريكَ فاعلاً في هذه الفترة' };
 
@@ -694,7 +721,7 @@ export function calculateProposed(input: ModelInput): ProposedResult {
     const safaga = n(x.v.netCollected) + n(x.v.overPaxSafaga);
     const opShare = overPaxShare[x.v.key] || 0;
     const balanceAtBassam = pooled - safaga + opShare;
-    const fuel = n(x.v.fuel) + n(x.v.fuelAdjust);
+    const fuelSupply = n(x.v.fuelSupply);
     return {
       key: x.v.key,
       name: x.v.name,
@@ -705,8 +732,8 @@ export function calculateProposed(input: ModelInput): ProposedResult {
       safagaOverPax: r2(n(x.v.overPaxSafaga)),
       overPaxShare: r2(opShare),
       balanceAtBassam: r2(balanceAtBassam),
-      fuel: r2(fuel),
-      total: r2(balanceAtBassam + x.rent + fuel),
+      fuelSupply: r2(fuelSupply),
+      total: r2(balanceAtBassam + x.rent + fuelSupply),
     };
   });
 
@@ -717,5 +744,11 @@ export function calculateProposed(input: ModelInput): ProposedResult {
     pooled: r2(pooled),
     vessels,
     grandTotal: r2(vessels.reduce((a, v) => a + v.total, 0)),
+    partnerTransfer: {
+      badawi: r2(vessels.filter((v) => v.key === 'poseidon')
+        .reduce((a, v) => a + v.total, 0)),
+      ittihad: r2(vessels.filter((v) => v.key !== 'poseidon')
+        .reduce((a, v) => a + v.total, 0)),
+    },
   };
 }

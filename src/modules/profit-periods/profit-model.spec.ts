@@ -838,33 +838,85 @@ describe('الطريقة المقترحة — ورقة الزميل', () => {
     near(of(r, 'poseidon').balanceAtBassam, 372052.71);
   });
 
-  it('المستحقّ: أمل ٩٤٧٬٢٦٤.٠٣ · بوسيدون ٥٨٢٬٠٥٢.٧١', () => {
+  /*
+   * ── حيث تفارق ورقةُ الزميل مستندَه ──
+   *
+   * ورقته تكتب لأمل ٩٤٧٬٢٦٤.٠٣ لأنّها تردّ البنكر ٣١٥٬٨٤١.٣٥ في السطر
+   * الأخير. والمستند الرسميّ يكتب `Amount to be transferred` = ٦٣١٬٤٢٢.٠٠،
+   * و`Fuel Supply` فيه صفر.
+   *
+   * والفارق بينهما **هو البنكر بعينه** — وردُّه خطأٌ مضاعف: صافي الإيراد
+   * يطرحه أصلاً في `المصاريف` (`man = … + bnk + …`). فالمحرّك يتبع المستند.
+   */
+  it('التحويل: أمل ٦٣١٬٤٢٢.٦٨ · بوسيدون ٥٧٧٬٠٩٧.١١ — ولا يُردّ البنكر', () => {
     const r = sheet();
-    near(of(r, 'amal').total, 947264.03);
-    near(of(r, 'poseidon').total, 582052.71);
-    near(r.grandTotal, 1529316.74);
+    const a = of(r, 'amal'), p = of(r, 'poseidon');
+    near(a.total, 947264.03 - 315841.35, 0.02);   // ٦٣١٬٤٢٢.٦٨
+    near(p.total, 582052.71);
+    near(r.grandTotal, 1529316.74 - 315841.35, 0.02);
+    near(r.partnerTransfer.badawi, p.total, 0.02);
+    near(r.partnerTransfer.ittihad, a.total, 0.02);
   });
 
   /*
-   * الفرق عن المعتمدة في هذه الفترة نفسها = عمولة التوكيل وحدها.
-   * المعتمدة تخصمها مناصفةً وتردّ لكلٍّ عمولته، وهذه لا تذكرها — فينتقل
-   * ٣٬٠٢٩.٣٣ بين الشريكين ولا يتغيّر المجموع إلا بكسرَي التدوير.
+   * والفرق عن سلسلة المستند في الفترة نفسها ثلاثة بنودٍ لا واحد:
+   *   عمولة التوكيل · كسر التدوير · والبنكر الذي تردّه تلك ولا تردّه هذه.
    */
-  it('المجموعان يتقاربان، والفرق ينتقل بين الشريكين لا يضيع', () => {
+  it('الفرق عن سلسلة المستند: العمولة والتدوير والبنكر', () => {
     const r = sheet();
     const a = of(r, 'amal').total, p = of(r, 'poseidon').total;
     near(a + p, r.grandTotal);
-    // المعتمدة على الفترة نفسها: ٩٤٤٬٢٣٤.٣٠ و٥٨٥٬٠٨١.٦٠
-    near(a - 944234.30, 3029.73, 0.02);
+    // سلسلة المستند على الفترة نفسها: ٩٤٤٬٢٣٤.٣٠ و٥٨٥٬٠٨١.٦٠
+    near(a - 944234.30, 3029.73 - 315841.35, 0.02);
     near(p - 585081.60, -3028.89, 0.02);
-    near((a - 944234.30) + (p - 585081.60), 0.84, 0.02);
   });
 
-  it('البنكر يُردّ لصاحبه كاملاً بلا قسمة', () => {
+  /*
+   * ── البنكر لا يُردّ · و`Fuel Supply` يُردّ ──
+   *
+   * صافي الإيراد **يطرح البنكر أصلاً**: الدفتر يجمعه في `المصاريف`
+   * (`man = … + bnk + …`). فردُّه في السطر الأخير يحسبه مرّتين.
+   *
+   * وورقة الزميل كانت تردّه فتُعطي أمل ٩٤٧٬٢٦٤.٠٣، والمستند الرسميّ يكتب
+   * ٦٣١٬٤٢٢.٠٠ — والفارق ٣١٥٬٨٤١.٣٥ هو البنكر بعينه. فالمستند هو المرجع.
+   */
+  it('البنكر لا يُردّ — والمردود Fuel Supply وحده', () => {
     const r = sheet();
-    expect(of(r, 'amal').fuel).toBe(315841.35);
-    expect(of(r, 'poseidon').fuel).toBe(0);
-    near(of(r, 'amal').total - of(r, 'amal').balanceAtBassam, 195000 + 315841.35);
+    // بنكر أمل ٣١٥٬٨٤١.٣٥ في المدخلات، ولا أثر له في التحويل
+    near(of(r, 'amal').fuelSupply, 0);
+    near(of(r, 'amal').total - of(r, 'amal').balanceAtBassam, 195000);
+  });
+
+  it('Fuel Supply يُضاف للتحويل ولا يمسّ الرصيد طرف البسّام', () => {
+    const r = calculateProposed({
+      days: 15, commissionRate: 6.5, perVoyageFee: 500,
+      vessels: [
+        vessel({ key: 'amal', name: 'أمل', voyages: 5, dailyRate: 13000,
+          netRevenue: 476459.13, netCollected: 154460.00,
+          fuel: 305214.16, fuelSupply: 125658.05 }),
+        vessel({ key: 'poseidon', name: 'بوسيدون', voyages: 5, dailyRate: 14000,
+          netRevenue: 1106348.68, netCollected: 220809.35, fuel: 137030.47 }),
+      ],
+    });
+    const a = of(r, 'amal');
+    near(a.fuelSupply, 125658.05);
+    // ٣٠٥٬٢١٤.١٦ بنكراً لا يظهر · و١٢٥٬٦٥٨.٠٥ وحدها تُضاف
+    near(a.total - a.balanceAtBassam, 195000 + 125658.05);
+  });
+
+  it('التحويل يُجمَع للشريكين: دليلة مع الاتحاد', () => {
+    const r = calculateProposed({
+      days: 14, commissionRate: 6.5, perVoyageFee: 500,
+      vessels: [
+        vessel({ key: 'amal', name: 'أمل', voyages: 3, dailyRate: 13000, netRevenue: 300000 }),
+        vessel({ key: 'poseidon', name: 'بوسيدون', voyages: 3, dailyRate: 14000, netRevenue: 500000 }),
+        vessel({ key: 'daleela', name: 'دليلة', voyages: 2, dailyRate: 9000, netRevenue: 180000 }),
+      ],
+    });
+    const t = (k: string) => of(r, k).total;
+    near(r.partnerTransfer.badawi, t('poseidon'), 0.02);
+    near(r.partnerTransfer.ittihad, t('amal') + t('daleela'), 0.02);
+    near(r.partnerTransfer.badawi + r.partnerTransfer.ittihad, r.grandTotal, 0.02);
   });
 
   /*
@@ -923,8 +975,13 @@ describe('الطريقة المقترحة — ورقة الزميل', () => {
 
     // وسطرا المستند
     near(p.total, 577097.00, 0.15);     // Amount to be transferred
-    near(a.total, 947264.03);
-    near(r.grandTotal, 1524361.15, 0.02); // Cash available at El Bassam
+    /*
+     * وورقة الزميل تكتب ٩٤٧٬٢٦٤.٠٣ لأنّها تردّ البنكر ٣١٥٬٨٤١.٣٥.
+     * والمستند الرسميّ يكتب ٦٣١٬٤٢٢.٠٠ — والمحرّك يتبع المستند.
+     */
+    near(a.total, 947264.03 - 315841.35, 0.02);
+    // والمجموع يُنقص البنكر كذلك — والمستند يكتبه في `Cash at El Bassam` مع البنكر
+    near(r.grandTotal, 1524361.15 - 315841.35, 0.02);
   });
 
   /*
@@ -951,7 +1008,8 @@ describe('الطريقة المقترحة — ورقة الزميل', () => {
     for (const v of pr.vessels) {
       const av = d.vessels.find((x) => x.key === v.key)!;
       const feeGap = d.feeShare - av.fee;
-      const residual = v.total - (av.dueToAccount + feeGap + av.remainingAtDuba);
+      // وسلسلة المستند تردّ البنكر في `dueToAccount` وهذه لا تردّه
+      const residual = v.total - (av.dueToAccount - av.fuel + feeGap + av.remainingAtDuba);
       expect(Math.abs(residual)).toBeLessThanOrEqual(0.02);
     }
   });

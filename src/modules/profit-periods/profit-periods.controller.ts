@@ -70,8 +70,10 @@ export class ProfitPeriodsController {
   @Post(':id/ratify')
   async doRatify(@Param('id') id: string, @Req() req: any) {
     const period = await this.needPeriod(id);
-    const result = this.svc.calculate(period);
-    return this.ratify.ratify(period, result, this.who(req));
+    const r = this.svc.calculate(period);
+    return this.ratify.ratify(
+      period, { distribution: r, proposed: r.proposed }, this.who(req),
+    );
   }
 
   @Post(':id/unratify')
@@ -95,8 +97,10 @@ export class ProfitPeriodsController {
     const period = await this.needPeriod(id);
     if (!body?.fields) throw new HttpException('لا مدخلاتٍ للمقارنة', 400);
     const probe = { ...period, ...body.fields, id: period.id } as any;
-    const latest = this.svc.calculate(probe);
-    return this.ratify.recordLatest(period, latest, this.who(req), body.fetchedAt);
+    const r = this.svc.calculate(probe);
+    return this.ratify.recordLatest(
+      period, { distribution: r, proposed: r.proposed }, this.who(req), body.fetchedAt,
+    );
   }
 
   @Get(':id/calculate')
