@@ -73,6 +73,44 @@ export class ProfitRatificationService {
     return out;
   }
 
+  /**
+    * التحويلات المُصادَق عليها — حركةُ المال الفعليّة.
+    *
+    * ── لماذا لا يكفي دفتر الفروق ──
+    * الدفتر يقيّد **التصحيحات** وحدها، ومتى سُوّيت عاد صفراً. فمن ينظر إليه
+    * يرى «لا شيء معلّق» — وهو صحيح، لكنّه لا يقول كم حُوِّل ولا كم تراكم.
+    *
+    * والمالك سأل: «أتابع الفلوس بتاعتي زادت ولا نقصت». فهذا جوابه: كلّ فترةٍ
+    * صُودق عليها، والمحسوب والمحمول والمُحوَّل فيها، ومجموعُ ما حُوِّل لكلّ شريك.
+    */
+  async transfers() {
+    const rows = await this.periods.find({
+      where: { ratified_at: Not(IsNull()) },
+      order: { date_from: 'ASC' },
+    });
+
+    const running = { badawi: 0, ittihad: 0 } as Record<Partner, number>;
+    const list = rows.map((p) => {
+      const snap = (p.ratified_snapshot || {}) as any;
+      const paid = (snap.transferPaid || {}) as Record<Partner, number>;
+      for (const k of PARTNERS) running[k] = this.r2(running[k] + (Number(paid[k]) || 0));
+      return {
+        id: p.id,
+        period_name: p.period_name,
+        date_from: p.date_from,
+        date_to: p.date_to,
+        at: p.ratified_at,
+        by: p.ratified_by,
+        computed: snap.computedTransfer || null,
+        carriedIn: snap.carriedIn || null,
+        paid: paid || null,
+        runningPaid: { ...running },
+      };
+    });
+
+    return { list, totalPaid: { ...running } };
+  }
+
   /** دفتر الفروق كاملاً — الأحدث أوّلاً، ومعه أسماء الفترات. */
   async statement() {
     const entries = await this.ledger.find({ order: { occurred_at: 'DESC', created_at: 'DESC' } });
@@ -85,6 +123,7 @@ export class ProfitRatificationService {
     return {
       balances: await this.balances(),
       partnerNames: PARTNER_NAMES,
+      transfers: await this.transfers(),
       hasOpening: entries.some((e) => e.kind === 'opening'),
       /*
        * الافتتاحيّ يُعدَّل ما لم يُستهلك.
