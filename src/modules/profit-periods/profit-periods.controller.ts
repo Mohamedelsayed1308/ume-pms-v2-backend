@@ -58,6 +58,25 @@ export class ProfitPeriodsController {
   @Get('settlements/statement')
   statement() { return this.ratify.statement(); }
 
+  /** تحويلٌ فعليّ إلى الحساب البنكيّ — يُقيَّد يداً، فالمستحقّ لا يُحوَّل كلّه دائماً. */
+  @Post('settlements/payment')
+  payment(
+    @Body() body: { partner: string; amount: number; note?: string; periodId?: string | null },
+    @Req() req: any,
+  ) {
+    return this.ratify.recordPayment(body, this.who(req));
+  }
+
+  /** حذفُ قيدِ تحويلٍ أُدخل خطأً — بسببٍ مكتوب. */
+  @Post('settlements/payment/:id/delete')
+  deletePayment(
+    @Param('id') id: string,
+    @Body() body: { reason?: string },
+    @Req() req: any,
+  ) {
+    return this.ratify.deletePayment(id, String(body?.reason || ''), this.who(req));
+  }
+
   /** الرصيد الافتتاحيّ — ما تراكم قبل أن يوجد النظام. يُقيَّد مرّةً واحدة. */
   @Post('settlements/opening')
   opening(

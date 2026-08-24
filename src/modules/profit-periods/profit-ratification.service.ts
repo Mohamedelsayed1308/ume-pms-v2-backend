@@ -111,18 +111,61 @@ export class ProfitRatificationService {
     return { list, totalPaid: { ...running } };
   }
 
-  /** دفتر الفروق كاملاً — الأحدث أوّلاً، ومعه أسماء الفترات. */
+  /**
+   * كشف حسابٍ جارٍ لكلّ شريك — الأقدم أوّلاً، وبرصيدٍ متحرّك.
+   *
+   * ── لماذا الأقدم أوّلاً ──
+   * الرصيد المتحرّك لا يُقرأ إلا بترتيبٍ زمنيّ صاعد: كلّ سطرٍ يقول «صار الرصيد
+   * كذا بعد هذه الواقعة». وقلبُ الترتيب يجعل العمود الأخير لغزاً.
+   *
+   * ── وما فيه ──
+   *   `له`     ما زاد على ما نحن مدينون به — استحقاقٌ أو فرقٌ لصالحه
+   *   `عليه`   ما أنقصه — تحويلٌ خرج، أو فرقٌ عليه
+   *   `الرصيد` موجبٌ يعني **مستحقٌّ لم يُدفع بعد**
+   */
   async statement() {
-    const entries = await this.ledger.find({ order: { occurred_at: 'DESC', created_at: 'DESC' } });
+    const entries = await this.ledger.find({ order: { occurred_at: 'ASC', created_at: 'ASC' } });
     const ids = [...new Set(entries.map((e) => e.period_id).filter(Boolean) as string[])];
     const names: Record<string, string> = {};
     if (ids.length) {
       const ps = await this.periods.find({ where: ids.map((id) => ({ id })) });
       for (const p of ps) names[p.id] = p.period_name;
     }
+    /*
+     * الرصيد المتحرّك يُحسب هنا لا في الشاشة.
+     *
+     * فلو حسبته الشاشة لاختلف باختلاف ترتيبها أو ترشيحها، وصار لكلّ عرضٍ
+     * رصيدٌ. والحساب واحدٌ ومصدره الخادم.
+     */
+    const accounts: Record<string, {
+      entries: any[]; balance: number;
+      totalDue: number; totalPaid: number; opening: number;
+    }> = {};
+    for (const p of PARTNERS) {
+      let running = 0;
+      let due = 0;
+      let paid = 0;
+      let opening = 0;
+      const rows = entries.filter((e) => e.partner === p).map((e) => {
+        const amount = this.r2(Number(e.amount));
+        running = this.r2(running + amount);
+        if (e.kind === 'due') due = this.r2(due + amount);
+        if (e.kind === 'payment') paid = this.r2(paid - amount);
+        if (e.kind === 'opening') opening = this.r2(opening + amount);
+        return {
+          ...e,
+          amount,
+          running,
+          period_name: e.period_id ? (names[e.period_id] || '—') : null,
+        };
+      });
+      accounts[p] = { entries: rows, balance: running, totalDue: due, totalPaid: paid, opening };
+    }
+
     return {
       balances: await this.balances(),
       partnerNames: PARTNER_NAMES,
+      accounts,
       transfers: await this.transfers(),
       hasOpening: entries.some((e) => e.kind === 'opening'),
       /*
@@ -206,6 +249,74 @@ export class ProfitRatificationService {
   }
 
   /**
+   * تحويلٌ فعليّ إلى الحساب البنكيّ — يُقيَّد يداً.
+   *
+   * ── لماذا يداً ──
+   * المستحقّ لا يُحوَّل كلّه دائماً، بقرار المالك. فالمصادقة تقول «كم استُحقّ»،
+   * وهذا يقول «كم خرج». وما بينهما يبقى رصيداً في الحساب الجاري.
+   *
+   * ويُقيَّد سالباً لأنّه يُنقص ما لنا عليه — والرصيد الموجب يعني مستحقّاً
+   * لم يُدفع بعد.
+   */
+  async recordPayment(
+    input: { partner: string; amount: number; note?: string; periodId?: string | null },
+    user: string,
+  ) {
+    const p = String(input?.partner || '') as Partner;
+    if (!(PARTNERS as readonly string[]).includes(p)) {
+      throw new BadRequestException(`شريكٌ غير معروف: ${input?.partner}`);
+    }
+    const raw = Number(input?.amount);
+    if (!Number.isFinite(raw) || Math.abs(raw) <= ProfitRatificationService.TOLERANCE) {
+      throw new BadRequestException('مبلغُ التحويل مطلوب');
+    }
+    /*
+     * يُقبل موجباً أو سالباً ويُخزَّن سالباً دائماً.
+     * فمن يكتب ٤٨٦٬٧٣٣.٨١ يقصد تحويلها، لا أن يزيد الرصيد بها.
+     */
+    const amount = -Math.abs(this.r2(raw));
+
+    let periodId: string | null = null;
+    if (input.periodId) {
+      const per = await this.periods.findOne({ where: { id: input.periodId } });
+      if (!per) throw new NotFoundException('الفترة غير موجودة');
+      periodId = per.id;
+    }
+
+    const saved = await this.ledger.save(this.ledger.create({
+      period_id: periodId,
+      occurred_at: new Date(),
+      partner: p,
+      amount,
+      kind: 'payment',
+      note: String(input.note || '').trim() || 'تحويلٌ إلى الحساب البنكيّ',
+      created_by: user,
+    }));
+
+    return { entry: saved, balances: await this.balances() };
+  }
+
+  /**
+   * حذفُ قيدِ تحويلٍ أُدخل خطأً.
+   *
+   * والتحويل واقعةٌ لا حساب — فحذفه يعني أنّ الحوالة لم تجرِ أصلاً، لا أنّها
+   * جرت ثمّ رُدّت. ولهذا يُحذف ولا يُعكس، ويستوجب سبباً يُكتب في السجلّ.
+   */
+  async deletePayment(id: string, reason: string, user: string) {
+    const why = String(reason || '').trim();
+    if (!why) throw new BadRequestException('حذفُ تحويلٍ يستوجب سبباً مكتوباً');
+    const e = await this.ledger.findOne({ where: { id } });
+    if (!e) throw new NotFoundException('القيد غير موجود');
+    if (e.kind !== 'payment') {
+      throw new BadRequestException('لا يُحذف إلا قيدُ تحويل — وما عداه يُعكس ولا يُمحى');
+    }
+    await this.ledger.delete({ id });
+    // eslint-disable-next-line no-console
+    console.warn(`[profit] حُذف تحويلٌ ${e.partner} ${e.amount} · ${user} · ${why}`);
+    return { deleted: true, balances: await this.balances() };
+  }
+
+  /**
    * المصادقة — تُجمّد الرقم وتُقفل الفترة وتحمل الرصيد المعلّق.
    *
    * ولا تُصادَق فترةٌ ناقصة المدخلات: الرقم الذي يُجمَّد يُحوَّل إلى بنك، ورقمٌ
@@ -228,6 +339,7 @@ export class ProfitRatificationService {
 
     const carried = await this.balances();
     const computed = result.proposed.partnerTransfer;
+    /** الرصيد بعد قيد الاستحقاق — وهو المستحقّ تحويله، لا المُحوَّل */
     const paid: Record<Partner, number> = {
       badawi: this.r2(computed.badawi + carried.badawi),
       ittihad: this.r2(computed.ittihad + carried.ittihad),
@@ -236,18 +348,23 @@ export class ProfitRatificationService {
     const at = new Date();
 
     /*
-     * التسوية تُقفل ما كان معلّقاً بقيدٍ مقابل، ولا تُحذف القيود القديمة.
-     * فالرصيد يعود صفراً ويبقى تاريخه مقروءاً.
+     * المصادقة تُقيّد **الاستحقاق** ولا تُصفّر شيئاً.
+     *
+     * فالحساب جارٍ: الرصيد بعدها = ما كان + ما استُحقّ. ويبقى مستحقّاً حتّى
+     * يُقيَّد تحويلٌ فعليّ — لأنّ المستحقّ لا يُحوَّل كلّه دائماً، بقرار المالك.
+     *
+     * وكان هنا قيدُ `applied` يُصفّر الرصيد فيظهر صفراً أبداً، ويُحسب المُحوَّل
+     * رقماً في اللقطة لا قيداً في الدفتر. فلا يُعرف كم بقي.
      */
     for (const p of PARTNERS) {
-      if (Math.abs(carried[p]) <= ProfitRatificationService.TOLERANCE) continue;
+      if (Math.abs(computed[p]) <= ProfitRatificationService.TOLERANCE) continue;
       await this.ledger.save(this.ledger.create({
         period_id: period.id,
         occurred_at: at,
         partner: p,
-        amount: this.r2(-carried[p]),
-        kind: 'applied',
-        note: `أُدخل في مصادقة «${period.period_name}» — ${carried[p] > 0 ? 'زيادةً' : 'خصماً'}`,
+        amount: this.r2(computed[p]),
+        kind: 'due',
+        note: `المستحقّ عن «${period.period_name.trim()}» — بالمصادقة`,
         created_by: user,
       }));
     }
@@ -288,17 +405,30 @@ export class ProfitRatificationService {
       throw new BadRequestException('فكّ المصادقة يستوجب سبباً مكتوباً');
     }
 
+    /*
+     * فكّ المصادقة يعكس **الاستحقاق** الذي كتبته، لا التحويلات.
+     *
+     * فالتحويل واقعةٌ جرت: مالٌ خرج إلى بنك. وعكسُه يعني إنكارَ حوالةٍ نُفّذت.
+     * والاستحقاق قيدٌ حسابيّ كتبته المصادقة — فيُعكس معها.
+     */
     const at = new Date();
     const mine = await this.ledger.find({ where: { period_id: period.id } });
+    const payments = mine.filter((e) => e.kind === 'payment');
+    if (payments.length) {
+      throw new BadRequestException(
+        `على هذه الفترة ${payments.length} تحويلاً مُقيَّداً — احذفها أوّلاً إن كانت خطأً، `
+        + 'فلا تُفكّ مصادقةٌ خرج بها مالٌ إلى بنك',
+      );
+    }
     for (const e of mine) {
-      if (e.kind !== 'applied') continue;
+      if (e.kind !== 'due' && e.kind !== 'applied') continue;
       await this.ledger.save(this.ledger.create({
         period_id: period.id,
         occurred_at: at,
         partner: e.partner,
         amount: this.r2(-Number(e.amount)),
-        kind: 'applied',
-        note: `عكسُ تسوية بفكّ مصادقة «${period.period_name}» — ${why}`,
+        kind: e.kind,
+        note: `عكسُ ${e.kind === 'due' ? 'استحقاق' : 'تسوية'} بفكّ مصادقة «${period.period_name.trim()}» — ${why}`,
         created_by: user,
       }));
     }
@@ -307,7 +437,11 @@ export class ProfitRatificationService {
     period.ratified_by = null;
     period.ratified_snapshot = null;
     await this.periods.save(period);
-    return { ratified: false, reversed: mine.filter((e) => e.kind === 'applied').length, reason: why };
+    return {
+      ratified: false,
+      reversed: mine.filter((e) => e.kind === 'due' || e.kind === 'applied').length,
+      reason: why,
+    };
   }
 
   /**

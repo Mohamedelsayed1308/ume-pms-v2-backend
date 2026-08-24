@@ -46,7 +46,15 @@ export class ProfitSettlement {
   @Column({ type: 'decimal', precision: 15, scale: 4 })
   amount: number;
 
-  /** `opening` رصيدٌ افتتاحيّ · `delta` فرقٌ رُصد · `applied` تسويةٌ أُدخلت */
+  /**
+    * نوع القيد — والحساب جارٍ، فالقيود وقائع لا حسابات:
+    *
+    *   `opening`  رصيدٌ افتتاحيّ · ما تراكم قبل النظام
+    *   `due`      المستحقّ عن فترة · تكتبه المصادقة · موجب
+    *   `payment`  تحويلٌ فعليّ إلى الحساب البنكيّ · يكتبه المستخدم · سالب
+    *   `delta`    فرقٌ رُصد بعد المصادقة
+    *   `applied`  أثرُ تصميمٍ سابق — لم يعد يُكتب، وحُذف بهجرة الحساب الجاري
+    */
   @Column({ type: 'varchar', length: 20 })
   kind: string;
 
