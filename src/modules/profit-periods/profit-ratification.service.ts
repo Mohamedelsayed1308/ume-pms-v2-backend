@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, Not, IsNull } from 'typeorm';
 import { ProfitPeriod } from './profit-period.entity';
 import {
   ProfitSettlement, PARTNERS, PARTNER_NAMES, Partner,
@@ -72,6 +72,21 @@ export class ProfitRatificationService {
       balances: await this.balances(),
       partnerNames: PARTNER_NAMES,
       hasOpening: entries.some((e) => e.kind === 'opening'),
+      /*
+       * الافتتاحيّ يُعدَّل ما لم يُستهلك.
+       *
+       * ما دامت لم تُصادَق فترةٌ بعد فهو مسوّدة: لم يُبنَ عليه تحويل، ولم
+       * يُقفله قيدُ تسوية. وتصحيح غلطةٍ في فاصلةٍ عشريّة بقيدٍ مقابل يُبقي
+       * ٣٬٤٩٥٬٠٤٤ في الدفتر إلى الأبد لا معنى له.
+       *
+       * فإذا صُودق على فترةٍ واحدة، جُمِّد — وصار التصحيح بقيدٍ مقابل، لأنّ
+       * حوالةً بُنيت عليه.
+       */
+      openingEditable: (await this.periods.count({ where: { ratified_at: Not(IsNull()) } })) === 0,
+      opening: Object.fromEntries(
+        entries.filter((e) => e.kind === 'opening')
+          .map((e) => [e.partner, this.r2(Number(e.amount))]),
+      ),
       entries: entries.map((e) => ({
         ...e,
         amount: this.r2(Number(e.amount)),
@@ -93,7 +108,21 @@ export class ProfitRatificationService {
     entries: { partner: string; amount: number; note?: string }[],
     user: string,
   ) {
-    const existing = await this.ledger.find({ where: { kind: 'opening' } });
+    const ratifiedCount = await this.periods.count({ where: { ratified_at: Not(IsNull()) } });
+    if (ratifiedCount > 0) {
+      throw new BadRequestException(
+        'صُودق على فترةٍ بُنيت على هذا الرصيد — فلا يُعدَّل الافتتاحيّ بعدها، والتصحيح بقيدٍ مقابل',
+      );
+    }
+
+    /*
+     * يُستبدل لا يُضاف.
+     *
+     * فما دام لم يُستهلك فهو مسوّدة، والكتابة الثانية تصحيحٌ للأولى لا قيدٌ
+     * ثانٍ. ولو أُضيف لتضاعف الرصيد بلا أن يُلاحَظ.
+     */
+    await this.ledger.delete({ kind: 'opening' });
+
     const at = new Date();
     const written: string[] = [];
 
@@ -101,11 +130,6 @@ export class ProfitRatificationService {
       const p = String(e.partner || '') as Partner;
       if (!(PARTNERS as readonly string[]).includes(p)) {
         throw new BadRequestException(`شريكٌ غير معروف: ${e.partner}`);
-      }
-      if (existing.some((x) => x.partner === p)) {
-        throw new BadRequestException(
-          `${PARTNER_NAMES[p]}: له رصيدٌ افتتاحيٌّ مقيَّدٌ سلفاً — ولا يُكتب مرّتين`,
-        );
       }
       const amount = this.r2(Number(e.amount));
       if (!Number.isFinite(amount)) {
