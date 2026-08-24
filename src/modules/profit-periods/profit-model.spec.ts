@@ -305,22 +305,24 @@ describe('profit-model — معادلة المستند المعتمد', () => {
    */
   describe('مستنداتٌ تُثبت المعادلة — ووجهة Over Pax بقرار المالك', () => {
     /** المشترك بين الفترات: لا عمولة في هذه المستندات، والوقود يُدخَل مباشرةً. */
-    const period = (o: {
-      days: number;
-      amal: { duba: number; coll: number; op?: number; fuel: number; voy: number };
-      pos: { duba: number; coll: number; op?: number; fuel: number; voy: number };
-      fee?: number;
-    }) => calculateDistribution({
-      days: o.days, commissionRate: 6.5, perVoyageFee: o.fee ?? 0,
-      vessels: [
-        vessel({ key: 'amal', name: 'أمل', voyages: o.amal.voy, dailyRate: 13000,
-          fuel: o.amal.fuel, cashDuba: o.amal.duba, netCollected: o.amal.coll,
-          overPax: o.amal.op ?? 0 }),
-        vessel({ key: 'poseidon', name: 'بوسيدون', voyages: o.pos.voy, dailyRate: 14000,
-          fuel: o.pos.fuel, cashDuba: o.pos.duba, netCollected: o.pos.coll,
-          overPax: o.pos.op ?? 0 }),
-      ],
-    });
+    type Side = {
+      duba: number; coll: number; op?: number; opSaf?: number;
+      fuel: number; voy: number; sd?: number;
+    };
+    const period = (o: { days: number; amal: Side; pos: Side; fee?: number }) =>
+      calculateDistribution({
+        days: o.days, commissionRate: 6.5, perVoyageFee: o.fee ?? 0,
+        vessels: [
+          vessel({ key: 'amal', name: 'أمل', voyages: o.amal.voy, dailyRate: 13000,
+            sdBase: o.amal.sd ?? 0,
+            fuel: o.amal.fuel, cashDuba: o.amal.duba, netCollected: o.amal.coll,
+            overPax: o.amal.op ?? 0, overPaxSafaga: o.amal.opSaf ?? 0 }),
+          vessel({ key: 'poseidon', name: 'بوسيدون', voyages: o.pos.voy, dailyRate: 14000,
+            sdBase: o.pos.sd ?? 0,
+            fuel: o.pos.fuel, cashDuba: o.pos.duba, netCollected: o.pos.coll,
+            overPax: o.pos.op ?? 0, overPaxSafaga: o.pos.opSaf ?? 0 }),
+        ],
+      });
     const of = (r: ReturnType<typeof calculateDistribution>, k: string) =>
       r.vessels.find((v) => v.key === k)!;
 
@@ -360,7 +362,8 @@ describe('profit-model — معادلة المستند المعتمد', () => {
       const r = period({
         days: 14,
         amal: { duba: 284041.05, coll: 0, op: 33050.83, fuel: 0, voy: 3 },
-        pos: { duba: 656127.70, coll: -51966.21, op: 1408.46, fuel: 136872.23, voy: 7 },
+        pos: { duba: 656127.70, coll: -51966.21, op: 1408.46, opSaf: 4981.05,
+          fuel: 136872.23, voy: 7 },
       });
       const a = of(r, 'amal'), p = of(r, 'poseidon');
       /*
@@ -379,14 +382,13 @@ describe('profit-model — معادلة المستند المعتمد', () => {
       near(p.overPaxShare, 11954.56 + 11018.99, 0.5);
       near(p.adjustedProfit, 482038.93 + 11018.99, 0.5);
       /*
-       * وتسوية صفاجا هنا لا تُطابق: المستند ‎(٢٤٬٣٢٢.٩٢)‎ والمحرّك ‎(٢٥٬٩٨٣.١١)‎.
-       * والفرق ١٬٦٦٠.١٨ = ٣٣.٣٣٪ من ٤٬٩٨١.٠٥، وهي حصّة Over Pax **المحصَّلة في
-       * صفاجا**. فالمستند يُدخلها في جانب صفاجا لا في وعاء ضبا.
-       *
-       * ولم تُنمذَج: نقطتا بيانٍ لا تكفيان لقاعدة، والمستند يحسبها لأمل ويعكسها
-       * لبوسيدون بدل أن يشتقّها لكلٍّ — فصيغةٌ عامّة منهما تخمين.
+       * وتسوية صفاجا تُطابق الآن بعد نمذجة Over Pax صفاجا (٤٬٩٨١.٠٥).
+       * كانت تُخالف بمقدار ١٬٦٦٠.١٨ = ٣٣.٣٣٪ منها، وبقيت غير منمذَجةٍ حتّى
+       * وصل مستند ١–١٥ أغسطس فأظهر الآليّة لا النتيجة وحدها.
        */
-      near(a.safagaAdjust + 1660.18, -24322.92, 0.35);
+      near(a.safagaAdjust, -24322.92, 0.35);
+      near(a.safagaOverPaxShare, 1660.18, 0.02);
+      near(p.safagaOverPaxShare, -1660.18, 0.02);
     });
 
     /*
@@ -432,7 +434,8 @@ describe('profit-model — معادلة المستند المعتمد', () => {
       const r = period({
         days: 14, fee: 500,
         amal: { duba: 630303.15, coll: 119336.32, fuel: 305214.16, voy: 5 },
-        pos: { duba: 876600.95, coll: 85097.59, op: 16485.34, fuel: 137030.47, voy: 5 },
+        pos: { duba: 876600.95, coll: 85097.59, op: 16485.34, opSaf: 1226.42,
+          fuel: 137030.47, voy: 5 },
       });
       const a = of(r, 'amal'), p = of(r, 'poseidon');
       // نشأ على بوسيدون، فالقاعدة الثابتة تُوافق المستند هنا ولا تخالفه
@@ -441,8 +444,57 @@ describe('profit-model — معادلة المستند المعتمد', () => {
       near(a.adjustedProfit, 758946.61, 0.02);
       near(p.adjustedProfit, 764442.83, 0.02);
       near(r.fuelShare, 221122.32, 0.02);
-      // والفرق ٤٠٨.٧٧ = ٣٣.٣٣٪ من ١٬٢٢٦.٤٢ المحصَّلة في صفاجا — كفبراير سواءً
-      near(a.safagaAdjust + 408.77, -16710.60, 0.02);
+      // ٤٠٨.٧٧ = ٣٣.٣٣٪ من ١٬٢٢٦.٤٢ المحصَّلة في صفاجا — منمذَجةٌ الآن
+      near(a.safagaAdjust, -16710.60, 0.02);
+      near(a.safagaOverPaxShare, 408.77, 0.02);
+    });
+
+    /*
+     * ١ – ١٥ أغسطس ٢٠٢٦ — المستند الذي حسم قاعدة Over Pax صفاجا.
+     *
+     * «MV Posiedon Voy.#75 · ١٠٩ راكباً · ٥٬٩٣٦.٩٣ تُقسم ٦٦.٦٧٪ لبدوي
+     *  و٣٣.٣٣٪ للاتحاد» — ومنها Saf ٤٬٩٥٥.٦٠ و Dub ٩٨١.٣٣.
+     *
+     * والمستند يُثبت أنّ جزء ضبا وحده يدخل الوعاء برقمه: مجموع نقده المكتوب
+     * ١٬٥٢٤٬٣٦١.١٥ يزيد عن جمع العمودين ١٬٥٢٣٬٣٧٩.٨٢ بـ ٩٨١.٣٣ بالضبط.
+     *
+     * ويُثبت آليّة جزء صفاجا في سطر نقد صفاجا:
+     *   بوسيدون ٢٢٠٬٨٠٩.٣٥ − ٣٤٬٨٢٦.٣٨ + ٤٬٩٥٥.٦٠ = ١٩٠٬٩٣٨.٥٧
+     *   أمل     ١٥٤٬٤٦٠.٠٠ + ٣٤٬٨٢٦.٣٨            = ١٨٩٬٢٨٦.٣٨
+     */
+    it('١ – ١٥ أغسطس · Over Pax مقسومٌ بين ضبا وصفاجا', () => {
+      const r = period({
+        days: 15, fee: 500,
+        amal: { duba: 637840.48, coll: 154460.00, fuel: 315841.35, voy: 5, sd: 503230 },
+        pos: { duba: 885539.33, coll: 220809.35, op: 981.33, opSaf: 4955.60,
+          fuel: 0, voy: 5, sd: 596440 },
+      });
+      const a = of(r, 'amal'), p = of(r, 'poseidon');
+
+      // جزء ضبا وحده في الوعاء
+      near(r.totalOverPax, 981.33, 0.02);
+      near(r.totalOverPaxSafaga, 4955.60, 0.02);
+      near(p.overPaxShare, 654.25, 0.02);
+      near(a.overPaxShare, 327.08, 0.02);
+      near(a.adjustedProfit, 762016.99, 0.02);
+      near(p.adjustedProfit, 762344.16, 0.02);
+
+      // الخصومات الثلاثة كما في المستند
+      near(r.rentShare, 202500.00);
+      near(r.fuelShare, 157920.68, 0.02);
+      near(r.feeShare, 38239.28, 0.02);   // ١٬٠٩٩٬٦٧٠ × ٦.٥٪ + ١٠ × ٥٠٠ ÷ ٢
+
+      // تسوية صفاجا تجمع البندين كما يطويهما المستند في سطرٍ واحد
+      near(a.safagaOverPaxShare, 1651.70, 0.02);
+      near(p.safagaOverPaxShare, -1651.70, 0.02);
+      near(a.safagaAdjust, 34826.38, 0.02);
+      near(p.safagaAdjust, -34826.38, 0.02);
+
+      // والتوزيع — المستند يكتب ٣٩٨٬١٨٢.٧٢ و٣٢٨٬٨٥٧.٧٣ ويُبقي الكسر رصيداً
+      expect(a.dividendPayable).toBe(398183);
+      expect(p.dividendPayable).toBe(328857);
+      near(a.dividend, 398183.41, 0.05);
+      near(p.dividend, 328857.84, 0.05);
     });
 
     /*
@@ -588,6 +640,37 @@ describe('profit-model — معادلة المستند المعتمد', () => {
      * دليلة شريكاً ثالثاً مع Over Pax: لا مستندَ يُبيّن قسمته حينئذٍ.
      * فيبقى على منشئه ويُعلَن — ولا يُخمَّن توزيعٌ يمسّ مالاً حقيقياً.
      */
+    it('Over Pax صفاجا: مجموع التحويلات صفر — لا يُخلق مالٌ ولا يُعدم', () => {
+      const r = calculateDistribution({
+        days: 14, commissionRate: 6.5, perVoyageFee: 500,
+        vessels: [
+          vessel({ key: 'amal', name: 'أمل', voyages: 3, dailyRate: 13000,
+            cashDuba: 200000, overPaxSafaga: 3000 }),
+          vessel({ key: 'poseidon', name: 'بوسيدون', voyages: 3, dailyRate: 14000,
+            cashDuba: 300000, overPaxSafaga: 9000 }),
+        ],
+      });
+      const t = r.vessels.reduce((a, v) => a + v.safagaOverPaxShare, 0);
+      expect(Math.abs(t)).toBeLessThanOrEqual(0.02);
+      // ١٢٬٠٠٠ مجموعاً: بدوي ٨٬٠٠٠.٤٠ وبيده ٩٬٠٠٠ · والاتحاد ٣٬٩٩٩.٦٠ وبيده ٣٬٠٠٠
+      near(r.vessels.find((v) => v.key === 'poseidon')!.safagaOverPaxShare, -999.60, 0.02);
+      near(r.vessels.find((v) => v.key === 'amal')!.safagaOverPaxShare, 999.60, 0.02);
+    });
+
+    it('دليلة شريكاً مع Over Pax صفاجا: لا تسويةَ وتُعلَن', () => {
+      const r = calculateDistribution({
+        days: 14, commissionRate: 6.5, perVoyageFee: 500,
+        vessels: [
+          vessel({ key: 'amal', name: 'أمل', voyages: 3, dailyRate: 13000, cashDuba: 200000 }),
+          vessel({ key: 'poseidon', name: 'بوسيدون', voyages: 3, dailyRate: 14000,
+            cashDuba: 300000, overPaxSafaga: 5000 }),
+          vessel({ key: 'daleela', name: 'دليلة', voyages: 2, dailyRate: 9000, cashDuba: 120000 }),
+        ],
+      });
+      for (const v of r.vessels) expect(v.safagaOverPaxShare).toBe(0);
+      expect(r.warnings.some((w) => w.includes('صفاجا'))).toBe(true);
+    });
+
     it('الحال التي لا مستندَ لها تُعلَن ولا تُخمَّن', () => {
       const r = calculateDistribution({
         days: 14, commissionRate: 6.5, perVoyageFee: 500,

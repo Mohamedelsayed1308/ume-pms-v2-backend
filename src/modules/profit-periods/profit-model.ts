@@ -79,6 +79,27 @@ export interface VesselInput {
    */
   overPax?: number;
   /**
+   * Over Pax **المحصَّل في صفاجا** — لا يدخل وعاء ضبا.
+   *
+   * ── القاعدة، ومستندٌ يُظهر آليّتها لا نتيجتها فقط ──
+   * ما حُصّل في صفاجا **يبقى عند حائزه**، ونصيب الشريك الآخر يُحوَّل إليه ضمن
+   * تسوية صفاجا. مستند ١–١٥ أغسطس ٢٠٢٦ يكتب الطرفين صراحةً:
+   *
+   *   نقد بوسيدون في صفاجا = ٢٢٠٬٨٠٩.٣٥ − ٣٤٬٨٢٦.٣٨ + ٤٬٩٥٥.٦٠ = ١٩٠٬٩٣٨.٥٧
+   *   نقد أمل في صفاجا     = ١٥٤٬٤٦٠.٠٠ + ٣٤٬٨٢٦.٣٨            = ١٨٩٬٢٨٦.٣٨
+   *
+   * فالمبلغ ليس داخل «التحصيل»، بل يُضاف لحائزه ويُقتطع منه نصيب الآخر.
+   *
+   * ── وثلاثة مستنداتٍ تُثبّت المقدار ──
+   *   فبراير ١٤–٢٧    ١٬٦٦٠.١٨ = ٣٣.٣٣٪ × ٤٬٩٨١.٠٥
+   *   يونيو ٢٠–٣ يوليو   ٤٠٨.٧٧ = ٣٣.٣٣٪ × ١٬٢٢٦.٤٢
+   *   أغسطس ١–١٥      ١٬٦٥١.٧٠ = ٣٣.٣٣٪ × ٤٬٩٥٥.٦٠
+   *
+   * وكلّها نشأت على بوسيدون. والقاعدة الثابتة (٦٦.٦٧٪ لبدوي دائماً) تجعل
+   * الاتّجاه مستقلّاً عن المنشأ، فتنطبق الصيغة نفسها لو نشأ على أمل.
+   */
+  overPaxSafaga?: number;
+  /**
    * تسوية إيقاف المركب — بندٌ في المستند لم يُرَ إلا صفراً.
    *
    * يُخزَّن ويُنبَّه عليه ولا يدخل الحساب: موضعه في السلسلة غير معروف، وإدخاله
@@ -125,9 +146,16 @@ export interface VesselResult {
   overPax: number;
   /** نصيب هذا الشريك من Over Pax بعد قاعدة الثلثين */
   overPaxShare: number;
+  /** Over Pax المحصَّل في صفاجا على هذا المركب — كما أُدخل */
+  overPaxSafaga: number;
+  /**
+   * ما يُحوَّل إلى هذا الشريك من Over Pax صفاجا — داخلٌ في `safagaAdjust`.
+   * يُفرَد للعرض والمراجعة، والمستند يطويه في سطر التسوية الواحد.
+   */
+  safagaOverPaxShare: number;
   /** معدّل الربح = الأساس المشترك + نصيب Over Pax */
   adjustedProfit: number;
-  /** تسوية صفاجا لهذا الشريك: متوسّط التحصيل − تحصيله */
+  /** تسوية صفاجا: (متوسّط التحصيل − تحصيله) + نصيبه من Over Pax صفاجا */
   safagaAdjust: number;
   /** التوزيع المحسوب بالسنت */
   dividend: number;
@@ -171,6 +199,8 @@ export interface ModelResult {
   baseShare: number;
   totalCashDuba: number;
   totalOverPax: number;
+  /** مجموع Over Pax المحصَّل في صفاجا — لا يدخل وعاء ضبا */
+  totalOverPaxSafaga: number;
   rentShare: number;
   fuelShare: number;
   feeShare: number;
@@ -277,6 +307,43 @@ function splitOverPax(active: VesselInput[]): { share: Record<string, number>; u
   return { share, unproven };
 }
 
+/**
+ * تسوية Over Pax المحصَّل في صفاجا.
+ *
+ * المبلغ يبقى مادّياً عند حائزه، وكلّ شريكٍ يستحقّ حصّته الثابتة من **مجموع**
+ * ما حُصّل. فالمُحوَّل إلى شريك = استحقاقه − ما بيده:
+ *
+ *   تحويل(i) = مجموع الصفاجا × نسبة(i) − صفاجا(i)
+ *
+ * ومجموع التحويلات صفرٌ بالضرورة — لا يُخلق مالٌ ولا يُعدم.
+ *
+ * وحسابها على مستند ١–١٥ أغسطس ٢٠٢٦ (٤٬٩٥٥.٦٠ على بوسيدون وحده):
+ *   أمل      ٤٬٩٥٥.٦٠ × ٣٣.٣٣٪ − ٠        = +١٬٦٥١.٧٠
+ *   بوسيدون  ٤٬٩٥٥.٦٠ × ٦٦.٦٧٪ − ٤٬٩٥٥.٦٠ = (١٬٦٥١.٧٠)
+ *
+ * ودليلة شريكاً مستقلّاً: حالةٌ لم يُرها مستند، فيبقى كلٌّ على ما بيده ويُعلَن.
+ */
+function splitSafagaOverPax(active: VesselInput[]): {
+  transfer: Record<string, number>;
+  total: number;
+  unproven: boolean;
+} {
+  const transfer: Record<string, number> = {};
+  for (const v of active) transfer[v.key] = 0;
+
+  const has = (k: string) => Object.prototype.hasOwnProperty.call(transfer, k);
+  const total = active.reduce((a, v) => a + n(v.overPaxSafaga), 0);
+  const unproven = has('daleela') && total !== 0;
+
+  if (!total || unproven || !has('poseidon') || !has('amal')) {
+    return { transfer, total: r2(total), unproven };
+  }
+
+  transfer.poseidon = total * OVER_PAX_BADAWI - n(active.find((v) => v.key === 'poseidon')!.overPaxSafaga);
+  transfer.amal = total * OVER_PAX_ETEHAD - n(active.find((v) => v.key === 'amal')!.overPaxSafaga);
+  return { transfer, total: r2(total), unproven };
+}
+
 export function calculateDistribution(input: ModelInput): ModelResult {
   const days = Math.max(0, n(input.days));
   const rate = n(input.commissionRate);
@@ -302,6 +369,11 @@ export function calculateDistribution(input: ModelInput): ModelResult {
   const sum = (f: (x: (typeof per)[number]) => number) => per.reduce((a, x) => a + f(x), 0);
 
   const { share: overPaxShare, unproven: overPaxUnproven } = splitOverPax(active);
+  const {
+    transfer: safagaOpTransfer,
+    total: totalOverPaxSafaga,
+    unproven: safagaOpUnproven,
+  } = splitSafagaOverPax(active);
 
   const totalCashDuba = r2(sum((x) => n(x.v.cashDuba)));
   const totalOverPax = r2(sum((x) => n(x.v.overPax)));
@@ -343,11 +415,19 @@ export function calculateDistribution(input: ModelInput): ModelResult {
         'يُبيّنها مستند، فبقي كلٌّ على منشئه',
     );
   }
+  if (safagaOpUnproven) {
+    warnings.push(
+      'دليلة شريكٌ مستقلّ مع Over Pax محصَّلٍ في صفاجا — لم يُبيّنها مستند، ' +
+        'فبقي كلٌّ على ما بيده ولم تُجرَ تسوية',
+    );
+  }
 
   const vessels: VesselResult[] = per.map((x) => {
     const opShare = overPaxShare[x.v.key] || 0;
     const adjustedProfit = baseShare + opShare;
-    const safagaAdjust = avgNetCollected - n(x.v.netCollected);
+    // المستند يطوي البندين في سطرٍ واحد اسمه `Sfaga Cash Adjustment`
+    const safagaOpShare = safagaOpTransfer[x.v.key] || 0;
+    const safagaAdjust = avgNetCollected - n(x.v.netCollected) + safagaOpShare;
     const dividend = adjustedProfit - rentShare - fuelShare - feeShare + safagaAdjust;
     // المستند يُنزل التوزيع إلى الدولار الصحيح ويُبقي الكسر رصيداً في ضبا،
     // ويكتبه سطراً مستقلّاً. فالكسر ليس فارقاً بل بندٌ في الورقة.
@@ -363,9 +443,11 @@ export function calculateDistribution(input: ModelInput): ModelResult {
      * تكسبه سفينةٌ لا يساوي ما تخسره الأخرى إلّا بسنتات. والفارق هنا بالآلاف،
      * فالكسر ضجيجٌ لا معنى له.
      */
-    const standalone = n(x.v.cashDuba) + n(x.v.netCollected) + n(x.v.overPax)
+    const standalone = n(x.v.cashDuba) + n(x.v.netCollected)
+      + n(x.v.overPax) + n(x.v.overPaxSafaga)
       - x.rent - x.fuel - x.fee;
-    const partnered = dividend + n(x.v.netCollected);
+    // وما حُصّل في صفاجا يبقى بيده في الحالين، فيدخل الطرفين ولا يكسر صفريّة المجموع
+    const partnered = dividend + n(x.v.netCollected) + n(x.v.overPaxSafaga);
 
     return {
       key: x.v.key,
@@ -382,6 +464,8 @@ export function calculateDistribution(input: ModelInput): ModelResult {
       netCollected: r2(n(x.v.netCollected)),
       overPax: r2(n(x.v.overPax)),
       overPaxShare: r2(opShare),
+      overPaxSafaga: r2(n(x.v.overPaxSafaga)),
+      safagaOverPaxShare: r2(safagaOpShare),
       adjustedProfit: r2(adjustedProfit),
       safagaAdjust: r2(safagaAdjust),
       dividend: r2(dividend),
@@ -402,6 +486,7 @@ export function calculateDistribution(input: ModelInput): ModelResult {
     baseShare: r2(baseShare),
     totalCashDuba,
     totalOverPax,
+    totalOverPaxSafaga,
     rentShare: r2(rentShare),
     fuelShare: r2(fuelShare),
     feeShare: r2(feeShare),

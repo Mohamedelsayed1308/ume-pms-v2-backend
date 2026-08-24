@@ -27,6 +27,18 @@ export class ProfitPeriod {
   @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 }) amal_over_pax: number;
   @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 }) daleela_over_pax: number;
 
+  /*
+   * Over Pax المحصَّل في صفاجا — لا يدخل وعاء ضبا.
+   *
+   * يبقى عند حائزه، ونصيب الشريك الآخر يُحوَّل ضمن تسوية صفاجا. أظهر آليّتَه
+   * مستند ١–١٥ أغسطس ٢٠٢٦ في سطر نقد صفاجا، وثبّت مقدارَه ثلاثة مستندات.
+   *
+   * الهجرة: docs/profit-over-pax-safaga-up.sql
+   */
+  @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 }) poseidon_over_pax_safaga: number;
+  @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 }) amal_over_pax_safaga: number;
+  @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 }) daleela_over_pax_safaga: number;
+
   // ── بنكر (مجلوب من الشيت) ─────────────────────────────────────────────
   @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 }) bunker_badawi: number;
   @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 }) bunker_ittihad: number;
