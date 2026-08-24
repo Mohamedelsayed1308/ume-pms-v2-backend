@@ -12,6 +12,7 @@ import { AttachmentsModule } from './modules/attachments/attachments.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { ShippingCompaniesModule } from './modules/shipping-companies/shipping-companies.module';
 import { HireInvoicesModule } from './modules/hire-invoices/hire-invoices.module';
+import { BrokersModule } from './modules/brokers/brokers.module';
 import { ManagementInvoicesModule } from './modules/management-invoices/management-invoices.module';
 import { ProfitPeriodsModule } from './modules/profit-periods/profit-periods.module';
 import { TasksModule } from './modules/tasks/tasks.module';
@@ -100,6 +101,7 @@ import { LOGIN_THROTTLE } from './common/rate-limit';
     CustomersModule,
     ShippingCompaniesModule,
     HireInvoicesModule,
+    BrokersModule,
     ManagementInvoicesModule,
     ProfitPeriodsModule,
     TasksModule,

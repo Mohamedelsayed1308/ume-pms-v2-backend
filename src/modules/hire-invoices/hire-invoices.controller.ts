@@ -1,4 +1,6 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, Query } from '@nestjs/common';
+import {
+  Controller, Get, Post, Put, Delete, Body, Param, Req, UseGuards, Query, HttpException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { HireInvoice } from './hire-invoice.entity';
@@ -8,6 +10,7 @@ import { JwtAuthGuard } from '../../common/jwt-auth.guard';
 import { ScreenGuard } from '../../common/screen.guard';
 import { RequireScreen } from '../../common/require-screen.decorator';
 import { HirePaymentsService } from './hire-payments.service';
+import { BrokersService } from '../brokers/brokers.service';
 
 @Controller('api/hire-invoices')
 @UseGuards(JwtAuthGuard, ScreenGuard)
@@ -18,7 +21,12 @@ export class HireInvoicesController {
     @InjectRepository(HireInvoiceItem) private itemRepo: Repository<HireInvoiceItem>,
     @InjectRepository(HirePayment) private payRepo: Repository<HirePayment>,
     private payments: HirePaymentsService,
+    private brokers: BrokersService,
   ) {}
+
+  private who(req: any): string {
+    return String(req?.user?.username || req?.user?.email || req?.user?.id || '');
+  }
 
   @Get()
   async findAll(@Query('status') status?: string) {
@@ -76,7 +84,7 @@ export class HireInvoicesController {
   }
 
   @Post()
-  async create(@Body() body: any) {
+  async create(@Body() body: any, @Req() req: any) {
     const { items, ...invoiceData } = body;
     this.sanitize(invoiceData);
     // الإشعارات لا تخضع لدورة السداد — حالتها «صادر»
@@ -91,14 +99,28 @@ export class HireInvoicesController {
       );
       await this.itemRepo.save(itemEntities);
     }
-    return this.repo.findOne({
+    /*
+     * عمولةُ البروكر تُزامن بعد الحفظ لا قبله.
+     *
+     * فهي تُحسب على `total_amount` المخزَّن، والقاعدة تقرأ العميل والمركب من
+     * الصفّ — فلا يُقيَّد استحقاقٌ على فاتورةٍ لم تُكتب بعد.
+     *
+     * وفشلُها **لا يُسقط الحفظ**: الفاتورة مستندٌ ماليّ والعمولة تابعةٌ لها.
+     * فتُبلَّغ ولا تمنع، وتُصلَّح بإعادة المزامنة.
+     */
+    let brokerSync: unknown = null;
+    try { brokerSync = await this.brokers.syncInvoice(saved.id, this.who(req)); }
+    catch (e: any) { brokerSync = { error: String(e?.message || e) }; }
+
+    const out = await this.repo.findOne({
       where: { id: saved.id },
       relations: { customer: true, vessel: true, shipping_company: true, items: true },
     });
+    return { ...out, brokerSync };
   }
 
   @Put(':id')
-  async update(@Param('id') id: string, @Body() body: any) {
+  async update(@Param('id') id: string, @Body() body: any, @Req() req: any) {
     const { items, ...invoiceData } = body;
     this.sanitize(invoiceData);
     if (invoiceData.doc_type === 'credit_note' || invoiceData.doc_type === 'debit_note') {
@@ -114,14 +136,36 @@ export class HireInvoicesController {
         await this.itemRepo.save(itemEntities);
       }
     }
-    return this.repo.findOne({
+
+    // «وتسري على أيّ فاتورةٍ قديمة تُعدَّل» — قرار المالك
+    let brokerSync: unknown = null;
+    try { brokerSync = await this.brokers.syncInvoice(id, this.who(req)); }
+    catch (e: any) { brokerSync = { error: String(e?.message || e) }; }
+
+    const out = await this.repo.findOne({
       where: { id },
       relations: { customer: true, vessel: true, shipping_company: true, items: true, payments: true },
     });
+    return { ...out, brokerSync };
   }
 
+  /**
+   * الحذف — ويمتنع إن سُدِّدت عليها عمولةُ بروكر.
+   *
+   * فقيود الدفتر معلّقةٌ بـ `ON DELETE CASCADE`: حذفُ الفاتورة يمحو معها
+   * سداداً خرج به مالٌ فعلاً، فيختلّ رصيد البروكر بلا سببٍ مكتوب.
+   * والاستحقاق وحده يُحذف معها — فهو تابعٌ لها ولم يُدفع.
+   */
   @Delete(':id')
   async remove(@Param('id') id: string) {
+    const summary = await this.brokers.invoiceSummary();
+    const paid = summary[id]?.paid ?? 0;
+    if (paid > 0.01) {
+      throw new HttpException(
+        `سُدِّد على هذه الفاتورة ${paid.toFixed(2)} عمولةَ بروكر — احذف السداد أوّلاً بسببٍ مكتوب`,
+        400,
+      );
+    }
     await this.repo.delete(id);
     return { success: true };
   }
