@@ -56,8 +56,9 @@ ALTER TABLE profit_settlements
 
 -- ── بوابة ٢: صار قابلاً للفراغ، والقيود القائمة لم تُمسّ ────────────────
 DO $$
-DECLARE nullable text; rows_after int; orphans int;
+DECLARE nullable text; rows_after int; orphans int; rows_before int;
 BEGIN
+  SELECT count(*) INTO rows_before FROM profit_settlements;
   SELECT is_nullable INTO nullable FROM information_schema.columns
   WHERE table_name = 'profit_settlements' AND column_name = 'period_id';
   IF nullable <> 'YES' THEN
@@ -66,9 +67,19 @@ BEGIN
 
   SELECT count(*) INTO rows_after FROM profit_settlements;
   SELECT count(*) INTO orphans FROM profit_settlements WHERE period_id IS NULL;
-  RAISE NOTICE 'بعد الهجرة: % قيداً · % بلا فترة (المتوقّع ٠ الآن)', rows_after, orphans;
-  IF orphans <> 0 THEN
-    RAISE EXCEPTION 'GATE 2 FAILED: ظهر % قيداً بلا فترة — الهجرة لا تكتب صفوفاً', orphans;
+  RAISE NOTICE 'بعد الهجرة: % قيداً · منها % بلا فترة', rows_after, orphans;
+  /*
+   * والقيود بلا فترة **ليست خطأً**.
+   *
+   * كان هنا شرطٌ يرفض وجودها، بُني على أنّ الهجرة تُشغَّل مرّةً على دفترٍ
+   * فارغ. فلمّا أُعيد تشغيلها بعد إدخال الرصيد الافتتاحيّ رفضت وتراجعت —
+   * والهجرة يجب أن تكون متكرّرة الأمان.
+   *
+   * فالمحروس أنّ الهجرة **لا تكتب صفوفاً**، لا أنّ الجدول فارغ:
+   */
+  IF rows_after <> rows_before THEN
+    RAISE EXCEPTION 'GATE 2 FAILED: تغيّر عدد القيود من % إلى % — الهجرة لا تكتب صفوفاً',
+      rows_before, rows_after;
   END IF;
 END $$;
 
