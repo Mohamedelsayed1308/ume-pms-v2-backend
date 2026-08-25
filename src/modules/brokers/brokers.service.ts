@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Broker, BrokerRule, BrokerLedger } from './broker.entity';
 import { HireInvoice } from '../hire-invoices/hire-invoice.entity';
+import { HireInvoiceItem } from '../hire-invoices/hire-invoice-item.entity';
 
 /**
  * عمولة البروكر على فواتير الإيجار.
@@ -27,7 +28,37 @@ export class BrokersService {
     @InjectRepository(BrokerRule) private rules: Repository<BrokerRule>,
     @InjectRepository(BrokerLedger) private ledger: Repository<BrokerLedger>,
     @InjectRepository(HireInvoice) private invoices: Repository<HireInvoice>,
+    @InjectRepository(HireInvoiceItem) private items: Repository<HireInvoiceItem>,
   ) {}
+
+  /**
+   * أساسُ العمولة — **مجموع بنود الـ Hire** لا إجمالي الفاتورة.
+   *
+   * تصحيحُ المالك في ٢٥ أغسطس ٢٠٢٦. والفاتورة تحمل بنوداً ليست إيجاراً:
+   * تموينٌ وغسيلٌ بالسالب، وتعويضُ إعفاءٍ من الإرشاد. فالحساب على الإجمالي
+   * يُنقص الأساس حين تكون سالبة — في `ZA-26-08-02` كان ٢٧٩٬٠٠٠ والصواب
+   * ٢٩٤٬٠٠٠.
+   *
+   * ── وفاتورةٌ بلا بنودٍ إطلاقاً ──
+   * تُحسب على إجماليها ويُكتب ذلك في بيان القيد. فصفرٌ صامتٌ يُسقط عمولةً
+   * مستحقّة، والبيان يجعل الحالة الشاذّة مقروءة.
+   */
+  private async baseOf(inv: HireInvoice): Promise<{ base: number; note: string }> {
+    const rows = await this.items.find({ where: { hire_invoice_id: inv.id } });
+    if (!rows.length) {
+      return {
+        base: this.r2(inv.total_amount),
+        note: ' — على إجمالي الفاتورة، فلا بنودَ فيها',
+      };
+    }
+    const hire = rows.filter((it) => (it.item_kind || 'hire') === 'hire');
+    const base = this.r2(hire.reduce((a, it) => a + Number(it.amount || 0), 0));
+    const skipped = rows.length - hire.length;
+    return {
+      base,
+      note: skipped ? ` — على ${hire.length} بند Hire، واستُبعد ${skipped}` : '',
+    };
+  }
 
   private r2 = (v: unknown) => Math.round((Number(v) || 0) * 100) / 100;
 
@@ -87,8 +118,9 @@ export class BrokersService {
     let created = 0, updated = 0, removed = 0, kept = 0;
     const wanted = new Set(rules.map((r) => r.broker_id));
 
+    const { base, note: baseNote } = await this.baseOf(inv);
+
     for (const r of rules) {
-      const base = this.r2(inv.total_amount);
       const amount = this.r2((base * Number(r.rate)) / 100);
       const cur = existing.find((e) => e.broker_id === r.broker_id);
 
@@ -104,7 +136,7 @@ export class BrokersService {
           base_amount: base,
           rate: Number(r.rate),
           reference: inv.invoice_number,
-          note: `عمولة عن فاتورة ${inv.invoice_number}`,
+          note: `عمولة عن فاتورة ${inv.invoice_number}${baseNote}`,
           created_by: user,
         }));
         created++;
@@ -117,6 +149,7 @@ export class BrokersService {
         cur.rate = Number(r.rate);
         cur.currency = inv.currency || r.currency;
         cur.reference = inv.invoice_number;
+        cur.note = `عمولة عن فاتورة ${inv.invoice_number}${baseNote}`;
         await this.ledger.save(cur);
         updated++;
       } else {

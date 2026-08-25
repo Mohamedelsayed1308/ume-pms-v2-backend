@@ -24,6 +24,26 @@ export class HireInvoiceItem {
   @Column({ type: 'int', default: 0 })
   sort_order: number;
 
+  /**
+   * نوعُ البند — وعليه يقوم أساسُ عمولة البروكر.
+   *
+   *   `hire`      إيجارٌ · يدخل الأساس
+   *   `other`     بندٌ آخر · لا يدخل — تموينٌ وغسيلٌ وتعويضاتٌ
+   *   `off_hire`  إيقافٌ عن الإيجار · لا يدخل
+   *
+   * ── لماذا نوعٌ لا علامةٌ منطقيّة ──
+   * البند يقول **ما هو** لا «أيُحتسب أم لا». فيخدم العمولة اليوم وأيّ قاعدةٍ
+   * تأتي غداً بلا عمودٍ ثانٍ.
+   *
+   * ── ولماذا لا يُشتقّ من الوصف ──
+   * `Off Hire` مصطلحٌ قياسيّ معناه **خصم**، ومطابقةُ كلمة «hire» تُدخله في
+   * الأساس فتزيد العمولة — خطأً صامتاً في الاتّجاه المعاكس.
+   *
+   * الهجرة: docs/hire-item-kind-up.sql
+   */
+  @Column({ type: 'varchar', length: 20, default: 'hire' })
+  item_kind: string;
+
   @ManyToOne(() => HireInvoice, (inv) => inv.items, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'hire_invoice_id' })
   hire_invoice: HireInvoice;

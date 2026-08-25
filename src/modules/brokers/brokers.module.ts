@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { CommonAuthzModule } from '../../common/common-authz.module';
 import { Broker, BrokerRule, BrokerLedger } from './broker.entity';
 import { HireInvoice } from '../hire-invoices/hire-invoice.entity';
+import { HireInvoiceItem } from '../hire-invoices/hire-invoice-item.entity';
 import { BrokersService } from './brokers.service';
 import { BrokersController } from './brokers.controller';
 
@@ -14,7 +15,7 @@ import { BrokersController } from './brokers.controller';
 @Module({
   imports: [
     CommonAuthzModule,
-    TypeOrmModule.forFeature([Broker, BrokerRule, BrokerLedger, HireInvoice]),
+    TypeOrmModule.forFeature([Broker, BrokerRule, BrokerLedger, HireInvoice, HireInvoiceItem]),
   ],
   providers: [BrokersService],
   controllers: [BrokersController],
