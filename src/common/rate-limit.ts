@@ -96,3 +96,43 @@ export const LOGIN_THROTTLE: ThrottlerOptions = {
   blockDuration: LOGIN_BLOCK_MS,
   getTracker: (req) => clientIp(req),
 };
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * تحديد معدّل إعادة صياغة الإيميلات
+ *
+ * `POST /api/email/rewrite` ينادي نموذجاً خارجيّاً بالمال في كلّ طلب — وزرُّ
+ * «أعد الصياغة» وأزرارُ الصقل الثلاثة تحته تجعل النقر رخيصاً والنداء غالياً.
+ * فحلقةٌ عابثة، أو إصبعٌ عالق، تُنفق ما لا يُسترجع.
+ *
+ * وعشرون في الساعة سخيّةٌ لمن يكتب فعلاً: إيميلٌ ثمّ صقلتان يُنفقان ثلاثة.
+ *
+ * ── والمفتاح هنا المستخدم لا العنوان ──
+ * لأنّ الموجّه محروسٌ بـ `JwtAuthGuard`، فالهويّة معلومةٌ ومُثبَتةٌ برمزٍ موقَّع
+ * — وهي أدقّ من عنوانٍ يشترك فيه مكتبٌ كامل خلف بوّابةٍ واحدة. ولولا ذلك
+ * لأوقف أوّلُ من يستعملها بقيّةَ الشركة.
+ *
+ * ويبقى `clientIp` احتياطاً لطلبٍ بلا هويّة — وهو ما لا يمرّ الحارسَ أصلاً.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
+export const EMAIL_REWRITE_THROTTLER = 'email-rewrite';
+export const EMAIL_REWRITE_LIMIT = 20;
+export const EMAIL_REWRITE_TTL_MS = 3_600_000;
+
+export interface AuthedRequest extends ProxyAwareRequest {
+  user?: { id?: string };
+}
+
+/** هويّة المستخدم إن وُجدت، وإلا مفتاح العنوان المراعي للبروكسي. */
+export function userTracker(req: AuthedRequest): string {
+  const id = req?.user?.id;
+  return id ? `u:${id}` : clientIp(req);
+}
+
+export const EMAIL_REWRITE_THROTTLE: ThrottlerOptions = {
+  name: EMAIL_REWRITE_THROTTLER,
+  ttl: EMAIL_REWRITE_TTL_MS,
+  limit: EMAIL_REWRITE_LIMIT,
+  getTracker: (req) => userTracker(req as AuthedRequest),
+};
