@@ -17,10 +17,11 @@ import {
  */
 describe('نصّ النظام — الخطوط الحمراء', () => {
   /*
-   * الخطوط ستّة لا خمسة.
+   * الخطوط سبعة اليوم.
    *
-   * جاء الطلبُ يقول «الخمس قواعد» ثمّ عدّ ستّاً — فالمعوَّل على القائمة لا على
-   * العدد، وكلُّ بندٍ فيها مُثبَّتٌ هنا بسطرٍ محوريّ منه.
+   * جاء الطلبُ يقول «الخمس قواعد» ثمّ عدّ ستّاً، ثمّ أُضيف السابع بقرار المالك
+   * في ٢٦ أغسطس ٢٠٢٦: لا توقيعَ باسم. فالمعوَّل على القائمة لا على العدد، وكلُّ
+   * بندٍ فيها مُثبَّتٌ هنا بسطرٍ محوريّ منه.
    */
   const RULES: { name: string; needles: string[] }[] = [
     {
@@ -50,6 +51,14 @@ describe('نصّ النظام — الخطوط الحمراء', () => {
       name: '٦ · لا إيموجي ولا علامات تعجّب',
       needles: ['NEVER use emoji and NEVER use exclamation marks'],
     },
+    {
+      // الشاشة يستعملها زملاء، فاسمٌ ثابتٌ في التوقيع يُخرج كلَّ إيميلٍ باسم غير كاتبه.
+      name: '٧ · لا يُوقّع باسم شخص',
+      needles: [
+        "NEVER sign the email with a person's name",
+        'The closing phrase is the last line, and nothing follows it',
+      ],
+    },
   ];
 
   it.each(RULES)('$name — مكتوبٌ في نصّ النظام', ({ needles }) => {
@@ -60,7 +69,9 @@ describe('نصّ النظام — الخطوط الحمراء', () => {
     expect(SYSTEM_PROMPT).toContain('Dear Mr. <FirstName>,');
     expect(SYSTEM_PROMPT).toContain('Kindly review the below and advise us of the current status.');
     expect(SYSTEM_PROMPT).toContain('Best Regards,');
-    expect(SYSTEM_PROMPT).toContain('Mohamed Elsayed');
+    // ولا اسمَ بعدها — لا في الدليل ولا في النصّ كلِّه
+    expect(SYSTEM_PROMPT).not.toContain('Mohamed Elsayed');
+    expect(SYSTEM_PROMPT).toContain('مع خالص التحية،');
     expect(SYSTEM_PROMPT).toContain('<Topic> – <Entity or Vessel>');
   });
 
