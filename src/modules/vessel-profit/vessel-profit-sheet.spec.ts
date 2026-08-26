@@ -307,3 +307,50 @@ describe('بوسيدون — كارت الربحيّة التشغيليّ', () =
     expect(v.overPax).toBeUndefined();
   });
 });
+
+/*
+ * ── وسم «راجعها» ──
+ *
+ * كُتب بعد أن اكتشف المالك بعينه نقصاً في سيولة يناير ٢٠٢٦ لبيلاجوس:
+ * ١٦٧٬٥٥٣ ناقصةً. ومصدرها رحلة `#2` في ٢ يناير — سيولتها صفرٌ وصافيها سالبٌ
+ * (−١٬٢٠٤.١٢) بينما إيرادها ٢٠٥٬٣١٣.٢٥.
+ *
+ * **والدفتر كان يعرف**: وسَمَ الصفَّ بـ«⚠️ راجعها»، والوسمُ يصل الحمولة في حقل
+ * `broken` — ولا يقرؤه أحد. فجمعت الشاشة الصفر بأمانةٍ تامّة وصمتت.
+ *
+ * وخمس رحلاتٍ موسومةٌ في الأسطول كلِّه، فالشارة نادرةٌ ولن تصير ضجيجاً.
+ */
+describe('وسم «راجعها» يصل الشاشة', () => {
+  const spec = SHEET_VESSELS.Pelagos;
+  const base = { vessel: 'PELAGOS', ref: 2, year: 2026, dateExp: '2026-01-02', dateImp: '2026-01-03' };
+
+  it('`broken: true` يُحمَل كما هو', () => {
+    expect(toSheetVoyage({ ...base, broken: true }, spec).broken).toBe(true);
+  });
+
+  it('`false` وغيابُ الحقل كلاهما ليس وسماً', () => {
+    expect(toSheetVoyage({ ...base, broken: false }, spec).broken).toBe(false);
+    expect(toSheetVoyage(base, spec).broken).toBe(false);
+  });
+
+  /*
+   * قيمةٌ رخوةٌ لا تصير وسماً.
+   *
+   * الحمولة تأتي من `JSON.parse` لنصٍّ يكتبه سكربتٌ خارج مستودعاتنا. فلو صار
+   * يوماً يكتب `"true"` أو `1`، لصار **كلُّ** صفٍّ موسوماً لو قارنّا بالرخو —
+   * ولضاعت الشارة في الضجيج. فالمقارنة صارمةٌ عمداً.
+   */
+  it('لا يُوسَم بقيمةٍ رخوة', () => {
+    for (const v of ['true', 1, 'yes', {}]) {
+      expect(toSheetVoyage({ ...base, broken: v }, spec).broken).toBe(false);
+    }
+  });
+
+  it('الوسم لا يمنع الرحلة من الظهور — تُعرض وتُعلَن', () => {
+    const rows: any[][] = [[...Array(10).fill(null), JSON.stringify({ ...base, broken: true, liq: 0, net: -1204.12 })]];
+    const out = voyagesFromData(rows, 'Pelagos');
+    expect(out).toHaveLength(1);
+    expect(out[0].broken).toBe(true);
+    expect(out[0].bassamLiq).toBe(0);
+  });
+});
