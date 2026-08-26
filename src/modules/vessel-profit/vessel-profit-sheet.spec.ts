@@ -1,4 +1,4 @@
-import { voyagesFromData, toSheetVoyage, SHEET_VESSELS } from './vessel-profit-sheet';
+import { voyagesFromData, toSheetVoyage, monthOf, SHEET_VESSELS } from './vessel-profit-sheet';
 
 /*
  * الحمولة أدناه منسوخة من رحلةٍ حقيقية في `DATA` بعد السحب من دفتر ألكوديا.
@@ -119,5 +119,72 @@ describe('قراءة رحلات المركب من الشيت الموحّد', ()
     expect(SHEET_VESSELS.Pelagos.exportExp.dischargeOrderTax).toBeUndefined();
     expect(SHEET_VESSELS.Alcudia.exportExp.dischargeOrderTax).toBe('aa');
     expect(SHEET_VESSELS.Alcudia.exportExp.freeZone2).toBeUndefined();
+  });
+});
+
+/*
+ * ── الشهر المشوَّه ──
+ *
+ * كُتب بعد حادثةٍ حقيقيّة: رحلة ألكوديا `#41` تحمل في الشيت
+ * `dateExp = "204-11-27"` — خطأُ طباعةٍ تنقصه خانة. فصار شهرها `204-11`.
+ *
+ * والشهور تُرتَّب نصّاً، و`204-11` يسبق `2026-08` حرفاً بحرف، فوقع آخر الترتيب.
+ * والشاشة تفتح على آخر شهر — فهبطت على دلوٍ فيه رحلةٌ واحدة، وبدت ٢٠٦ رحلاتٍ
+ * من ٢٠٢٥ و٢٠٢٦ كأنّها اختفت.
+ *
+ * فسطرٌ واحدٌ مشوَّهٌ في دفترٍ يحرّره موظّفون يوميّاً كان يكفي ليخطف الشاشة.
+ */
+describe('الشهر المشوَّه لا يخطف الترتيب', () => {
+  const spec = SHEET_VESSELS.Alcudia;
+
+  it('`monthOf` يقبل الصالح ويردّ ما عداه', () => {
+    expect(monthOf('2026-01-02')).toBe('2026-01');
+    expect(monthOf('1999-12-31')).toBe('1999-12');
+    // الحالة التي وقعت فعلاً
+    expect(monthOf('204-11-27')).toBeNull();
+    // شهرٌ خارج المدى، وسنةٌ خارج القرنين، وفراغ
+    expect(monthOf('2026-13-01')).toBeNull();
+    expect(monthOf('2026-00-01')).toBeNull();
+    expect(monthOf('1899-05-01')).toBeNull();
+    expect(monthOf('')).toBeNull();
+    expect(monthOf(null)).toBeNull();
+    expect(monthOf(undefined)).toBeNull();
+  });
+
+  const BROKEN = {
+    vessel: 'ALCUDIA', ref: 41, year: null,
+    dateExp: '204-11-27',   // مشوَّه — تنقصه خانة
+    dateImp: '2024-11-28',  // سليم
+  };
+
+  it('تاريخ مغادرةٍ مشوَّه يرتدّ إلى تاريخ الوصول', () => {
+    const v = toSheetVoyage(BROKEN, spec);
+    expect(v.month).toBeNull();
+    expect(v.monthAlt).toBe('2024-11');
+  });
+
+  it('الرحلة تُعرض في شهرها الصحيح ولا تُحذف', () => {
+    const rows = [[null, null, null, null, null, null, null, null, null, null, JSON.stringify(BROKEN)]];
+    const out = voyagesFromData(rows, 'Alcudia');
+    expect(out).toHaveLength(1);
+    expect(out[0].month).toBe('2024-11');
+  });
+
+  it('التاريخ المعروض هو الصالح لا المشوَّه', () => {
+    expect(toSheetVoyage(BROKEN, spec).date).toBe('2024-11-28');
+  });
+
+  it('لم يعد يقع آخر الترتيب — وهو أصل العطب', () => {
+    const rows = [
+      [...Array(10).fill(null), JSON.stringify(BROKEN)],
+      [...Array(10).fill(null), JSON.stringify({ vessel: 'ALCUDIA', ref: 90, dateExp: '2026-08-01', dateImp: '2026-08-02' })],
+    ];
+    const months = voyagesFromData(rows, 'Alcudia').map((v) => v.month!).sort();
+    expect(months[months.length - 1]).toBe('2026-08');
+  });
+
+  it('تاريخان مشوَّهان معاً ⇒ الرحلة تُسقط من الشهور ولا تُختلق لها شهر', () => {
+    const rows = [[...Array(10).fill(null), JSON.stringify({ vessel: 'ALCUDIA', ref: 7, dateExp: 'x', dateImp: '' })]];
+    expect(voyagesFromData(rows, 'Alcudia')).toHaveLength(0);
   });
 });

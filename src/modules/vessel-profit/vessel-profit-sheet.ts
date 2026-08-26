@@ -112,10 +112,35 @@ function side(p: any, leg: 'E' | 'I', map: ExpenseMap): SheetSide {
 }
 
 /**
+ * شهرٌ صالحٌ أو لا شيء.
+ *
+ * ── ولماذا لا يكفي `slice(0, 7)` ──
+ * كان الشهر يُقتطع من التاريخ بلا سؤالٍ عن شكله. فرحلة ألكوديا `#41` تحمل في
+ * الشيت `dateExp = "204-11-27"` — خطأُ طباعةٍ تنقصه خانة — فصار شهرها `204-11`.
+ *
+ * والشهور تُرتَّب **نصّاً**، و`204-11` يسبق `2026-08` عند المقارنة حرفاً بحرف
+ * (الخانة الثالثة `4` أكبر من `2`) — فوقع في آخر الترتيب. والشاشة تفتح على آخر
+ * شهر، فهبطت على دلوٍ فيه رحلةٌ واحدة، وبدت مئتان وستّ رحلاتٍ من ٢٠٢٥ و٢٠٢٦
+ * كأنّها اختفت. ولم تختفِ: كانت في القائمة تحته.
+ *
+ * فسطرٌ واحدٌ مشوَّهٌ في الدفتر كان يكفي ليخطف الشاشة كلَّها.
+ *
+ * والسنة تُقيَّد بـ `19xx` أو `20xx`، والشهر بـ `01`–`12`. وما خالف ذلك يُعامَل
+ * **كأنّه غائب** — فيرتدّ إلى تاريخ الوصول كما يرتدّ عند الغياب أصلاً.
+ */
+const VALID_MONTH = /^(19|20)\d{2}-(0[1-9]|1[0-2])$/;
+
+export function monthOf(date: unknown): string | null {
+  if (date === null || date === undefined || date === '') return null;
+  const m = String(date).slice(0, 7);
+  return VALID_MONTH.test(m) ? m : null;
+}
+
+/**
  * حمولة رحلةٍ من `DATA` → الشكل الذي تعرضه الشاشة.
  *
  * الشهر من تاريخ المغادرة، و`monthAlt` من الوصول. الشاشة تُرجّح الأول وتسقط إلى
- * الثاني — فرحلةٌ بلا تاريخ مغادرة تُعرض ولا تُحذف.
+ * الثاني — فرحلةٌ بلا تاريخ مغادرة **أو بتاريخٍ مشوَّه** تُعرض ولا تُحذف.
  */
 /** سنة الرحلة: من حقلها إن وُجد، وإلا من تاريخها. */
 function liqYear(p: any): number {
@@ -125,12 +150,19 @@ function liqYear(p: any): number {
 }
 
 export function toSheetVoyage(p: any, spec: SheetVesselSpec): SheetVoyage {
-  const month = p.dateExp ? String(p.dateExp).slice(0, 7) : null;
-  const monthAlt = p.dateImp ? String(p.dateImp).slice(0, 7) : null;
+  const month = monthOf(p.dateExp);
+  const monthAlt = monthOf(p.dateImp);
   return {
     ref: p.ref,
     month, monthAlt,
-    date: String(p.dateExp || p.dateImp || ''),
+    /*
+     * التاريخ المعروض يُفضّل الصالح.
+     *
+     * فرحلةٌ حُفظ فيها تاريخُ مغادرةٍ مشوَّه كانت تُظهره في رأس الشاشة
+     * («أحدث رحلة في الشيت: #41 · 204-11-27») بينما تاريخ وصولها سليم.
+     * وتصحيحُ الدفتر يبقى واجباً — لكنّ الشاشة لا تُردّد الخطأ في أثنائه.
+     */
+    date: String((monthOf(p.dateExp) ? p.dateExp : null) || (monthOf(p.dateImp) ? p.dateImp : null) || p.dateExp || p.dateImp || ''),
     E: side(p, 'E', spec.exportExp),
     I: side(p, 'I', spec.importExp),
     bunker: n(p.bnk),
