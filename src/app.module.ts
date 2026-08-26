@@ -25,22 +25,26 @@ import { AuditModule } from './modules/audit/audit.module';
 import { AskUmeModule } from './modules/ask-ume/ask-ume.module';
 import { AccountingModule } from './modules/accounting/accounting.module';
 import { ReceiptsModule } from './modules/receipts/receipts.module';
+import { EmailRewriteModule } from './modules/email-rewrite/email-rewrite.module';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { R3aRunnerModule } from './migrations/r3a-runner.module';
 import {
   shouldSynchronize,
   assertNoAutoDdlInProduction,
 } from './common/schema-policy';
-import { LOGIN_THROTTLE } from './common/rate-limit';
+import { EMAIL_REWRITE_THROTTLE, LOGIN_THROTTLE } from './common/rate-limit';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     /*
-     * المُحدِّد مُسجَّل ولا يحرس شيئاً بنفسه — `ThrottlerGuard` يُوضع على موجّه
-     * تسجيل الدخول وحده. فلا حدَّ على بقيّة النظام في هذه المرحلة.
+     * المُحدِّدان مُسجَّلان ولا يحرسان شيئاً بأنفسهما — `ThrottlerGuard` يُوضع
+     * على موجّه تسجيل الدخول وعلى موجّه إعادة صياغة الإيميلات وحدهما. فلا حدَّ
+     * على بقيّة النظام في هذه المرحلة.
+     *
+     * ودلوان منفصلان بالاسم: من استنفد صياغاته لا يُمنع من تسجيل الدخول.
      */
-    ThrottlerModule.forRoot([LOGIN_THROTTLE]),
+    ThrottlerModule.forRoot([LOGIN_THROTTLE, EMAIL_REWRITE_THROTTLE]),
     /*
      * ── حُذف `ServeStaticModule` على `/uploads` ──
      *
@@ -112,6 +116,7 @@ import { LOGIN_THROTTLE } from './common/rate-limit';
     MarketModule,
     AuditModule,
     AskUmeModule,
+    EmailRewriteModule,
     AccountingModule,
     ReceiptsModule,
     R3aRunnerModule,

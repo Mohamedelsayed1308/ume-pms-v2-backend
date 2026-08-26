@@ -96,3 +96,9 @@ Nest is an MIT-licensed open source project. It can grow thanks to the sponsors 
 ## License
 
 Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+
+## Environment: `EMAIL_MODEL`
+
+`EMAIL_MODEL` is **optional**. When unset, the email-rewrite screen (`POST /api/email/rewrite`) falls back to the same model Ask UME uses.
+
+Setting it to a Sonnet-class model cuts the cost of this screen substantially: rewriting a draft is a writing task, not a reasoning one — no numbers are computed and no tools are executed, so the larger model buys little here.
