@@ -188,3 +188,122 @@ describe('الشهر المشوَّه لا يخطف الترتيب', () => {
     expect(voyagesFromData(rows, 'Alcudia')).toHaveLength(0);
   });
 });
+
+/*
+ * ── بوسيدون ──
+ *
+ * حمولةٌ منسوخةٌ من رحلةٍ حقيقيّة في `DATA` (‏`POSEIDON` رقم ١ · ٢٠٢٥).
+ *
+ * والاختبار يحرس دعوى البناء: **خريطة بوسيدون هي خريطة ألكوديا نفسها**، وقد
+ * قُورن رأسا الدفترين في الشيت فتطابقا. فإن انحرفت إحداهما عن الأخرى يوماً،
+ * سقط اختبارٌ باسمه بدل أن يظهر بندٌ باسمٍ خاطئ في شاشةٍ ماليّة.
+ */
+const POSEIDON_ROW = {
+  vessel: 'POSEIDON', ref: 1, year: 2025,
+  dateExp: '2025-01-01', dateImp: '2025-01-01',
+  nTruck: 219, nTruck_E: 111, nTruck_I: 108,
+  nVeh: 27, nVeh_E: 3, nVeh_I: 24,
+  nPax: 43, nPax_E: 10, nPax_I: 33,
+  trE: 102150, vhE: 285, pxE: 800, dis: 0, dis_E: 0, dis_I: 0,
+  trI: 71388, vhI: 4373.4, pxI: 2426.64,
+  pkNo_E: 0, pkNo_I: 0,
+  aa: 200, aa_E: 200, aa_I: 0,
+  ad: 28.5, ad_E: 28.5, ad_I: 0,
+  ae: 80, ae_E: 80, ae_I: 0,
+  r: 7005.5, r_E: 0, r_I: 7005.5,
+  s: 656.01, s_E: 0, s_I: 656.01,
+  t: 485.33, t_E: 0, t_I: 485.33,
+  fw: 226.67, fw_E: 0, fw_I: 226.67,
+  eb: 1333, eb_E: 0, eb_I: 1333,
+  tel: 230.12, tel_E: 0, tel_I: 230.12,
+  oth: -3886.4, oth_E: 0, oth_I: -3886.4,
+  pk: 5700.11, pk_E: 0, pk_I: 5700.11,
+  pg: 11500, pg_E: 11500, pg_I: 0,
+  bnk: 0, net: 157864.21, liq: 153554.71,
+  collO: 165305.04, collP: 181423.04,
+  line: 'ضبا/سفاجا', route: 'main', routeName: 'SFG/DUB',
+  cashDuba: 0, cashSafaga: 0, overPax: 0, offHire: 0,
+};
+
+describe('بوسيدون — كارت الربحيّة التشغيليّ', () => {
+  const spec = SHEET_VESSELS.Poseidon;
+
+  it('مسجَّلٌ باسمه في الشيت', () => {
+    expect(spec).toBeDefined();
+    expect(spec.vessel).toBe('POSEIDON');
+  });
+
+  /*
+   * الأسماء من ألكوديا، والفارق واحدٌ مقصود.
+   *
+   * قُورن رأسا الدفترين فتطابقا، فبنودُ المصروفات واحدة. لكنّ **الجانب** الذي
+   * يُقرأ منه البند ليس واحداً: `ميناء السعودية` مقروءٌ من الوارد وحده في
+   * ألكوديا وبيلاجوس — وهو صحيحٌ عندهما، فـ `pk_E` صفرٌ في ٤١٣ رحلةً لهما.
+   *
+   * وبوسيدون يسجّل منه على رِجل الصادر ١١٦٬٦٤٣.٧٠ في ١٦ رحلة. فنسخُ الخريطة
+   * حرفيّاً كان يُسقطها صامتةً.
+   */
+  it('أسماء البنود من ألكوديا — والزيادة هي الجانبان لا بندٌ جديد', () => {
+    const raw = (m: Record<string, string>) => [...new Set(Object.values(m))].sort();
+    expect(raw(spec.exportExp)).toEqual(raw({ ...SHEET_VESSELS.Alcudia.exportExp, ksaPortE: 'pk' }));
+    expect(raw(spec.importExp)).toEqual(raw({ ...SHEET_VESSELS.Alcudia.importExp, egyPortI: 'pg' }));
+  });
+
+  it('لا بندَ يُقرأ من جانبٍ واحد — فلا يسقط مالٌ صامتاً', () => {
+    const e = new Set(Object.values(spec.exportExp));
+    const i = new Set(Object.values(spec.importExp));
+    const oneSided = [...new Set([...e, ...i])].filter((k) => !e.has(k) || !i.has(k));
+    // ما بقي أحاديّ الجانب يجب أن يكون صفراً في الدفتر — وهذه قائمة المعلوم
+    expect(oneSided.sort()).toEqual(['aa', 'ab', 'ac', 'ad', 'ae', 'brk', 'eb', 'fw', 'r', 's', 'sd', 't', 'tel']);
+  });
+
+  it('`ميناء السعودية` على رِجل الصادر لا يسقط', () => {
+    const v = toSheetVoyage({ ...POSEIDON_ROW, pk_E: 8092.38, pk_I: 5700.11 }, spec);
+    expect(v.E.exp.ksaPortE).toBe(8092.38);
+    expect(v.I.exp.ksaPort).toBe(5700.11);
+  });
+
+  it('يُقرأ من `DATA` ولا يلتقط رحلات غيره', () => {
+    const rows: any[][] = [
+      [...Array(10).fill(null), JSON.stringify(POSEIDON_ROW)],
+      [...Array(10).fill(null), JSON.stringify({ ...POSEIDON_ROW, vessel: 'ALCUDIA', ref: 9 })],
+      [...Array(10).fill(null), JSON.stringify({ ...POSEIDON_ROW, vessel: 'AMAL', ref: 8 })],
+    ];
+    const out = voyagesFromData(rows, 'Poseidon');
+    expect(out).toHaveLength(1);
+    expect(out[0].ref).toBe(1);
+    expect(out[0].month).toBe('2025-01');
+  });
+
+  it('يفصل رِجل الصادر عن الوارد بأعدادها ومصاريفها', () => {
+    const v = toSheetVoyage(POSEIDON_ROW, spec);
+    expect(v.E.truckC).toBe(111);
+    expect(v.I.truckC).toBe(108);
+    expect(v.E.exp.egyPort).toBe(11500);
+    expect(v.I.exp.ksaPort).toBe(5700.11);
+    expect(v.I.exp.comm10).toBe(7005.5);
+    expect(v.E.exp.dischargeOrderTax).toBe(200);
+  });
+
+  /*
+   * سبعة بنودٍ صفرٌ في رحلاته كلّها — تبقى في الخريطة ولا تُحذف.
+   * فحذفُها يُخفي بنداً إن بدأ الدفتر يملؤه غداً.
+   */
+  it('البنود الفارغة تبقى معروضةً بصفرها', () => {
+    const v = toSheetVoyage(POSEIDON_ROW, spec);
+    for (const k of ['disShiOrder60', 'frtDep', 'broker']) expect(v.E.exp[k]).toBe(0);
+    for (const k of ['specialDisc']) expect(v.I.exp[k]).toBe(0);
+  });
+
+  /*
+   * ── ولا مفاهيمَ توزيعٍ هنا ──
+   * الكارت تشغيليٌّ بقرار المالك: «كم ربح المركب هذا الشهر؟» — ونقدُ ضبا
+   * وتحصيلُ صفاجا والـ Over Pax موضعها شاشة توزيع الأرباح وحدها.
+   */
+  it('لا يحمل نقد ضبا ولا صفاجا ولا Over Pax', () => {
+    const v = toSheetVoyage(POSEIDON_ROW, spec) as any;
+    expect(v.cashDuba).toBeUndefined();
+    expect(v.cashSafaga).toBeUndefined();
+    expect(v.overPax).toBeUndefined();
+  });
+});
