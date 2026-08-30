@@ -26,6 +26,7 @@ import { AskUmeModule } from './modules/ask-ume/ask-ume.module';
 import { AccountingModule } from './modules/accounting/accounting.module';
 import { ReceiptsModule } from './modules/receipts/receipts.module';
 import { EmailRewriteModule } from './modules/email-rewrite/email-rewrite.module';
+import { InvestmentsModule } from './modules/investments/investments.module';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { R3aRunnerModule } from './migrations/r3a-runner.module';
 import {
@@ -117,6 +118,7 @@ import { EMAIL_REWRITE_THROTTLE, LOGIN_THROTTLE } from './common/rate-limit';
     AuditModule,
     AskUmeModule,
     EmailRewriteModule,
+    InvestmentsModule,
     AccountingModule,
     ReceiptsModule,
     R3aRunnerModule,
