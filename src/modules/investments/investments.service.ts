@@ -6,6 +6,7 @@ import {
   StoneFundCall, StoneVessel, StoneOpenItem, StoneInterestTerm,
 } from './stone.entity';
 import { accrueInterest, type ParentMove, type InterestTerm } from './stone-interest';
+import { planSeed, type SeedPayload, type SeedPlan } from './stone-seed';
 
 const n = (v: unknown) => Number(v) || 0;
 const r2 = (v: number) => Math.round(v * 100) / 100;
@@ -346,6 +347,147 @@ export class InvestmentsService {
       note: String(b?.note || ''),
       created_by: user,
     }));
+  }
+
+  // ── البذر ────────────────────────────────────────────────────────────────
+
+  /**
+   * خطّةُ بذرٍ — تُحسب وتُعرض **ولا تكتب شيئاً**.
+   *
+   * والحمولة تصل في جسم الطلب لا من ملفٍّ في المستودع: المستودع عامٌّ، وأرقام
+   * قرضٍ بين شركةٍ أمٍّ وتابعتها لا تُنشر.
+   */
+  async seedPlan(payload: SeedPayload): Promise<SeedPlan & { tables_empty: boolean; existing: number }> {
+    const plan = planSeed(payload);
+    const existing = await this.totalRows();
+    return { ...plan, tables_empty: existing === 0, existing };
+  }
+
+  private async totalRows(): Promise<number> {
+    const counts = await Promise.all([
+      this.rounds.count(), this.parent.count(), this.inv.count(), this.banks.count(),
+      this.calls.count(), this.vessels.count(), this.items.count(), this.terms.count(),
+    ]);
+    return counts.reduce((a, b) => a + b, 0);
+  }
+
+  /**
+   * الكتابة — مرّةً واحدةً على دفترٍ فارغ.
+   *
+   * ── ولماذا يرفض التكرار ──
+   * البذر يُجرى مرّةً. وإعادتُه على دفترٍ فيه بياناتٌ تُضاعف كلّ قيد، ولا يُكتشف
+   * ذلك إلا بجمعٍ يدويّ. والحذف قبل البذر قرارٌ يُتّخذ صراحةً لا ضمناً.
+   *
+   * وما لا يمرّ الخطّة لا يُكتب: `ok = false` يعني خطأً يمنع.
+   */
+  async seedCommit(payload: SeedPayload, user = '') {
+    const plan = planSeed(payload);
+    if (!plan.ok) {
+      throw new BadRequestException(
+        'الخطّة فيها أخطاء: ' + plan.findings.filter((f) => f.level === 'error').map((f) => f.text).join(' · '),
+      );
+    }
+    const existing = await this.totalRows();
+    if (existing > 0) {
+      throw new BadRequestException(`الدفتر ليس فارغاً (${existing} صفّاً) — البذر يُجرى مرّةً واحدة`);
+    }
+
+    // ١ · الجولات أوّلاً، فبها تُنسَب البقيّة
+    const roundIds = new Map<number, string>();
+    for (const r of payload.rounds) {
+      const row = await this.rounds.save(this.rounds.create({
+        round_no: r.round_no,
+        commitment_usd: String(r2(Number(r.commitment_usd))),
+        plsa_signed_date: r.plsa_signed_date || null,
+        status: String(r.status || ''),
+        note: String(r.note || ''),
+      }));
+      roundIds.set(r.round_no, row.id);
+    }
+    const rid = (no?: number | null) => (no != null ? roundIds.get(no) ?? null : null);
+
+    for (const m of payload.parent ?? []) {
+      await this.parent.save(this.parent.create({
+        occurred_at: m.occurred_at,
+        direction: m.direction,
+        kind: m.kind ?? 'principal',
+        amount_usd: String(r2(Number(m.amount_usd))),
+        round_id: rid(m.round_no),
+        reference: String(m.reference || ''),
+        note: String(m.note || ''),
+        created_by: user,
+      }));
+    }
+
+    for (const m of payload.investment ?? []) {
+      await this.inv.save(this.inv.create({
+        round_id: rid(m.round_no)!,
+        direction: m.direction,
+        seq: m.seq ?? null,
+        call_date: m.call_date || null,
+        paid_date: m.paid_date || null,
+        amount_usd: String(r2(Number(m.amount_usd))),
+        // النسبة تُشتقّ ولا تُنقل: رقمٌ منقولٌ قد يخالف مبلغه
+        pct_of_commitment: (() => {
+          const c = payload.rounds.find((x) => x.round_no === m.round_no)?.commitment_usd;
+          return c ? String(Number(m.amount_usd) / Number(c)) : null;
+        })(),
+        ships: String(m.ships || ''),
+        source: m.source ?? 'both',
+        status: m.direction === 'repatriation' ? (m.status ?? 'announced') : null,
+        suspect_round_id: rid(m.suspect_round_no),
+        note: String(m.note || ''),
+        created_by: user,
+      }));
+    }
+
+    for (const b of payload.bank ?? []) {
+      await this.banks.save(this.banks.create({
+        occurred_at: b.occurred_at,
+        bank: String(b.bank || ''),
+        reference: String(b.reference || ''),
+        amount_usd: b.amount_usd != null ? String(r2(Number(b.amount_usd))) : null,
+        note: String(b.note || ''),
+        created_by: user,
+      }));
+    }
+
+    for (const c of payload.fund_calls ?? []) {
+      await this.calls.save(this.calls.create({
+        round_id: rid(c.round_no)!,
+        as_of: c.as_of,
+        fund_called_usd: c.fund_called_usd != null ? String(Number(c.fund_called_usd)) : null,
+        pct: c.pct != null ? String(Number(c.pct)) : null,
+        note: String(c.note || ''),
+      }));
+    }
+
+    for (const v of payload.vessels ?? []) {
+      await this.vessels.save(this.vessels.create({
+        round_id: rid(v.round_no),
+        name: v.name,
+        vessel_type: String(v.vessel_type || ''),
+        built: v.built ?? null,
+        hire: String(v.hire || ''),
+        charter_period: String(v.charter_period || ''),
+        delivery: String(v.delivery || ''),
+        pool_coefficient: String(v.pool_coefficient || ''),
+        note: String(v.note || ''),
+      }));
+    }
+
+    let order = 0;
+    for (const it of payload.open_items ?? []) {
+      await this.items.save(this.items.create({
+        title: it.title,
+        status: it.status ?? 'open',
+        owner: String(it.owner || ''),
+        note: String(it.note || ''),
+        sort_order: order++,
+      }));
+    }
+
+    return { seeded: true, plan, written: await this.totalRows() };
   }
 
   /** حذفُ قيدٍ — بمعرّفه ودفتره. ولا حذفَ جماعيّ. */

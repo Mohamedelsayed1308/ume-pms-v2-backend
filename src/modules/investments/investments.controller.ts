@@ -97,6 +97,25 @@ export class InvestmentsController {
     return this.svc.addInterestTerm(b, req.user?.id || '');
   }
 
+  /**
+   * خطّةُ البذر — تُعرض ولا تكتب.
+   *
+   * وهي الخطوة التي تجعل البذر مراجَعاً: كلُّ فارقٍ بين المصدرين يُطبع قبل أن
+   * يُحفظ رقم.
+   */
+  @Post('seed/plan')
+  seedPlan(@Request() req: any, @Body() b: any) {
+    ensureAdmin(req);
+    return this.svc.seedPlan(b);
+  }
+
+  /** الكتابة — على دفترٍ فارغٍ وحده، ومرّةً واحدة. */
+  @Post('seed/commit')
+  seedCommit(@Request() req: any, @Body() b: any) {
+    ensureAdmin(req);
+    return this.svc.seedCommit(b, req.user?.id || '');
+  }
+
   /** حذفُ قيدٍ واحدٍ بمعرّفه — ولا حذفَ جماعيّ. */
   @Delete(':table/:id')
   remove(@Request() req: any, @Param('table') table: string, @Param('id') id: string) {
