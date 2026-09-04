@@ -139,6 +139,34 @@ export class StoneFundCall {
   @Column({ type: 'timestamptz', default: () => 'now()' }) created_at: Date;
 }
 
+/**
+ * نتيجة الصندوق في تاريخ تقرير — من تقرير CTM الربعيّ، تُدخَل يداً.
+ *
+ * ── لماذا ──
+ * «المكاسب الدفتريّة» = نصيب Bee من نتيجة الصندوق التراكميّة، ونصيبها =
+ * الالتزام ÷ حجم الصندوق. ولا شيءَ من ذلك في حركات Bee نفسها — فالمصدر
+ * الوحيد تقرير CTM، وهذا الجدول يحمله بتاريخه ومصدره. ولا يُخزَّن النصيب:
+ * يُحسب عند كلّ نداء من الالتزام والحجم.
+ */
+@Entity('stone_fund_reports')
+export class StoneFundReport {
+  @PrimaryGeneratedColumn('uuid') id: string;
+
+  @Index()
+  @Column({ type: 'uuid' }) round_id: string;
+  @Column({ type: 'date' }) as_of: string;
+  @Column({ type: 'numeric', precision: 18, scale: 2 }) fund_size_usd: string;
+  @Column({ type: 'numeric', precision: 18, scale: 2, nullable: true }) fund_called_usd: string | null;
+  @Column({ type: 'numeric', precision: 18, scale: 2, nullable: true }) result_period_usd: string | null;
+  @Column({ type: 'numeric', precision: 18, scale: 2 }) result_cumulative_usd: string;
+  @Column({ type: 'numeric', precision: 18, scale: 2, nullable: true }) fund_repatriated_usd: string | null;
+  @Column({ type: 'smallint', nullable: true }) vessels_count: number | null;
+  @Column({ type: 'varchar', length: 200, default: '' }) source: string;
+  @Column({ type: 'text', default: '' }) note: string;
+  @Column({ type: 'varchar', length: 120, default: '' }) created_by: string;
+  @Column({ type: 'timestamptz', default: () => 'now()' }) created_at: Date;
+}
+
 /** سفينةٌ أُضيفت للجولة. */
 @Entity('stone_vessels')
 export class StoneVessel {

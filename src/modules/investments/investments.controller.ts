@@ -4,6 +4,8 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/jwt-auth.guard';
 import { InvestmentsService } from './investments.service';
+import { StoneReportService } from './stone-report.service';
+import { REPORT_LANGS, type ReportLang } from './stone-report';
 
 /**
  * الأدمن وحده — بأمر المالك في ٢٨ أغسطس ٢٠٢٦.
@@ -20,7 +22,28 @@ function ensureAdmin(req: any) {
 @Controller('api/investments/stone')
 @UseGuards(JwtAuthGuard)
 export class InvestmentsController {
-  constructor(private svc: InvestmentsService) {}
+  constructor(private svc: InvestmentsService, private report: StoneReportService) {}
+
+  /**
+   * تقرير الإدارة — عند الطلب، بلا تخزين.
+   *
+   * الأرقام من `card()` نفسه (فلا يفترق حسابان)، والسرد من النموذج، والحارس
+   * يردّ ما لم يُطابق. `lang` من قائمةٍ مغلقة.
+   */
+  @Post('report')
+  async managementReport(@Request() req: any, @Body() b: any) {
+    ensureAdmin(req);
+    const lang = (REPORT_LANGS as readonly string[]).includes(String(b?.lang)) ? (String(b.lang) as ReportLang) : 'ar';
+    const card = await this.svc.card();
+    return this.report.generate(card as any, lang, req.user?.id || '');
+  }
+
+  /** تقرير صندوقٍ ربعيّ من CTM — يُدخَل يداً. */
+  @Post('fund-report')
+  addFundReport(@Request() req: any, @Body() b: any) {
+    ensureAdmin(req);
+    return this.svc.addFundReport(b, req.user?.id || '');
+  }
 
   /** الكارت كاملاً — الملخّص والدفاتر والتنبيهات في نداءٍ واحد. */
   @Get()

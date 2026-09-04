@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import {
   StoneRound, StoneParentLedger, StoneInvestmentLedger, StoneBankConfirmation,
-  StoneFundCall, StoneVessel, StoneOpenItem, StoneInterestTerm,
+  StoneFundCall, StoneVessel, StoneOpenItem, StoneInterestTerm, StoneFundReport,
 } from './stone.entity';
 import { accrueInterest, type ParentMove, type InterestTerm } from './stone-interest';
 import { planSeed, type SeedPayload, type SeedPlan } from './stone-seed';
@@ -32,6 +32,7 @@ export class InvestmentsService {
     @InjectRepository(StoneVessel) private vessels: Repository<StoneVessel>,
     @InjectRepository(StoneOpenItem) private items: Repository<StoneOpenItem>,
     @InjectRepository(StoneInterestTerm) private terms: Repository<StoneInterestTerm>,
+    @InjectRepository(StoneFundReport) private reports: Repository<StoneFundReport>,
   ) {}
 
   /**
@@ -44,7 +45,7 @@ export class InvestmentsService {
     const today = new Date().toISOString().slice(0, 10);
     const at = asOf && /^\d{4}-\d{2}-\d{2}$/.test(asOf) ? asOf : today;
 
-    const [rounds, parentRows, invRows, bankRows, callRows, vesselRows, itemRows, termRows] =
+    const [rounds, parentRows, invRows, bankRows, callRows, vesselRows, itemRows, termRows, reportRows] =
       await Promise.all([
         this.rounds.find({ order: { round_no: 'ASC' } }),
         this.parent.find({ order: { occurred_at: 'ASC' } }),
@@ -54,6 +55,7 @@ export class InvestmentsService {
         this.vessels.find({ order: { created_at: 'ASC' } }),
         this.items.find({ order: { sort_order: 'ASC', created_at: 'ASC' } }),
         this.terms.find({ order: { effective_from: 'ASC' } }),
+        this.reports.find({ order: { as_of: 'DESC' } }),
       ]);
 
     // ── دفتر الأمّ ──
@@ -95,6 +97,22 @@ export class InvestmentsService {
         .filter((p) => p.round_id === rd.id && p.kind === 'principal' && p.direction === 'funding')
         .reduce((a, p) => a + n(p.amount_usd), 0));
 
+      /*
+       * ── المكاسب: محقَّقةٌ ودفتريّة، بتسميتين لا تختلطان ──
+       *
+       * الاسترداد ردُّ رأس مالٍ حتّى يتجاوز المدفوع — فلا «مكسبَ محقَّق» قبل
+       * ذلك، والصفر هنا صحيحٌ لا نقص. والدفتريّ نصيب Bee من نتيجة الصندوق
+       * التراكميّة في آخر تقرير CTM: نصيبها = الالتزام ÷ حجم الصندوق، يُحسب
+       * هنا ولا يُخزَّن. ولا تقريرَ ⇒ `null` فتقول الشاشة «لا تقرير» لا «صفر».
+       */
+      const capitalReturned = r2(Math.min(repatConfirmed, contributed));
+      const realizedGain = r2(Math.max(0, repatConfirmed - contributed));
+      const capitalAtStone = r2(contributed - capitalReturned);
+      const latest = reportRows.find((x) => x.round_id === rd.id) ?? null;
+      const fundSize = latest ? n(latest.fund_size_usd) : 0;
+      const beeShare = latest && fundSize > 0 && commitment > 0 ? commitment / fundSize : null;
+      const bookShare = beeShare != null && latest ? r2(n(latest.result_cumulative_usd) * beeShare) : null;
+
       return {
         id: rd.id, round_no: rd.round_no, commitment, status: rd.status,
         plsa_signed_date: rd.plsa_signed_date, note: rd.note,
@@ -123,12 +141,30 @@ export class InvestmentsService {
         fund_calls: callRows.filter((c) => c.round_id === rd.id).map((c) => ({
           as_of: c.as_of, fund_called_usd: n(c.fund_called_usd), pct: n(c.pct),
         })),
+        capital_returned: capitalReturned,
+        capital_at_stone: capitalAtStone,
+        realized_gain: realizedGain,
+        bee_share_pct: beeShare == null ? null : r2(beeShare * 100),
+        fund_report: latest ? {
+          as_of: latest.as_of,
+          fund_size_usd: fundSize,
+          fund_called_usd: latest.fund_called_usd == null ? null : n(latest.fund_called_usd),
+          result_period_usd: latest.result_period_usd == null ? null : n(latest.result_period_usd),
+          result_cumulative_usd: n(latest.result_cumulative_usd),
+          vessels_count: latest.vessels_count,
+          source: latest.source,
+        } : null,
+        book_result_share: bookShare,
+        book_value: bookShare == null ? null : r2(capitalAtStone + bookShare),
       };
     });
 
     const contributedAll = r2(byRound.reduce((a, r) => a + r.contributed, 0));
     const repatConfirmedAll = r2(byRound.reduce((a, r) => a + r.repat_confirmed, 0));
     const repatAnnouncedAll = r2(byRound.reduce((a, r) => a + r.repat_announced, 0));
+    const realizedAll = r2(byRound.reduce((a, r) => a + r.realized_gain, 0));
+    const hasBook = byRound.some((r) => r.book_result_share != null);
+    const bookAll = hasBook ? r2(byRound.reduce((a, r) => a + (r.book_result_share ?? 0), 0)) : null;
 
     return {
       as_of: at,
@@ -149,6 +185,10 @@ export class InvestmentsService {
         /** لا شرطَ مُدخَل ⇒ الشاشة تقول «لا فائدةَ مُتّفقٌ عليها» ولا تسكت */
         interest_has_terms: interest.hasTerms,
         interest_agreed: interest.agreed,
+        realized_gain: realizedAll,
+        /** `null` = لا تقرير صندوقٍ مُدخَل — تُعرض «لا تقرير» لا «صفر» */
+        book_result_share: bookAll,
+        book_value: bookAll == null ? null : r2(byRound.reduce((a, r) => a + (r.book_value ?? r.capital_at_stone), 0)),
       },
       interest_slices: interest.slices,
       rounds: byRound,
@@ -158,6 +198,7 @@ export class InvestmentsService {
       vessels: vesselRows,
       open_items: itemRows,
       interest_terms: termRows,
+      fund_reports: reportRows,
       alerts: this.alerts(byRound, repatAnnouncedAll, interest),
     };
   }
@@ -349,6 +390,37 @@ export class InvestmentsService {
     }));
   }
 
+  /**
+   * تقرير صندوقٍ ربعيّ — من تقرير CTM، يداً.
+   *
+   * الحجم مطلوبٌ لأنّ به يُحسب النصيب، والنتيجة التراكميّة مطلوبةٌ لأنّها
+   * المكسب الدفتريّ. والباقي إن وُجد. ويُرفض تقريران للجولة في التاريخ نفسه.
+   */
+  async addFundReport(b: any, user = '') {
+    if (!b?.round_id) throw new BadRequestException('الجولة مطلوبة');
+    if (!(await this.rounds.findOne({ where: { id: String(b.round_id) } }))) throw new NotFoundException('الجولة غير موجودة');
+    const asOf = this.requireDate(b?.as_of, 'تاريخ التقرير');
+    const cum = Number(b?.result_cumulative_usd);
+    if (!Number.isFinite(cum)) throw new BadRequestException('النتيجة التراكميّة مطلوبة (قد تكون سالبة)');
+    if (await this.reports.findOne({ where: { round_id: String(b.round_id), as_of: asOf } })) {
+      throw new BadRequestException('يوجد تقريرٌ لهذه الجولة في هذا التاريخ — احذفه أوّلاً إن أردت استبداله');
+    }
+    const opt = (v: unknown) => (v == null || v === '' ? null : String(r2(Number(v))));
+    return this.reports.save(this.reports.create({
+      round_id: String(b.round_id),
+      as_of: asOf,
+      fund_size_usd: String(this.requireAmount(b?.fund_size_usd, 'حجم الصندوق')),
+      fund_called_usd: opt(b?.fund_called_usd),
+      result_period_usd: opt(b?.result_period_usd),
+      result_cumulative_usd: String(r2(cum)),
+      fund_repatriated_usd: opt(b?.fund_repatriated_usd),
+      vessels_count: b?.vessels_count == null || b.vessels_count === '' ? null : Number(b.vessels_count),
+      source: String(b?.source || ''),
+      note: String(b?.note || ''),
+      created_by: user,
+    }));
+  }
+
   // ── البذر ────────────────────────────────────────────────────────────────
 
   /**
@@ -500,6 +572,7 @@ export class InvestmentsService {
       vessels: this.vessels,
       open_items: this.items,
       interest_terms: this.terms,
+      fund_reports: this.reports,
       rounds: this.rounds,
     };
     const r = repo[table];

@@ -2,10 +2,11 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import {
   StoneRound, StoneParentLedger, StoneInvestmentLedger, StoneBankConfirmation,
-  StoneFundCall, StoneVessel, StoneOpenItem, StoneInterestTerm,
+  StoneFundCall, StoneVessel, StoneOpenItem, StoneInterestTerm, StoneFundReport,
 } from './stone.entity';
 import { InvestmentsService } from './investments.service';
 import { InvestmentsController } from './investments.controller';
+import { StoneReportService } from './stone-report.service';
 
 /**
  * وحدة كارت Stone.
@@ -17,10 +18,10 @@ import { InvestmentsController } from './investments.controller';
   imports: [
     TypeOrmModule.forFeature([
       StoneRound, StoneParentLedger, StoneInvestmentLedger, StoneBankConfirmation,
-      StoneFundCall, StoneVessel, StoneOpenItem, StoneInterestTerm,
+      StoneFundCall, StoneVessel, StoneOpenItem, StoneInterestTerm, StoneFundReport,
     ]),
   ],
-  providers: [InvestmentsService],
+  providers: [InvestmentsService, StoneReportService],
   controllers: [InvestmentsController],
 })
 export class InvestmentsModule {}
