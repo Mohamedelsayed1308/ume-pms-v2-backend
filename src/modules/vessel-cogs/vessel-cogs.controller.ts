@@ -27,14 +27,14 @@ export class VesselCogsController {
   @Post('import/plan')
   plan(@Request() req: any, @Body() b: any) {
     ensureAdmin(req);
-    return this.svc.plan(String(b?.vessel || ''), b?.rows, String(b?.batch_code || ''));
+    return this.svc.plan(String(b?.vessel || ''), b?.rows, String(b?.batch_code || ''), b?.until ? String(b.until) : null);
   }
 
   /** الكتابة — الجديد وحده، بعد أن عُرضت الخطّة. */
   @Post('import/commit')
   commit(@Request() req: any, @Body() b: any) {
     ensureAdmin(req);
-    return this.svc.commit(String(b?.vessel || ''), b?.rows, String(b?.batch_code || ''), req.user?.id || '');
+    return this.svc.commit(String(b?.vessel || ''), b?.rows, String(b?.batch_code || ''), req.user?.id || '', b?.until ? String(b.until) : null);
   }
 
   /** إعادة تطبيق خريطة التصنيف على المستورَد — بعد تغييرٍ في القواعد. */

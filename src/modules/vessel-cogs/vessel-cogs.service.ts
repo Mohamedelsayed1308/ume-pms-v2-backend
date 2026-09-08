@@ -13,13 +13,15 @@ import { classify, dedupeKey, rowError, type CogsRow } from './vessel-cogs-class
  */
 export interface PlanRow extends CogsRow {
   account_code: string; category: string; item_label: string; depreciation_months: number | null;
-  charged: boolean; exclude_reason: string; unmapped: boolean; dedupe_key: string; status: 'new' | 'existing' | 'error'; error?: string;
+  charged: boolean; exclude_reason: string; unmapped: boolean; dedupe_key: string; status: 'new' | 'existing' | 'skipped' | 'error'; error?: string;
 }
 
 export interface ImportPlan {
   vessel: string;
   batch_code: string;
-  counts: { total: number; new: number; existing: number; errors: number; unmapped: number };
+  counts: { total: number; new: number; existing: number; skipped: number; errors: number; unmapped: number };
+  /** آخر تاريخٍ يُقبل من الملفّ — ما بعده يُدخَل من شاشة النظام */
+  until: string | null;
   totals_new_usd: number;
   by_category: { category: string; item_label: string; charged: boolean; count: number; usd: number }[];
   rows: PlanRow[];
@@ -36,16 +38,22 @@ export class VesselCogsService {
     return this.repo.find({ where: { vessel }, order: { entry_date: 'ASC', created_at: 'ASC' } });
   }
 
-  async plan(vessel: string, rows: CogsRow[], batchCode: string): Promise<ImportPlan> {
+  async plan(vessel: string, rows: CogsRow[], batchCode: string, until: string | null = null): Promise<ImportPlan> {
     if (!vessel || typeof vessel !== 'string') throw new BadRequestException('اسم السفينة مطلوب');
     if (!Array.isArray(rows) || rows.length === 0) throw new BadRequestException('لا صفوف');
     if (rows.length > MAX_ROWS) throw new BadRequestException(`الحدّ ${MAX_ROWS} صفّاً في الملفّ الواحد`);
+    if (until && !/^\d{4}-\d{2}-\d{2}$/.test(until)) throw new BadRequestException('حدّ الاستيراد بصيغة YYYY-MM-DD');
 
     const planned: PlanRow[] = rows.map((r) => {
       const err = rowError(r);
       const c = classify(r);
       const key = err ? '' : dedupeKey(vessel, r, c.account_code);
-      return { ...r, ...c, dedupe_key: key, status: err ? 'error' : 'new', error: err || undefined };
+      /*
+       * ما بعد الحدّ لا يُستورد: بقرار المالك، QuickBooks حتّى يوليو ٢٠٢٦ وما بعده من
+       * شاشة النظام. يُعرض «مُتخطّى» ولا يُكتب ولا يُعدّ خطأً.
+       */
+      const late = !err && until != null && r.entry_date > until;
+      return { ...r, ...c, dedupe_key: key, status: err ? 'error' : late ? 'skipped' : 'new', error: err || (late ? `بعد حدّ الاستيراد ${until}` : undefined) };
     });
 
     const keys = planned.filter((p) => p.dedupe_key).map((p) => p.dedupe_key);
@@ -58,7 +66,7 @@ export class VesselCogsService {
     // الموجود في القاعدة من المصدر نفسه وليس في الملفّ
     const inDb = await this.repo.find({ where: { vessel, source: 'quickbooks' } });
     const fileKeys = new Set(keys);
-    const vanished = inDb.filter((e) => !fileKeys.has(e.dedupe_key))
+    const vanished = inDb.filter((e) => !fileKeys.has(e.dedupe_key) && (until == null || e.entry_date <= until))
       .map((e) => ({ id: e.id, entry_date: e.entry_date, doc_number: e.doc_number, supplier: e.supplier, amount_usd: e.amount_usd, account_code: e.account_code }));
 
     const cat = new Map<string, { category: string; item_label: string; charged: boolean; count: number; usd: number }>();
@@ -70,10 +78,11 @@ export class VesselCogsService {
     }
     const newRows = planned.filter((p) => p.status === 'new');
     return {
-      vessel, batch_code: batchCode,
+      vessel, batch_code: batchCode, until,
       counts: {
         total: planned.length, new: newRows.length,
         existing: planned.filter((p) => p.status === 'existing').length,
+        skipped: planned.filter((p) => p.status === 'skipped').length,
         errors: planned.filter((p) => p.status === 'error').length,
         unmapped: planned.filter((p) => p.unmapped).length,
       },
@@ -85,8 +94,8 @@ export class VesselCogsService {
   }
 
   /** يكتب الجديد وحده. ويرفض الخطّة التي فيها أخطاء صفوفٍ حتّى تُصحَّح. */
-  async commit(vessel: string, rows: CogsRow[], batchCode: string, user = '') {
-    const plan = await this.plan(vessel, rows, batchCode);
+  async commit(vessel: string, rows: CogsRow[], batchCode: string, user = '', until: string | null = null) {
+    const plan = await this.plan(vessel, rows, batchCode, until);
     if (plan.counts.errors > 0) throw new BadRequestException(`${plan.counts.errors} صفّاً به خطأ — صحّحه قبل الترحيل`);
     const code = String(batchCode || '').trim().slice(0, 60) || `COGS-${new Date().toISOString().slice(0, 10)}`;
     const toWrite = plan.rows.filter((p) => p.status === 'new').map((p) => this.repo.create({
@@ -100,7 +109,7 @@ export class VesselCogsService {
       created_by: user,
     }));
     await this.repo.manager.transaction(async (em) => { if (toWrite.length) await em.save(VesselCogsEntry, toWrite, { chunk: 200 }); });
-    return { written: toWrite.length, skipped_existing: plan.counts.existing, batch_code: code, totals_written_usd: plan.totals_new_usd };
+    return { written: toWrite.length, skipped_existing: plan.counts.existing, skipped_after_until: plan.counts.skipped, batch_code: code, totals_written_usd: plan.totals_new_usd };
   }
 
   /**
