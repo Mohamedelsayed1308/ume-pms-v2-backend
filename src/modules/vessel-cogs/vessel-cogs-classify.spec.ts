@@ -61,9 +61,12 @@ describe('classify — قرارات المالك ٨ سبتمبر ٢٠٢٦', () =
   it('المرتّبات فئتها الخاصّة', () => {
     expect(classify(row({ account_path: '53 · Crew Cost / 5312 · Salary' })).category).toBe('salary');
   });
-  it('مجموعة الميناء المصريّ تُحمَّل — بدل عمود الدفتر', () => {
-    expect(classify(row({ account_path: '54 · Port Fees / 530 · EGY Port fees / 5301 · EGY A gency Com' })).category).toBe('egy_agency');
-    expect(classify(row({ account_path: '54 · Port Fees / 530 · EGY Port fees / 5305 · Port Security' })).category).toBe('egy_port');
+  it('مصاريف التوكيلين تُستبعد — فهي في دفتر الرحلات (تصحيح المالك)', () => {
+    for (const code of ['5301', '5305', '5306', '5307', '5292']) {
+      const c = classify(row({ account_path: `54 · Port Fees / 530 · X / ${code} · Y` }));
+      expect(c.charged).toBe(false);
+      expect(c.exclude_reason).toContain('دفتر الرحلات');
+    }
   });
   it('حسابٌ مجهول يُعلَم ولا يُخفى', () => {
     const c = classify(row({ account_path: '59 · New / 599 · Unknown' }));

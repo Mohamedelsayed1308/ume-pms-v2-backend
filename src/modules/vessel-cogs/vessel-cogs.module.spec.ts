@@ -38,9 +38,9 @@ describe('تركيب VesselCogsModule', () => {
     expect(guards).toContain(ScreenGuard);
   });
 
-  /** الكتابة كلّها للأدمن: الخطّة والترحيل والسطر اليدويّ والحذف. */
-  it('أربعة موجّهات كتابةٍ بأربعة فحوص دور', () => {
+  /** الكتابة كلّها للأدمن: الخطّة والترحيل وإعادة التصنيف والسطر اليدويّ والحذف. */
+  it('خمسة موجّهات كتابةٍ بخمسة فحوص دور', () => {
     const src = VesselCogsController.toString();
-    expect((src.match(/ensureAdmin\(req\)/g) || []).length).toBe(4);
+    expect((src.match(/ensureAdmin\(req\)/g) || []).length).toBe(5);
   });
 });

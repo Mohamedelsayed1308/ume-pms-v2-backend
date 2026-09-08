@@ -37,6 +37,13 @@ export class VesselCogsController {
     return this.svc.commit(String(b?.vessel || ''), b?.rows, String(b?.batch_code || ''), req.user?.id || '');
   }
 
+  /** إعادة تطبيق خريطة التصنيف على المستورَد — بعد تغييرٍ في القواعد. */
+  @Post('reapply-rules')
+  reapply(@Request() req: any, @Body() b: any) {
+    ensureAdmin(req);
+    return this.svc.reapplyRules(String(b?.vessel || ''));
+  }
+
   @Post('entry')
   addEntry(@Request() req: any, @Body() b: any) {
     ensureAdmin(req);

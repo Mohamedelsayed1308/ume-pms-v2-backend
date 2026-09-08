@@ -133,6 +133,29 @@ export class VesselCogsService {
     }));
   }
 
+  /**
+   * إعادة تطبيق خريطة التصنيف على ما استُورد من QuickBooks.
+   *
+   * القواعد تتغيّر بقرار المالك (مصاريف التوكيلين عادت إلى الدفتر في المساء
+   * نفسه)، والقيود المستورَدة قبل التغيير تحمل القرار القديم. فتُعاد قراءتها من
+   * مسار حسابها، ويُحدَّث التصنيف والتحميل والسبب — **ولا يُمسّ الإهلاك**: عموده
+   * نصّيٌّ في الملفّ لا يُحفظ، وما حُوِّل عند الاستيراد يبقى.
+   */
+  async reapplyRules(vessel: string) {
+    const rows = await this.repo.find({ where: { vessel, source: 'quickbooks' } });
+    let changed = 0;
+    for (const r of rows) {
+      const c = classify({ account_path: r.account_path, doc_type: r.doc_type, entry_date: r.entry_date, doc_number: r.doc_number, supplier: r.supplier, memo: r.memo, amount_book: null, amount_usd: Number(r.amount_usd) });
+      if (c.unmapped) continue;
+      if (r.category === c.category && r.item_label === c.item_label && r.charged === c.charged && r.exclude_reason === c.exclude_reason) continue;
+      r.category = c.category; r.item_label = c.item_label; r.charged = c.charged; r.exclude_reason = c.exclude_reason;
+      if (!c.charged) r.depreciation_months = null;
+      changed += 1;
+    }
+    if (changed) await this.repo.save(rows, { chunk: 200 });
+    return { scanned: rows.length, changed };
+  }
+
   async remove(id: string) {
     const row = await this.repo.findOne({ where: { id } });
     if (!row) throw new NotFoundException('غير موجود');

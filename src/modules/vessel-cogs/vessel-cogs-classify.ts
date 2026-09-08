@@ -6,7 +6,9 @@ import { createHash } from 'crypto';
  *
  * ── المبدأ ──
  * الخريطة **بقرار المالك في ٨ سبتمبر ٢٠٢٦** بعد عرض التصنيف عليه حساباً حساباً:
- *   - رسوم الميناء المصريّ وعمولة الوكالة: من QuickBooks بدل عمود EGY-PORT في الدفتر.
+ *   - مصاريف التوكيلين (بدوي في مصر · البسّام في السعودية): **تبقى في دفتر الرحلات**
+ *     (EGY-PORT · KSA-PORT) وتُستبعد من QuickBooks — تصحيحُ المالك ٨ سبتمبر مساءً بعد
+ *     أن كان القرار الأوّل عكسه.
  *   - المرتّبات: من QuickBooks، وتُعامَل مرتّبات الشهر لا مشتريات.
  *   - التأمين: **من الوثيقة لا من الفواتير** — أقساط QuickBooks تُستبعد ويحلّ
  *     محلّها سطرٌ سنويّ لكلّ وثيقة يُقسَّط على شهورها.
@@ -72,11 +74,11 @@ export const ACCOUNT_RULES: Record<string, Rule> = {
   '5312': { category: 'salary', label: 'مرتّبات' },
   '5314': { category: 'crew_medical', label: 'طاقم — طبّيّ' },
   '5315': { category: 'crew_travel', label: 'طاقم — سفر' },
-  '5292': { category: 'ksa_port', label: 'ميناء السعودية — نثريّات' },
-  '5301': { category: 'egy_agency', label: 'عمولة الوكالة — مصر' },
-  '5305': { category: 'egy_port', label: 'رسوم ميناء مصر' },
-  '5306': { category: 'egy_petties', label: 'نثريّات ميناء مصر' },
-  '5307': { category: 'egy_port', label: 'سيّارات — مصر' },
+  '5292': { category: 'ksa_port', label: 'ميناء السعودية — نثريّات', charged: false, reason: 'مصاريف توكيل البسّام في دفتر الرحلات (KSA-PORT)' },
+  '5301': { category: 'egy_agency', label: 'عمولة الوكالة — مصر', charged: false, reason: 'مصاريف توكيل بدوي في دفتر الرحلات (EGY-PORT)' },
+  '5305': { category: 'egy_port', label: 'رسوم ميناء مصر', charged: false, reason: 'مصاريف توكيل بدوي في دفتر الرحلات (EGY-PORT)' },
+  '5306': { category: 'egy_petties', label: 'نثريّات ميناء مصر', charged: false, reason: 'مصاريف توكيل بدوي في دفتر الرحلات (EGY-PORT)' },
+  '5307': { category: 'egy_port', label: 'سيّارات — مصر', charged: false, reason: 'مصاريف توكيل بدوي في دفتر الرحلات (EGY-PORT)' },
   '5401': { category: 'broker', label: 'سمسرة صفاجا' },
   '53201': { category: 'provision', label: 'تموين طاقم' },
   '53203': { category: 'fresh_water', label: 'مياه عذبة', charged: false, reason: 'في دفتر الرحلات (عمود F.W) بالدولار نفسه' },
