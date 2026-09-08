@@ -61,12 +61,15 @@ describe('classify — قرارات المالك ٨ سبتمبر ٢٠٢٦', () =
   it('المرتّبات فئتها الخاصّة', () => {
     expect(classify(row({ account_path: '53 · Crew Cost / 5312 · Salary' })).category).toBe('salary');
   });
-  it('مصاريف التوكيلين تُستبعد — فهي في دفتر الرحلات (تصحيح المالك)', () => {
-    for (const code of ['5301', '5305', '5306', '5307', '5292']) {
+  it('مصاريف توكيل بدوي تُحمَّل باسمها — بندٌ غير رسوم هيئة الميناء في الدفتر', () => {
+    for (const code of ['5301', '5305', '5306', '5307']) {
       const c = classify(row({ account_path: `54 · Port Fees / 530 · X / ${code} · Y` }));
-      expect(c.charged).toBe(false);
-      expect(c.exclude_reason).toContain('دفتر الرحلات');
+      expect(c.charged).toBe(true);
+      expect(c.item_label).toBe('EGY Agency Expenses');
     }
+  });
+  it('نثريّات البسّام مستبعَدة حتّى يقرّر المالك', () => {
+    expect(classify(row({ account_path: '54 · Port Fees / 529 · KSA / 5292 · KSA Petties' })).charged).toBe(false);
   });
   it('حسابٌ مجهول يُعلَم ولا يُخفى', () => {
     const c = classify(row({ account_path: '59 · New / 599 · Unknown' }));
