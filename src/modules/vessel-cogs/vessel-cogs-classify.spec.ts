@@ -68,8 +68,10 @@ describe('classify — قرارات المالك ٨ سبتمبر ٢٠٢٦', () =
       expect(c.item_label).toBe('EGY Agency Expenses');
     }
   });
-  it('نثريّات البسّام مستبعَدة حتّى يقرّر المالك', () => {
-    expect(classify(row({ account_path: '54 · Port Fees / 529 · KSA / 5292 · KSA Petties' })).charged).toBe(false);
+  it('نثريّات البسّام تُحمَّل باسم KSA Agency Expenses', () => {
+    const c = classify(row({ account_path: '54 · Port Fees / 529 · KSA / 5292 · KSA Petties' }));
+    expect(c.charged).toBe(true);
+    expect(c.item_label).toBe('KSA Agency Expenses');
   });
   it('حسابٌ مجهول يُعلَم ولا يُخفى', () => {
     const c = classify(row({ account_path: '59 · New / 599 · Unknown' }));

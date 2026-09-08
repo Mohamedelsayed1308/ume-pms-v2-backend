@@ -9,7 +9,7 @@ import { createHash } from 'crypto';
  *   - بندان مختلفان لا بندٌ واحد (توضيح المالك ٨ سبتمبر مساءً): ما في دفتر الرحلات
  *     رسومُ هيئة الميناء «Port Authorities fees» ويبقى هناك؛ وما في QuickBooks
  *     (5301 · 5305 · 5306 · 5307) مصاريفُ توكيل بدوي «EGY Agency Expenses» ويُحمَّل
- *     تحت اسمه. وكلاهما يُخصم. (نثريّات البسّام 5292 مستبعَدةٌ حتّى يقرّر المالك.)
+ *     تحت اسمه. وكلاهما يُخصم. ونثريّات البسّام 5292 «KSA Agency Expenses» كذلك.
  *   - المرتّبات: من QuickBooks، وتُعامَل مرتّبات الشهر لا مشتريات.
  *   - التأمين: **من الوثيقة لا من الفواتير** — أقساط QuickBooks تُستبعد ويحلّ
  *     محلّها سطرٌ سنويّ لكلّ وثيقة يُقسَّط على شهورها.
@@ -75,7 +75,7 @@ export const ACCOUNT_RULES: Record<string, Rule> = {
   '5312': { category: 'salary', label: 'مرتّبات' },
   '5314': { category: 'crew_medical', label: 'طاقم — طبّيّ' },
   '5315': { category: 'crew_travel', label: 'طاقم — سفر' },
-  '5292': { category: 'ksa_port', label: 'ميناء السعودية — نثريّات', charged: false, reason: 'مصاريف توكيل البسّام في دفتر الرحلات (KSA-PORT)' },
+  '5292': { category: 'ksa_agency', label: 'KSA Agency Expenses' },
   '5301': { category: 'egy_agency', label: 'EGY Agency Expenses' },
   '5305': { category: 'egy_agency', label: 'EGY Agency Expenses' },
   '5306': { category: 'egy_agency', label: 'EGY Agency Expenses' },
