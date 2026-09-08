@@ -27,6 +27,7 @@ import { AccountingModule } from './modules/accounting/accounting.module';
 import { ReceiptsModule } from './modules/receipts/receipts.module';
 import { EmailRewriteModule } from './modules/email-rewrite/email-rewrite.module';
 import { InvestmentsModule } from './modules/investments/investments.module';
+import { VesselCogsModule } from './modules/vessel-cogs/vessel-cogs.module';
 import { HealthModule } from './modules/health/health.module';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { R3aRunnerModule } from './migrations/r3a-runner.module';
@@ -121,6 +122,7 @@ import { EMAIL_REWRITE_THROTTLE, LOGIN_THROTTLE } from './common/rate-limit';
     AskUmeModule,
     EmailRewriteModule,
     InvestmentsModule,
+    VesselCogsModule, // مصاريف المركب من QuickBooks — لكارت الربحيّة
     AccountingModule,
     ReceiptsModule,
     R3aRunnerModule,
