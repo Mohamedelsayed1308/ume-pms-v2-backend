@@ -138,8 +138,9 @@ export class InvestmentsService {
         unfunded_gap: r2(contributed - fundedForRound),
         suspect_count: mine.filter((x) => x.suspect_round_id).length,
         vessels: vesselRows.filter((v) => v.round_id === rd.id).length,
+        // المعرّف يُكشَف ليُحذف السطر الخاطئ من الشاشة — بلا معرّفٍ لا سبيل إلى تصحيحه
         fund_calls: callRows.filter((c) => c.round_id === rd.id).map((c) => ({
-          as_of: c.as_of, fund_called_usd: n(c.fund_called_usd), pct: n(c.pct),
+          id: c.id, as_of: c.as_of, fund_called_usd: n(c.fund_called_usd), pct: n(c.pct),
         })),
         capital_returned: capitalReturned,
         capital_at_stone: capitalAtStone,
