@@ -316,6 +316,26 @@ export class InvestmentsService {
     }));
   }
 
+  /**
+   * تعديلُ حقلٍ وصفيٍّ في سطر دفتر الاستثمار — السفن والبيان وحدهما.
+   *
+   * ── ولماذا هذان وحدهما ──
+   * المبالغ والتواريخ والاتّجاه تُغيّر الإجماليّات، وتصحيحها يكون بحذف السطر
+   * وإعادة كتابته فيبقى الأثر ظاهراً. أمّا أسماء السفن فوصفٌ يأتي من كشف CTM
+   * بعد القيد بأشهر، وإجباره على الحذف وإعادة الكتابة يعرّض دفتراً كاملاً لخطرٍ
+   * لا داعي له.
+   */
+  async editInvestmentNarrative(id: string, b: any) {
+    const row = await this.inv.findOne({ where: { id } });
+    if (!row) throw new NotFoundException('السطر غير موجود');
+    const patch: Partial<StoneInvestmentLedger> = {};
+    if (b?.ships !== undefined) patch.ships = String(b.ships);
+    if (b?.note !== undefined) patch.note = String(b.note);
+    if (!Object.keys(patch).length) throw new BadRequestException('لا شيء للتعديل — السفن أو البيان');
+    await this.inv.update(id, patch);
+    return this.inv.findOne({ where: { id } });
+  }
+
   async addBankConfirmation(b: any, user = '') {
     return this.banks.save(this.banks.create({
       occurred_at: this.requireDate(b?.occurred_at, 'التاريخ'),

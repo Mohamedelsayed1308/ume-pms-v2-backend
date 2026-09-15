@@ -78,6 +78,13 @@ export class InvestmentsController {
     return this.svc.addInvestmentMove(b, req.user?.id || '');
   }
 
+  /** تعديل وصف سطرٍ في دفتر الاستثمار — السفن والبيان فقط. */
+  @Patch('investment/:id')
+  editInvestment(@Request() req: any, @Param('id') id: string, @Body() b: any) {
+    ensureAdmin(req);
+    return this.svc.editInvestmentNarrative(id, b);
+  }
+
   @Post('bank')
   addBank(@Request() req: any, @Body() b: any) {
     ensureAdmin(req);
