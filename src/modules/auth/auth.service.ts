@@ -13,6 +13,21 @@ export function normalizeRole(role: unknown): Role {
   return typeof role === 'string' && (ROLES as readonly string[]).includes(role) ? (role as Role) : 'user';
 }
 
+/*
+ * الحدّ الأدنى لكلمة المرور.
+ *
+ * لم يكن ثمّة حدٌّ أصلاً: `createUser` كانت تقبل حرفاً واحداً. والحدّ هنا في
+ * الخدمة لا في الواجهة، فمسار الإنشاء ومسار التغيير كلاهما يمرّ به.
+ */
+export const MIN_PASSWORD_LEN = 8;
+export function assertPassword(v: unknown): string {
+  const pw = typeof v === 'string' ? v : '';
+  if (pw.trim().length < MIN_PASSWORD_LEN) {
+    throw new BadRequestException(`كلمة المرور لا تقلّ عن ${MIN_PASSWORD_LEN} أحرف`);
+  }
+  return pw;
+}
+
 // قائمة شاشات صريحة صالحة = مصفوفة غير فارغة من مسارات لوحة التحكم
 export function isValidScreens(v: unknown): v is string[] {
   return Array.isArray(v) && v.length > 0 && v.every((s) => typeof s === 'string' && s.startsWith('/dashboard'));
@@ -59,10 +74,27 @@ export class AuthService {
     return { id, is_active };
   }
 
+  /*
+   * تعيين كلمة مرورٍ لمستخدم — للأدمن وحده (يُفرض في المتحكّم).
+   *
+   * ولا يُعاد في الجواب شيءٌ من كلمة المرور ولا تجزئتها، ولا تُسجَّل في أيّ سجلّ.
+   *
+   * ── حدٌّ معروف ──
+   * الجلسات القائمة لا تُبطَل: الـ JWT لا يحمل رقم إصدارٍ لكلمة المرور، فمن كان
+   * داخلاً يبقى حتّى تنتهي مدّة رمزه. ولإبطالها فوراً أوقِف الحساب ثمّ فعّله.
+   */
+  async setPassword(id: string, password: unknown) {
+    const pw = assertPassword(password);
+    const user = await this.userRepo.findOne({ where: { id } });
+    if (!user) throw new NotFoundException('المستخدم غير موجود');
+    await this.userRepo.update(id, { password: await bcrypt.hash(pw, 10) });
+    return { id, email: user.email, full_name: user.full_name, changed: true };
+  }
+
   async createUser(data: { email: string; password: string; full_name: string; role?: string }) {
     const exists = await this.userRepo.findOne({ where: { email: data.email } });
     if (exists) throw new UnauthorizedException('Email already exists');
-    const hash = await bcrypt.hash(data.password, 10);
+    const hash = await bcrypt.hash(assertPassword(data.password), 10);
     const user = await this.userRepo.save({
       email: data.email,
       password: hash,

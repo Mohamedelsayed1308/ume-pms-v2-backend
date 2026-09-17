@@ -104,6 +104,23 @@ export class AuthController {
     return this.authService.setActive(id, body.is_active);
   }
 
+  /*
+   * تعيين كلمة مرور مستخدم — أدمن فقط خادمياً.
+   *
+   * الحمولة كلمةٌ واحدة، ولا تُعاد في الجواب ولا تُسجَّل. والتحقّق من طولها في
+   * الخدمة لا هنا، فيسري على مسار الإنشاء كذلك.
+   */
+  @Put('users/:id/password')
+  @UseGuards(JwtAuthGuard)
+  setPassword(
+    @Param('id') id: string,
+    @Body() body: { password: string },
+    @Request() req: any,
+  ) {
+    ensureAdmin(req);
+    return this.authService.setPassword(id, body?.password);
+  }
+
   // تغيير الدور — أدمن فقط خادمياً (لا يُعتمد على إخفاء زر في الواجهة).
   // تحويل admin → user يتطلب allowed_screens صريحة في نفس الطلب (يُفرض في الخدمة).
   @Put('users/:id/role')

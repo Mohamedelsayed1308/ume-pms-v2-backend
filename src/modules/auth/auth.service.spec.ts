@@ -1,3 +1,4 @@
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { AuthService, normalizeRole, isValidScreens } from './auth.service';
 
 const INV = '/dashboard/invoices';
@@ -45,20 +46,48 @@ describe('isValidScreens — تحقق قائمة الشاشات', () => {
 describe('createUser — الدور الافتراضي الآمن', () => {
   it('بلا دور ⇒ user', async () => {
     const { svc } = makeSvc(null);
-    const u = await svc.createUser({ email: 'a@b.c', password: 'x', full_name: 'A' } as any);
+    const u = await svc.createUser({ email: 'a@b.c', password: 'Str0ngPass!', full_name: 'A' } as any);
     expect(u.role).toBe('user');
   });
 
   it('دور غير معروف ⇒ user', async () => {
     const { svc } = makeSvc(null);
-    const u = await svc.createUser({ email: 'a@b.c', password: 'x', full_name: 'A', role: 'superadmin' } as any);
+    const u = await svc.createUser({ email: 'a@b.c', password: 'Str0ngPass!', full_name: 'A', role: 'superadmin' } as any);
     expect(u.role).toBe('user');
   });
 
   it('admin صريح ⇒ admin', async () => {
     const { svc } = makeSvc(null);
-    const u = await svc.createUser({ email: 'a@b.c', password: 'x', full_name: 'A', role: 'admin' } as any);
+    const u = await svc.createUser({ email: 'a@b.c', password: 'Str0ngPass!', full_name: 'A', role: 'admin' } as any);
     expect(u.role).toBe('admin');
+  });
+});
+
+describe('كلمة المرور — حدٌّ أدنى مفروضٌ في الخدمة', () => {
+  it('أقصر من الحدّ ⇒ 400 عند الإنشاء', async () => {
+    const { svc } = makeSvc(null);
+    await expect(svc.createUser({ email: 'a@b.c', password: 'short7', full_name: 'A' } as any))
+      .rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('فراغاتٌ وحدها لا تُعدّ كلمة مرور', async () => {
+    const { svc } = makeSvc({ id: 'u1', email: 'a@b.c', full_name: 'A' });
+    await expect(svc.setPassword('u1', '          ')).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('مستخدمٌ غير موجود ⇒ 404 ولو صحّت الكلمة', async () => {
+    const { svc } = makeSvc(null);
+    await expect(svc.setPassword('nope', 'Str0ngPass!')).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('الجواب لا يحمل كلمة المرور ولا تجزئتها', async () => {
+    const { svc, updates } = makeSvc({ id: 'u1', email: 'a@b.c', full_name: 'A' });
+    const out: any = await svc.setPassword('u1', 'Str0ngPass!');
+    expect(out).toEqual({ id: 'u1', email: 'a@b.c', full_name: 'A', changed: true });
+    // المحفوظ تجزئةٌ لا النصّ الصريح
+    const saved = updates[0].password as string;
+    expect(saved).not.toBe('Str0ngPass!');
+    expect(saved.startsWith('$2')).toBe(true);
   });
 });
 
