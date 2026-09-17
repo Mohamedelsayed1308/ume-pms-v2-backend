@@ -14,15 +14,21 @@ export function normalizeRole(role: unknown): Role {
 }
 
 /*
- * الحدّ الأدنى لكلمة المرور.
+ * الحدّ الأدنى لكلمة المرور، والقيمة التي تُخزَّن.
  *
  * لم يكن ثمّة حدٌّ أصلاً: `createUser` كانت تقبل حرفاً واحداً. والحدّ هنا في
  * الخدمة لا في الواجهة، فمسار الإنشاء ومسار التغيير كلاهما يمرّ به.
+ *
+ * ── ولماذا تُقصّ المسافات الطرفيّة ──
+ * كانت الدالّة تفحص `pw.trim()` وتُعيد `pw` كما هو، فتُخزَّن التجزئة بمسافةٍ
+ * لاصقةٍ لا يراها أحد. ثمّ يكتبها صاحبها بلا مسافةٍ عند الدخول فتُرفض، ولا
+ * رسالة تدلّ عليه. والمسافة الطرفيّة في كلمةٍ يكتبها الأدمن لغيره خطأُ نسخٍ
+ * لا نيّة — فتُقصّ **قبل الفحص والتخزين معاً**، فيتطابق ما يُقاس وما يُحفظ.
  */
 export const MIN_PASSWORD_LEN = 8;
 export function assertPassword(v: unknown): string {
-  const pw = typeof v === 'string' ? v : '';
-  if (pw.trim().length < MIN_PASSWORD_LEN) {
+  const pw = (typeof v === 'string' ? v : '').trim();
+  if (pw.length < MIN_PASSWORD_LEN) {
     throw new BadRequestException(`كلمة المرور لا تقلّ عن ${MIN_PASSWORD_LEN} أحرف`);
   }
   return pw;
