@@ -120,13 +120,29 @@ export class NotificationsService {
             body,
             data: data as any,
           });
-        } catch {
-          // فهرسٌ فريدٌ رفض التكرار — وهو المطلوب، فلا شيء يُفعَل
+        } catch (err: any) {
+          /*
+           * يُبتلع **انتهاكُ التفرّد وحده** (Postgres 23505) — وهو المطلوب:
+           * سطرٌ واحدٌ لكلّ أدمن لكلّ حادثة.
+           *
+           * وما عداه يُدوَّن. فقد ابتلع `catch` الأعمى أوّلَ مرّةٍ خطأَ
+           * `NOT NULL` على المفتاح (افتراضُ `gen_random_uuid()` كان ناقصاً في
+           * الهجرة)، فبدت الميزة عاملةً وهي لا تكتب شيئاً.
+           */
+          const code = err?.code || err?.driverError?.code;
+          if (code !== '23505') {
+            this.log.error(`تعذّر كتابة إشعار الأدمن ${a.id}: ${code || ''} ${err?.message || err}`);
+          }
         }
       }
       return event;
     } catch (err: any) {
-      this.log.error(`تعذّر تسجيل حادثة الجلسة: ${err?.message || err}`);
+      /*
+       * لا يُفشِل الدخولَ سقوطُ التسجيل — لكنّه لا يُبتلع صامتاً أيضاً.
+       * يُدوَّن الرمز والرسالة، فيظهر في سجلّ Railway عند أوّل حادثة.
+       */
+      const code = err?.code || err?.driverError?.code;
+      this.log.error(`تعذّر تسجيل حادثة الجلسة: ${code || ''} ${err?.message || err}`);
       return null;
     }
   }

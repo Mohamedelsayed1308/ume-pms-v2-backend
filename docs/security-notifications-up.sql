@@ -41,7 +41,7 @@ COMMENT ON COLUMN users.session_started_at IS
 
 -- ── ② الأحداث الأمنيّة ─────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS security_events (
-  id                      uuid         PRIMARY KEY,
+  id                      uuid         PRIMARY KEY DEFAULT gen_random_uuid(),
   event_type              varchar(64)  NOT NULL,
   user_id                 uuid         NOT NULL,
   -- لقطةٌ من بيانات الحساب وقت الحادثة: تبقى صحيحةً لو تغيّر الاسم أو البريد بعدها
@@ -59,7 +59,7 @@ CREATE INDEX IF NOT EXISTS idx_security_events_user
 
 -- ── ③ الإشعارات المحفوظة ───────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS notifications (
-  id          uuid         PRIMARY KEY,
+  id          uuid         PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id     uuid         NOT NULL,          -- المستلِم
   event_id    uuid,                           -- مرجع الحادثة — به يُمنع التكرار
   kind        varchar(32)  NOT NULL,          -- SECURITY
