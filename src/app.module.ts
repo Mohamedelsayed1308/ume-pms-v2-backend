@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from './modules/auth/auth.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 import { SuppliersModule } from './modules/suppliers/suppliers.module';
 import { VesselsModule } from './modules/vessels/vessels.module';
 import { PurchaseOrdersModule } from './modules/purchase-orders/purchase-orders.module';
@@ -98,6 +99,7 @@ import { EMAIL_REWRITE_THROTTLE, LOGIN_THROTTLE } from './common/rate-limit';
       },
     }),
     HealthModule, // `GET /api/health` — بلا مصادقة، يقرؤه Railway بعد كلّ نشرة
+    NotificationsModule, // إشعاراتٌ محفوظةٌ وأحداثٌ أمنيّة
     AuthModule,
     CurrenciesModule,
     SuppliersModule,

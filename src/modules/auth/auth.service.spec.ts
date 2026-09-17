@@ -12,7 +12,9 @@ function makeSvc(user: any) {
     update: async (_id: string, patch: any) => { updates.push(patch); Object.assign(user, patch); return { affected: 1 }; },
     save: async (u: any) => ({ id: 'new-id', ...u }),
   };
-  return { svc: new AuthService(repo, {} as any), updates, repo };
+  // خدمة الإشعارات وهميّة: هذه الاختبارات لا تمرّ بالدخول، ولا تُستدعى
+  const notifs: any = { recordSessionRevoked: jest.fn() };
+  return { svc: new AuthService(repo, {} as any, notifs), updates, repo, notifs };
 }
 
 describe('normalizeRole — قائمة سماح صريحة', () => {

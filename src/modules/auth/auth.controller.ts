@@ -50,8 +50,13 @@ export class AuthController {
   @Post('login')
   @UseGuards(ThrottlerGuard)
   @Throttle({ [LOGIN_THROTTLER]: { limit: LOGIN_LIMIT, ttl: LOGIN_TTL_MS } })
-  login(@Body() body: { email: string; password: string }) {
-    return this.authService.login(body.email, body.password);
+  login(@Body() body: { email: string; password: string }, @Request() req: any) {
+    // العنوان من ترويسة الوكيل إن وُجدت (Railway خلف بروكسي) وإلا من المقبس
+    const fwd = String(req?.headers?.['x-forwarded-for'] || '').split(',')[0].trim();
+    return this.authService.login(body.email, body.password, {
+      ip: fwd || req?.ip || req?.socket?.remoteAddress,
+      userAgent: req?.headers?.['user-agent'],
+    });
   }
 
   // تهيئة أدمن افتراضي — أداة تطوير فقط.

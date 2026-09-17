@@ -2,8 +2,10 @@ import { Injectable, UnauthorizedException, BadRequestException, NotFoundExcepti
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
+import { randomUUID } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { User } from './user.entity';
+import { NotificationsService } from '../notifications/notifications.service';
 
 // قائمة سماح صريحة للأدوار. أي قيمة أخرى (فارغة/غير معروفة/غير نصية) تؤول إلى 'user'.
 // لا نمرّر قيمة غير متحقَّق منها لقاعدة البيانات ولا نعتمد على افتراضي العمود.
@@ -44,16 +46,39 @@ export class AuthService {
   constructor(
     @InjectRepository(User) private userRepo: Repository<User>,
     private jwt: JwtService,
+    private notifs: NotificationsService,
   ) {}
 
-  async login(email: string, password: string) {
+  /*
+   * الدخول يفتح جلسةً واحدةً ويُبطل ما قبلها.
+   *
+   * الترتيب مقصود: يُقرأ رقم الجلسة السابق **قبل** الكتابة، فيُعرف أكان ثمّة
+   * جهازٌ قائمٌ أم لا. ثمّ يُكتب الرقم الجديد، ثمّ تُسجَّل الحادثة مرّةً واحدة.
+   *
+   * ولا تُسجَّل حادثةٌ لأوّل دخولٍ لحساب (لا جلسة سابقة) — بأمر المالك.
+   */
+  async login(email: string, password: string, ctx?: { ip?: string; userAgent?: string }) {
     const user = await this.userRepo.findOne({ where: { email, is_active: true } });
     if (!user) throw new UnauthorizedException('Invalid credentials');
 
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) throw new UnauthorizedException('Invalid credentials');
 
-    const token = this.jwt.sign({ sub: user.id, email: user.email, role: user.role, full_name: user.full_name });
+    const hadSession = !!user.session_id;
+    const prevStartedAt = user.session_started_at || null;
+    const sid = randomUUID();
+    await this.userRepo.update(user.id, { session_id: sid, session_started_at: new Date() });
+
+    if (hadSession) {
+      await this.notifs.recordSessionRevoked({
+        user: { id: user.id, email: user.email, full_name: user.full_name },
+        ip: ctx?.ip,
+        userAgent: ctx?.userAgent,
+        prevSessionStartedAt: prevStartedAt,
+      });
+    }
+
+    const token = this.jwt.sign({ sub: user.id, sid, email: user.email, role: user.role, full_name: user.full_name });
     return {
       access_token: token,
       user: { id: user.id, email: user.email, full_name: user.full_name, role: user.role, allowed_screens: user.allowed_screens || null },
@@ -93,7 +118,12 @@ export class AuthService {
     const pw = assertPassword(password);
     const user = await this.userRepo.findOne({ where: { id } });
     if (!user) throw new NotFoundException('المستخدم غير موجود');
-    await this.userRepo.update(id, { password: await bcrypt.hash(pw, 10) });
+    // تغييرُ الكلمة يُبطل الجلسة القائمة: من يعرف الكلمة القديمة لا يبقى داخلاً بها
+    await this.userRepo.update(id, {
+      password: await bcrypt.hash(pw, 10),
+      session_id: null as any,
+      session_started_at: null as any,
+    });
     return { id, email: user.email, full_name: user.full_name, changed: true };
   }
 

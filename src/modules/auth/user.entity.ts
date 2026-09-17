@@ -25,6 +25,21 @@ export class User {
   @Column({ type: 'jsonb', nullable: true })
   allowed_screens: string[];
 
+  /*
+   * جلسةٌ واحدةٌ سارية.
+   *
+   * الرمز يحمل `sid`، والحارس يقارنه بهذا العمود. فالدخول الجديد يكتب رقماً
+   * جديداً ويُسقط رمز الجهاز القديم عند أوّل طلب.
+   *
+   * و`null` يعني **لا جلسة مثبَّتة** فتُقبل الرموز القائمة — وهي حال كلّ
+   * الحسابات بعد الهجرة مباشرةً، فلا يخرج أحدٌ بسببها.
+   */
+  @Column({ length: 64, nullable: true })
+  session_id: string;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  session_started_at: Date;
+
   @CreateDateColumn()
   created_at: Date;
 }

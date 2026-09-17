@@ -22,6 +22,9 @@ import {
  * أثر له على بقيّة الموجّهات.
  * ═══════════════════════════════════════════════════════════════════════════
  */
+// طلبٌ وهميّ: المتحكّم يقرأ منه العنوان والمتصفّح ويمرّرهما للخدمة
+const REQ: any = { headers: { 'x-forwarded-for': '1.2.3.4', 'user-agent': 'jest' }, ip: '1.2.3.4' };
+
 describe('P1.2 · نطاق تحديد المعدّل', () => {
   const proto = AuthController.prototype as any;
   const guardsOf = (h: string) =>
@@ -81,18 +84,18 @@ describe('P1.2 · سلوك الدخول محفوظ', () => {
       access_token: 't',
       user: { id: 'u1' },
     });
-    await expect(c.login({ email: 'a@b.c', password: 'p' })).resolves.toEqual({
+    await expect(c.login({ email: 'a@b.c', password: 'p' }, REQ)).resolves.toEqual({
       access_token: 't',
       user: { id: 'u1' },
     });
-    expect(svc.login).toHaveBeenCalledWith('a@b.c', 'p');
+    expect(svc.login).toHaveBeenCalledWith('a@b.c', 'p', expect.objectContaining({ ip: '1.2.3.4' }));
   });
 
   it('6. بيانات خاطئة تحتفظ بسلوكها — ولا تُفرّق بين بريدٍ مجهول وكلمةٍ خاطئة', async () => {
     (svc.login as jest.Mock).mockRejectedValue(
       new Error('Invalid credentials'),
     );
-    await expect(c.login({ email: 'x@y.z', password: 'bad' })).rejects.toThrow(
+    await expect(c.login({ email: 'x@y.z', password: 'bad' }, REQ)).rejects.toThrow(
       'Invalid credentials',
     );
   });
