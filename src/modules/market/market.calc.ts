@@ -38,6 +38,19 @@ export function metricOf(r: any, k: MetricKey): number {
 export const ymIndex = (year: number, month: number) => year * 12 + (month - 1);
 
 // قائمة الأشهر ضمن مدى [from, to] شامل.
+/*
+ * آخر يومٍ في الشهر بصيغة YYYY-MM-DD.
+ *
+ * كان حدّ الفترة يُكتب «-31» لكلّ شهر، فخرج `2026-09-31` لسبتمبر. وهو تاريخٌ
+ * غير موجود يرفضه عمود `date` في Postgres، فسقط التحليل بـ500 لكلّ فترةٍ تنتهي
+ * في فبراير أو أبريل أو يونيو أو سبتمبر أو نوفمبر — وللمقارنة أيضاً حين تنتهي
+ * الفترة السابقة في أحدها.
+ */
+export function monthEnd(y: number, m: number): string {
+  const d = new Date(Date.UTC(y, m, 0)).getUTCDate(); // اليوم «صفر» من الشهر التالي
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
 export function monthsInRange(fromY: number, fromM: number, toY: number, toM: number): { year: number; month: number }[] {
   const out: { year: number; month: number }[] = [];
   let a = ymIndex(fromY, fromM); const b = ymIndex(toY, toM);

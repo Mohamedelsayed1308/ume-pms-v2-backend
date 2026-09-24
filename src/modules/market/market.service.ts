@@ -4,7 +4,7 @@ import { Repository, Between } from 'typeorm';
 import { MarketRecord } from './market-record.entity';
 import { AgencyService } from './agency.service';
 import {
-  METRIC_KEYS, MetricKey, metricOf, ymIndex, monthsInRange, previousPeriod,
+  METRIC_KEYS, MetricKey, metricOf, ymIndex, monthsInRange, previousPeriod, monthEnd,
   activeMonths, sumMetric, share, aggregateByAgency, productivity, directionBalance,
   sameMonthsPrevYear, growthOf, shareChangePoints, shipComposition, growthWaterfall, classifyQuadrant,
 } from './market.calc';
@@ -26,7 +26,7 @@ export class MarketService {
   // يحمّل سجلات فترة ويحلّ الوكيل الفعلي لكل سجل حسب الشهر (من تاريخ الوكالة)، مع استبعاد أشهر بلا حركة سوق.
   private async loadResolved(fromY: number, fromM: number, toY: number, toM: number) {
     const start = `${fromY}-${String(fromM).padStart(2, '0')}-01`;
-    const end = `${toY}-${String(toM).padStart(2, '0')}-31`;
+    const end = monthEnd(toY, toM);
     const recs = await this.repo.find({ where: { period_start: Between(start, end) } as any });
     const hist = await this.agency.resolveMap();
     const rows = recs.map((r) => {

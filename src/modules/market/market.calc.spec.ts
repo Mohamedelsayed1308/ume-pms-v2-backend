@@ -2,6 +2,7 @@ import {
   computeTripCount, computeTrucksTotal, computeDepartureTrucks, computeArrivalTrucks,
   sameMonthsPrevYear, growthOf, shareChangePoints, shipComposition, share, aggregateByAgency, productivity,
   growthWaterfall, classifyQuadrant,
+  monthEnd,
 } from './market.calc';
 
 describe('market.calc — قواعد الحساب الأساسية', () => {
@@ -169,4 +170,15 @@ describe('aggregateByAgency + productivity', () => {
     const p = productivity(rows);
     expect(p.trucksPerTrip).toBeCloseTo(150 / 15);
   });
+});
+
+describe('monthEnd — آخر يومٍ حقيقيّ في الشهر', () => {
+  it.each([
+    [2026, 9, '2026-09-30'],
+    [2026, 4, '2026-04-30'],
+    [2026, 2, '2026-02-28'],
+    [2028, 2, '2028-02-29'],
+    [2026, 7, '2026-07-31'],
+    [2026, 12, '2026-12-31'],
+  ])('%i-%i ⇒ %s', (y, m, want) => expect(monthEnd(y, m)).toBe(want));
 });
