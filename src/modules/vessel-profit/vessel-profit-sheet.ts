@@ -265,3 +265,121 @@ export function voyagesFromData(rows: any[][], vesselKey: string): SheetVoyage[]
   }
   return out;
 }
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  خطّ جدّة/سواكن — قراءةٌ ثانيةٌ بشكلٍ آخر
+// ═══════════════════════════════════════════════════════════════════════════
+/*
+ * لماذا قارئٌ مستقلّ لا خريطةٌ رابعةٌ في `SHEET_VESSELS`؟
+ *
+ * شكل `SheetVoyage` وُلد لضبا/سفاجا: وكيلا صادرٍ ووارد، وتحصيلٌ وسيولةٌ عند
+ * البسّام. وخطّ جدّة/سواكن **اقتصادٌ آخر**: لا تحصيل ولا سيولة، وخمسة بنود
+ * إيرادٍ وثمانية عشر بند مصروفٍ لا يعرفها ذلك الشكل. فحشرُها فيه يُضيّع نصفها
+ * أو يخترع لها وكيلين.
+ *
+ * فيُسلَّم الخطّ رحلاته **بنودَها كما هي بأسماء الحمولة**، والشاشة تُسمّيها.
+ */
+export interface LineVesselSpec { vessel: string; line: string }
+
+export const LINE_VESSELS: Record<string, LineVesselSpec> = {
+  DaleelaJS: { vessel: 'DALEELA', line: 'جدّة/سواكن' },
+  AmmanJS:   { vessel: 'AMMAN',   line: 'جدّة/سواكن' },
+  // مونتي تبدأ الخطّ أوّل أكتوبر ٢٠٢٦ — تُقرأ حين يُسجَّل دفترها في السحب
+  MonteJS:   { vessel: 'MONTE',   line: 'جدّة/سواكن' },
+};
+
+/** بنود الإيراد لكلّ رِجل: الثلاثة الأصليّة وبنود الملمح الخمسة وأمر التفريغ. */
+export const LINE_REV = ['tr', 'vh', 'px', 'dord', 'furn', 'minT', 'hzr', 'othInc', 'dis'] as const;
+/** العمولات: بنود ضبا/سفاجا (أصفارٌ هنا عادةً) وبنود الملمح الأربعة. */
+export const LINE_COMM = ['cTR', 'cPA', 'cDord', 'cAfsh', 'aa', 'ab', 'ac', 'ad', 'ae', 'r', 's', 't', 'fz'] as const;
+/** المصاريف: بنود الملمح الأربعة عشر والأصليّة العشرة — و`hire` منها. */
+export const LINE_EXP = [
+  'bnk', 'portA', 'oth', 'exFurn', 'cater', 'agency', 'wht', 'opex', 'adv', 'vesEx', 'quar',
+  'fw', 'tips', 'exHzr', 'spray', 'retPas', 'tel', 'hire',
+  'sd', 'eb', 'brk', 'pk', 'pg', 'crn',
+] as const;
+
+export interface LineSide {
+  trucks: number; vehicles: number; pax: number;
+  rev: Record<string, number>;
+}
+export interface LineVoyage {
+  ref: any; month: string; date: string;
+  dateExp: string; dateImp: string;
+  E: LineSide; I: LineSide;
+  comm: Record<string, number>;
+  exp: Record<string, number>;
+  income: number; commTotal: number; expTotal: number; net: number;
+  /*
+   * فرقُ البنود عن إجماليّاتها — صفرٌ في الرحلة السليمة.
+   *
+   * يُحسب هنا لا يُفترض: بنود الخطّ كانت تسقط عند السحب حتى ٢٦ سبتمبر ٢٠٢٦،
+   * فوصل الشيتَ إجماليٌّ بلا تفصيل. وإن عاد ذلك يوماً، فالكارت يقول
+   * «البنود لا تساوي الإجمالي» بدل أن يعرض بنوداً ناقصةً تبدو كاملة.
+   */
+  gap: number;
+  broken: boolean;
+}
+
+/** إيراد رِجلٍ: الأصليّة تحمل لاحقة الرِّجل في اسمها (`trE`)، والبقيّة `_E`. */
+function lineRev(p: any, leg: 'E' | 'I'): Record<string, number> {
+  const r: Record<string, number> = {};
+  for (const k of LINE_REV) {
+    r[k] = (k === 'tr' || k === 'vh' || k === 'px') ? n(p[`${k}${leg}`]) : n(p[`${k}_${leg}`]);
+  }
+  return r;
+}
+
+export function toLineVoyage(p: any): LineVoyage {
+  const E: LineSide = { trucks: n(p.nTruck_E), vehicles: n(p.nVeh_E), pax: n(p.nPax_E), rev: lineRev(p, 'E') };
+  const I: LineSide = { trucks: n(p.nTruck_I), vehicles: n(p.nVeh_I), pax: n(p.nPax_I), rev: lineRev(p, 'I') };
+  const comm: Record<string, number> = {};
+  for (const k of LINE_COMM) comm[k] = n(p[k]);
+  const exp: Record<string, number> = {};
+  for (const k of LINE_EXP) exp[k] = n(p[k]);
+  const sum = (o: Record<string, number>) => Object.values(o).reduce((a, b) => a + b, 0);
+  const income = n(p.income), commTotal = n(p.comm), expTotal = n(p.man), net = n(p.net);
+  const gap = Math.abs(sum(E.rev) + sum(I.rev) - income)
+    + Math.abs(sum(comm) - commTotal)
+    + Math.abs(sum(exp) - expTotal)
+    + Math.abs(income - commTotal - expTotal - net);
+  const month = monthOf(p.dateExp) || monthOf(p.dateImp) || '';
+  return {
+    ref: p.ref, month,
+    date: String((monthOf(p.dateExp) ? p.dateExp : null) || (monthOf(p.dateImp) ? p.dateImp : null) || ''),
+    dateExp: String(p.dateExp || ''), dateImp: String(p.dateImp || ''),
+    E, I, comm, exp, income, commTotal, expTotal, net,
+    gap: Math.round(gap * 100) / 100,
+    broken: p.broken === true,
+  };
+}
+
+/**
+ * رحلات مركبٍ على خطّ جدّة/سواكن.
+ *
+ * ── الخطّ شرطٌ لا زينة ──
+ * دليلة مشت ضبا/سفاجا حتى سبتمبر ٢٠٢٥ ثمّ جدّة/سواكن. والاسم واحد، فالفرز
+ * بالاسم وحده يخلط اقتصادين في كارتٍ واحد.
+ *
+ * ── وخانات القالب الفارغة تسقط ──
+ * الدفتر مُرقَّمٌ سلفاً إلى آخر السنة: رحلةٌ بلا تاريخٍ ولا إيرادٍ ولا صافٍ
+ * خانةٌ تنتظر، لا رحلةٌ خاسرة.
+ */
+export function lineVoyagesFromData(rows: any[][], key: string): LineVoyage[] {
+  const spec = LINE_VESSELS[key];
+  if (!spec) return [];
+  const out: LineVoyage[] = [];
+  for (const row of rows) {
+    const raw = row && row[10];
+    if (!raw) continue;
+    let p: any;
+    try { p = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { continue; }
+    if (!p || p.vessel !== spec.vessel || p.line !== spec.line) continue;
+    const v = toLineVoyage(p);
+    if (!v.month) continue;
+    if (!v.income && !v.net && !v.expTotal) continue;
+    out.push(v);
+  }
+  return out;
+}

@@ -21,6 +21,12 @@ export class VesselProfitController {
     return this.svc.fromSheet(vessel);
   }
 
+  // خطّ جدّة/سواكن — رحلاتٌ ببنودها كما في الدفتر
+  @Get(':vessel/line-sheet')
+  lineSheet(@Param('vessel') vessel: string) {
+    return this.svc.lineFromSheet(vessel);
+  }
+
   @RequireScreen('/dashboard/reports')
   @Put(':vessel')
   save(@Param('vessel') vessel: string, @Body() body: { voyages?: any; manual?: any }) {
