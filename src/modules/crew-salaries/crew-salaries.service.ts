@@ -476,7 +476,10 @@ export class CrewSalariesService {
         differences_acknowledged: acked, bank: bank.snapshot,
         payable: e.result.complete && acked && !bank.blockers.length, blockers,
       };
-      const entry_hash = hashOf(core);
+      // البصمة للجوهريّ وحده: المبالغ والبنود والفروق والحساب المعتمد وقابليّة الصرف.
+      // نصوص الموانع وحالة الإقرار مشتقّة — تسجيل حسابٍ مستورَدٍ لم يُعتمد لا يغيّر حالةً معتمدة
+      const { blockers: _b, differences_acknowledged: _a, ...material } = core; // eslint-disable-line @typescript-eslint/no-unused-vars
+      const entry_hash = hashOf(material);
       const ap = approved.get(e.key);
       const approval = ap ? { ...ap, changed: ap.entry_hash !== entry_hash } : null;
       return { ...core, entry_hash, approval, eligible: e.result.complete && acked && (!approval || approval.changed) };
@@ -502,9 +505,9 @@ export class CrewSalariesService {
     return { month, per_usd: per, labels };
   }
 
+  /** بصمة الإصدار: بصمات حالاته الجوهريّة مرتّبةً، وسعر الشهر المستعمل. */
   private versionHash(cycleId: string, entries: EntryState[], fx: Snapshot['fx']) {
-    const strip = ({ approval, eligible, ...rest }: EntryState) => rest; // eslint-disable-line @typescript-eslint/no-unused-vars
-    return hashOf({ cycle: cycleId, entries: [...entries].sort((x, y) => x.key.localeCompare(y.key)).map(strip), fx });
+    return hashOf({ cycle: cycleId, entries: [...entries].sort((x, y) => x.key.localeCompare(y.key)).map((e) => [e.key, e.entry_hash]), fx });
   }
 
   // ══════════════════════════ العرض ══════════════════════════

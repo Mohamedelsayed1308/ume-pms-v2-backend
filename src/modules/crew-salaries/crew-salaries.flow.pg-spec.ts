@@ -156,6 +156,17 @@ describe('سير عمل مرتّبات الأطقم على PostgreSQL', () => {
     expect(v.entries.every((e: any) => e.payable && e.eligible)).toBe(true);
   });
 
+  it('تسجيل حسابٍ مستورَدٍ لم يُعتمد لا يجعل الحالة المعتمدة «متغيّرة»', async () => {
+    const c: FakeCrew = { id: '9401', name: 'Delta, Test', rank: 'AB', section: 'monthly', start: 1, end: 31, rates: [1000, 400, 250] };
+    const r: any = await svc.importFile(fakeCfm('Vessel Z', 'EUR', [c]), 'z.xlsx', CLERK);
+    await svc.submit(r.cycle_id, 'بلا حساب', CLERK);
+    await svc.approve((await latest(r.cycle_id)).id, 'اعتماد', APPROVER);
+    await svc.addBankAccount({ crew_id: '9401', beneficiary: 'Delta Test', bank: 'Test Bank', iban: 'XX00TEST0000000000009', reason: 'مستورَد' }, CLERK, r.cycle_id);
+    const e = await entry('9401', r.cycle_id);
+    expect(e.approval).toMatchObject({ changed: false });
+    expect(e.blockers).toContain('حسابٌ مستورَدٌ لم يُعتمد بعد');
+  });
+
   it('التعديل الجوهريّ ⇒ إصدارٌ يراجع السابق حالةً حالة دون ازدواج استحقاق', async () => {
     await svc.submit(cycleId, 'بعد اعتماد الحسابات', CLERK);
     const v4 = await latest();
