@@ -136,6 +136,12 @@ describe('سير عمل مرتّبات الأطقم على PostgreSQL', () => {
     expect(rev.buffer.length).toBeGreaterThan(1000);
   });
 
+  it('سعرُ عملةٍ لا تخصّ الدورة لا يغيّر بصمة الإصدار المعتمد', async () => {
+    await svc.setFx('2026-08', 'EGP', '0.02', 'سعر التقارير', CLERK);
+    const v: any = await svc.view(cycleId, CLERK);
+    expect(v.changed_since_approval).toBe(false);
+  });
+
   it('الاستحقاق نفسه في دورةٍ أخرى (مركبٌ آخر، الفترة نفسها) لا يُعتمد', async () => {
     const r: any = await svc.importFile(fakeCfm('Other Vessel', 'EUR', [{ ...crewA, advance: undefined }]), 'other.xlsx', CLERK);
     const v: any = await svc.view(r.cycle_id, CLERK);
@@ -156,7 +162,6 @@ describe('سير عمل مرتّبات الأطقم على PostgreSQL', () => {
   });
 
   it('سعر الصرف: «١ EUR = 1.15 USD» في جدول الأسعار القائم، بلا مسّ العملات الأخرى', async () => {
-    await ds.query(`INSERT INTO exchange_rates (month, rates) VALUES ('2026-08', '{"EGP": 50}')`);
     const r = await svc.setFx('2026-08', 'EUR', '1.15', 'نشرة البنك', CLERK);
     expect(r.label).toBe('1 EUR = 1.150000 USD');
     const row = await ds.query(`SELECT rates FROM exchange_rates WHERE month='2026-08'`);

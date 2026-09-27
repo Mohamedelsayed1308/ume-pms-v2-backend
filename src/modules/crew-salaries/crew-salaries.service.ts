@@ -379,16 +379,22 @@ export class CrewSalariesService {
         payable: e.result.complete && acked && !bank.blockers.length, blockers,
       };
     });
+    // لقطة السعر: عملات التحويل في هذه الدورة وحدها — لا صفّ الشهر كلّه، وإلّا غيّر
+    // تعديلُ سعرٍ لا يخصّها (الجنيه في التقارير مثلاً) بصمتَها فرُفض اعتمادها بلا سبب
     const fxLabels: string[] = [];
-    if (b.fx) {
-      const curs = new Set<string>();
-      for (const e of b.out.entries) for (const it of e.result.items) if (it.original_currency !== it.currency) curs.add(`${it.original_currency}>${it.currency}`);
-      for (const p of curs) { const [f, t] = p.split('>'); const r = crossRate(b.fx, f, t); if (r) fxLabels.push(rateLabel(f, t, r)); }
+    const pairs = new Set<string>();
+    for (const e of b.out.entries) for (const it of e.result.items) if (it.original_currency !== it.currency) pairs.add(`${it.original_currency}>${it.currency}`);
+    const usedPerUsd: Record<string, string> = {};
+    for (const p of [...pairs].sort()) {
+      const [f, t] = p.split('>');
+      for (const c of [f, t]) if (c !== 'USD' && b.fx?.perUsd[c]) usedPerUsd[c] = b.fx.perUsd[c];
+      const r = b.fx ? crossRate(b.fx, f, t) : null;
+      if (r) fxLabels.push(rateLabel(f, t, r));
     }
     const snap: Snapshot = {
       cycle: { id: b.cycle.id, vessel: b.cycle.vessel, month: b.cycle.month },
       entries,
-      fx: b.fx ? { month: b.fx.month, per_usd: b.fx.perUsd, labels: fxLabels } : null,
+      fx: pairs.size ? { month: b.cycle.month, per_usd: usedPerUsd, labels: fxLabels } : null,
       files: b.files.filter((f) => f.status !== 'ignored' && f.status !== 'rejected').map((f) => ({ id: f.id, name: f.name, kind: f.kind, sha256: f.sha256 })),
       decisions: b.decisions.map((d) => d.id),
     };

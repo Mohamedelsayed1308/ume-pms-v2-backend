@@ -19,6 +19,8 @@ function sendXlsx(res: Response, buffer: Buffer, filename: string) {
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="${filename.replace(/[^A-Za-z0-9._-]/g, '_')}"`);
   res.setHeader('Cache-Control', 'no-store');
+  // الواجهة على أصلٍ آخر — تقرأ اسم الملفّ وعلامة إعادة التنزيل
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, X-Redownload');
   res.send(buffer);
 }
 
@@ -59,6 +61,7 @@ export class CrewSalariesController {
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(f.name)}`);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
     res.send(f.buffer);
   }
 
@@ -119,7 +122,6 @@ export class CrewSalariesController {
   async exportPayments(@Param('id', ParseUUIDPipe) id: string, @Body() b: any, @Request() req: any, @Res() res: Response) {
     const x = await this.svc.exportPayments(id, b?.currency, actor(req));
     res.setHeader('X-Redownload', x.redownload ? '1' : '0');
-    res.setHeader('Access-Control-Expose-Headers', 'X-Redownload, Content-Disposition');
     sendXlsx(res, x.buffer, x.filename);
   }
 }
