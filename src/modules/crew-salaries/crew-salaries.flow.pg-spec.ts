@@ -233,6 +233,22 @@ describe('سير عمل مرتّبات الأطقم على PostgreSQL', () => {
     expect(String((res.find((r) => r.status === 'rejected') as PromiseRejectedResult).reason)).toMatch(/استحقاقٌ مكرَّر/);
   });
 
+  it('تصدير CFM مصحَّح مستقلّ يحلّ محلّ التصدير المرفق داخل رسالة — ولا يبقى مانع «تصديران»', async () => {
+    const buf = fakeCfm('Vessel W', 'EUR', [{ ...crewA, id: '9501' }]);
+    const r: any = await svc.importFile(buf, 'w.xlsx', CLERK);
+    // محاكاة رسالةٍ مرفقٌ فيها تصدير CFM بالعملة نفسها (الرسالة الاصطناعيّة لا تُولَّد .msg)
+    const email = await ds.getRepository(CrewSalaryFile).save(ds.getRepository(CrewSalaryFile).create({ cycle_id: r.cycle_id, kind: 'email', name: 'w.msg', sha256: 'fake-email-w', status: 'extracted', class: 'email', meta: {} }));
+    await ds.query(`UPDATE crew_salary_files SET parent_id = $1, position = 3, kind = 'attachment' WHERE id = $2`, [email.id, r.file.id]);
+    const corrected = fakeCfm('Vessel W', 'EUR', [{ ...crewA, id: '9501', rates: [3100, 1200, 750] }]);
+    const c: any = await svc.importFile(corrected, 'w-corrected.xlsx', CLERK);
+    expect(c.cycle_id).toBe(r.cycle_id);
+    const v = await view(r.cycle_id);
+    expect(v.blocking).toEqual([]);
+    expect(v.files.some((f: any) => f.id === r.file.id)).toBe(false); // الملفّات السارية وحدها تُعرض
+    expect((await ds.getRepository(CrewSalaryFile).findOne({ where: { id: r.file.id } }))!.status).toBe('superseded');
+    expect(v.entries[0].result.items[0].amount).toBe('3100.00');
+  });
+
   it('عملة دفعٍ استثنائيّة: موقوفةٌ بلا سعر، وتُحوَّل مرّةً واحدة بعد إدخاله', async () => {
     await svc.decide(cycleId, { kind: 'payment_currency', target_key: '9102:EUR', currency: 'USD', reason: 'حسابه بالدولار بطلبه الموثَّق' }, CLERK);
     let b = await entry('9102');
