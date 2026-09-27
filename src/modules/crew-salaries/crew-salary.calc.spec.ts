@@ -1,7 +1,12 @@
+import Decimal from 'decimal.js';
 import {
-  compareWithReported, computeEntry, crossRate, entitlementDays, proRata, rateLabel, signOffDay, totalsByCurrency,
+  compareWithReported, computeEntry, convert, crossRate, entitlementDays, proRata, rateLabel, signOffDay, signOffDayApplies, totalsByCurrency,
   type EntryInput, type FxMonth,
 } from './crew-salary.calc';
+
+/** كما يخزّنه جدول الأسعار: مقلوب المدخَل بخمسة عشر رقماً معنويّاً ثمّ رقمٌ عشريّ. */
+const stored = (usdPerUnit: string) => String(new Decimal(1).div(usdPerUnit).toSignificantDigits(15).toNumber());
+const fxAt = (usdPerUnit: string): FxMonth => ({ month: '2026-08', perUsd: { EUR: stored(usdPerUnit) } });
 
 /*
  * أرقام هذه الاختبارات مأخوذةٌ من عيّنة أغسطس ٢٠٢٦ **بلا أسماءٍ ولا أرقام هويّة** —
@@ -209,5 +214,75 @@ describe('الإجماليّات لكلّ عملة على حدة', () => {
     expect(Object.keys(t).sort()).toEqual(['EUR', 'USD']);
     expect(t.EUR).toEqual({ earnings: '2800.00', deductions: '0.00', balance: '2800.00', count: 2, complete: 1 });
     expect(t.USD.balance).toBe('1650.00');
+  });
+});
+
+describe('إصلاحات المراجعة — ٢٧ سبتمبر', () => {
+  it('دقّة السعر: 0.50 EUR عند 1 EUR = 1.17 USD ⇒ 0.59 (نصفٌ لأعلى) لا 0.58', () => {
+    expect(convert('0.50', fxAt('1.17'), 'EUR', 'USD')).toBe('0.59');
+    expect(convert('1.50', fxAt('1.17'), 'EUR', 'USD')).toBe('1.76');
+    expect(convert('0.50', fxAt('1.19'), 'EUR', 'USD')).toBe('0.60');
+    expect(rateLabel('EUR', 'USD', crossRate(fxAt('1.17'), 'EUR', 'USD')!)).toBe('1 EUR = 1.170000 USD');
+    // والعكس بالسعر نفسه قسمةً — لا بمقلوبٍ مقرَّب
+    expect(convert('1.17', fxAt('1.17'), 'USD', 'EUR')).toBe('1.00');
+  });
+  it('السعر المسترَدّ يساوي المدخَل حرفيّاً لكلّ سعرٍ بستّ منازل', () => {
+    for (const r of ['1.17', '1.153459', '0.000123', '48.95', '1.1', '3.75']) {
+      expect(crossRate(fxAt(r), 'EUR', 'USD')!.toFixed(6)).toBe(new Decimal(r).toFixed(6));
+    }
+  });
+
+  it('النزول في آخر يومٍ من الشهر لا يعطي يوماً إضافيّاً — ولو بدأ العمل في منتصفه', () => {
+    expect(signOffDayApplies('2026-08', true, '2026-08-31', 22)).toBe(false);
+    const r = computeEntry(base({ payStart: '2026-08-10', payEnd: '2026-08-31', signsOffThisMonth: true }), null);
+    expect(r.days).toBe(22);
+    expect(r.items.some((i) => i.kind === 'sign_off_day')).toBe(false);
+  });
+  it('والشرط في المحرّك نفسه: تصحيحٌ يدويّ «ينزل هذا الشهر» مع نهايةٍ في آخر الشهر لا يعطيه', () => {
+    const r = computeEntry(base({ payStart: '2026-08-06', payEnd: '2026-08-31', signsOffThisMonth: true }), null);
+    expect(r.items.some((i) => i.kind === 'sign_off_day')).toBe(false);
+    expect(computeEntry(base({ payStart: '2026-08-06', payEnd: '2026-08-30', signsOffThisMonth: true }), null)
+      .items.some((i) => i.kind === 'sign_off_day')).toBe(true);
+  });
+  it('يوم النزول لطاقم الدولار كغيره — القاعدة لا تُقيَّد بعملة', () => {
+    const r = computeEntry(base({ currency: 'USD', rates: { basic: '2668', fixed_ot: '1066', leave: '666' }, payEnd: '2026-08-06', signsOffThisMonth: true }), null);
+    expect(r.items.find((i) => i.kind === 'sign_off_day')!.amount).toBe('124.47');
+  });
+
+  it('عملة دفعٍ استثنائيّة: التحويل مرّةً واحدة، والمقارنة بـ CFM بعملة العقد', () => {
+    const r = computeEntry(base({ paymentCurrency: 'USD', extras: [{ key: 'a', kind: 'cash_advance', amount: '200', currency: 'EUR', review: 'accepted' }] }), fxAt('1.17'));
+    expect(r.currency).toBe('USD');
+    expect(r.contract_currency).toBe('EUR');
+    expect(r.items.find((i) => i.kind === 'basic')).toMatchObject({ amount: '1985.49', original_amount: '1697.00', original_currency: 'EUR', contract_amount: '1697.00' });
+    expect(r.items.find((i) => i.key === 'a')).toMatchObject({ amount: '234.00', contract_amount: '200.00' });
+    // CFM باليورو يطابق المحسوب باليورو — لا فروق وهميّة من اختلاف العملتين
+    expect(compareWithReported(r, [{ kind: 'basic', amount: '1697' }, { kind: 'fixed_ot', amount: '679' }, { kind: 'leave', amount: '424' }, { kind: 'cash_advance', amount: '200' }], '2600')).toEqual([]);
+    expect(totalsByCurrency([r])).toHaveProperty('USD');
+  });
+  it('عملة دفعٍ بلا سعر ⇒ كلّ البنود موقوفة، لا تحويل بـ ١', () => {
+    const r = computeEntry(base({ paymentCurrency: 'USD' }), null);
+    expect(r.items.every((i) => i.amount == null && !i.counted)).toBe(true);
+    expect(r.complete).toBe(false);
+  });
+
+  it('مبلغٌ غير مقروء مانعٌ ظاهر — ويزول برفضه بسبب', () => {
+    const x = (review: 'pending' | 'rejected') => computeEntry(base({ extras: [{ key: 'u', kind: 'lashing', amount: '4I8.76', currency: 'EUR', review }] }), null);
+    expect(x('pending').issues.map((i) => i.code)).toContain('amount_unreadable');
+    expect(x('pending').complete).toBe(false);
+    expect(x('rejected').complete).toBe(true);
+  });
+  it('عمودٌ ماليّ مجهول لا يُحسب ولا يمرّ — حتّى يُصنَّف أو يُستبعد', () => {
+    const r = computeEntry(base({ extras: [{ key: 'z', kind: 'unclassified', amount: '75', currency: 'EUR', reason: 'Special allowance', review: 'accepted' }] }), null);
+    expect(r.issues.map((i) => i.code)).toContain('unclassified_item');
+    expect(r.items.find((i) => i.key === 'z')!.counted).toBe(false);
+    expect(r.balance).toBe('2800.00');
+  });
+  it('المبلغ نفسه من الرسالة ومن مرفق، وقُبل الاثنان ⇒ مانع', () => {
+    const r = computeEntry(base({ extras: [
+      { key: 'e', kind: 'bonus', amount: '358', currency: 'EUR', source: 'email', review: 'accepted' },
+      { key: 'p', kind: 'bonus', amount: '358', currency: 'EUR', source: 'attachment', review: 'accepted', duplicate_of: 'e', flags: ['possible_duplicate'] },
+    ] }), null);
+    expect(r.issues.map((i) => i.code)).toContain('duplicate_accepted');
+    expect(r.complete).toBe(false);
   });
 });

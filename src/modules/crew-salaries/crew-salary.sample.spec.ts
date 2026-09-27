@@ -4,6 +4,7 @@ import { parseMsg } from './parsers/msg.parser';
 import { parseEmailBody } from './parsers/email-body.parser';
 import { parseCfm } from './parsers/cfm.parser';
 import { parseAttachmentWorkbook, type BankBlock, type CrewListRow, type PayoutRow } from './parsers/attachments.parser';
+import { parsePdf, parsePdfs } from './parsers/pdf.parser';
 import { assemble } from './crew-salary.assemble';
 import { totalsByCurrency } from './crew-salary.calc';
 
@@ -52,7 +53,21 @@ d('عيّنة أغسطس ٢٠٢٦ — جوبال تريدر', () => {
     expect(t2.find((r) => r.crew_id === '1074')!.items).toEqual([{ kind: 'sign_on_settlement', column: 'Salary of 1 day to sign on', amount: '333.33' }]);
     expect(t2.find((r) => r.crew_id === '527')!.items).toEqual([{ kind: 'sign_off_day', column: 'Salary of 1 day to sign off', amount: '93.33' }]);
     expect(body.notes.map((n) => [n.amount, n.currency])).toEqual([['47.73', 'EUR']]);
+    expect(body.issues).toEqual([]);
   });
+
+  it('PDF: توزيع اللاشينج يُقرأ، ووثائق الهويّة لا يُستخرج نصّها، والممسوح يدويّ', async () => {
+    const pdfs = msg.attachments.filter((x) => x.class === 'pdf');
+    const kinds = (await parsePdfs(pdfs.map((x) => ({ buf: x.content, name: x.name })))).map((r) => r.kind);
+    const count = (k: string) => kinds.filter((x) => x === k).length;
+    expect([count('lashing_distribution'), count('identity'), count('scanned'), count('unrecognized')]).toEqual([1, 7, 4, 0]); // صفحة الحساب من العقد تُعامَل وثيقةَ هويّة: لا يُستخرج نصّها
+    const lb = msg.attachments.find((x) => /LB/.test(x.name))!;
+    const r = await parsePdf(lb.content, lb.name);
+    expect(r.rate).toBe('1.17');
+    expect(r.rows!.length).toBe(17);
+    const sum = r.rows!.reduce((a, x) => a + Math.round(Number(x.eur) * 100), 0) / 100;
+    expect(sum).toBe(9308);
+  }, 120_000);
 
   it('CFM: الشهر والمركب، ومجموع الأرصدة = الإجماليّ العامّ (41,485.21$ و43,417.61€)', () => {
     for (const [x, total, n] of [[usd, '41485.21', 20], [eur, '43417.61', 12]] as const) {
@@ -78,9 +93,14 @@ d('عيّنة أغسطس ٢٠٢٦ — جوبال تريدر', () => {
     expect(crew.length).toBeGreaterThan(25);
   });
 
-  it('التجميع بلا سعر صرف: البنود المعلّقة والفروق الثلاثة المعروفة', () => {
-    const a = assemble({ month: '2026-08', vessel: 'Gubal Trader', cfm: [usd, eur], email: body, payout, bank_blocks: blocks, crew_list: crew }, null);
+  it('التجميع بلا سعر صرف: البنود المعلّقة والفروق الثلاثة المعروفة', async () => {
+    const lb = msg.attachments.find((x) => /LB/.test(x.name))!;
+    const lash = await parsePdf(lb.content, lb.name);
+    const a = assemble({ month: '2026-08', vessel: 'Gubal Trader', cfm: [usd, eur], email: body, payout, bank_blocks: blocks, crew_list: crew, lashing_pdf: { file: lb.name, rows: lash.rows! } }, null);
     expect(a.entries).toHaveLength(32);
+    // التعارض الوحيد بين الرسالة وPDF التوزيع: 379 (418.76 مقابل 418.86) — يظهر ولا يُستبدل
+    expect(a.entries.filter((e) => e.source_conflicts.length).map((e) => [e.crew_id, e.source_conflicts[0].email, e.source_conflicts[0].other])).toEqual([['379', '418.76', '418.86']]);
+    expect(a.unmatched.lashing_pdf.map((u) => u.row.eur)).toEqual(['47.73']);
     const e = (id: string) => a.entries.find((x) => x.crew_id === id)!;
     expect(e('527').differences.find((x) => x.kind === 'sign_off_day')).toEqual({ kind: 'sign_off_day', calculated: '79.20', reported: '93.33', diff: '-14.13' });
     expect(e('607').differences.find((x) => x.kind === 'sign_off_day')).toEqual({ kind: 'sign_off_day', calculated: '282.83', reported: '333.33', diff: '-50.50' });
@@ -92,8 +112,9 @@ d('عيّنة أغسطس ٢٠٢٦ — جوبال تريدر', () => {
     expect(a.unmatched.payout.some((u) => u.match.status === 'suggested' && u.match.candidates.length > 1)).toBe(true);
     // السلفة بعملتها الأصليّة بلا سعر ⇒ موقوفة
     expect(e('965').result.issues.map((i) => i.code)).toContain('fx_missing');
-    expect(a.unmatched.notes.map((n) => n.amount)).toEqual(['47.73']);
-  });
+    expect(a.notes.map((n) => n.amount)).toEqual(['47.73']);
+    expect(a.unresolved.map((u) => u.kind)).toEqual(['note']);
+  }, 120_000);
 
   it('التجميع بسعرٍ وقبول كلّ البنود: الإجماليّات لكلّ عملة', () => {
     const base = assemble({ month: '2026-08', vessel: 'Gubal Trader', cfm: [usd, eur], email: body, payout, bank_blocks: blocks, crew_list: crew }, null);

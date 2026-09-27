@@ -22,6 +22,16 @@ describe('هجرة crew-salaries على PostgreSQL', () => {
     c = new Client({ connectionString: db.url });
     c.on('notice', (n) => notices.push(n.message || ''));
     await c.connect();
+    // محاكاة Supabase: أدوار الوصول المباشر، وصلاحيّاتٌ افتراضيّة تمنحها كلّ جدولٍ جديد
+    await c.query(`DO $r$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon NOLOGIN; END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated NOLOGIN; END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE service_role NOLOGIN BYPASSRLS; END IF;
+    END $r$`);
+    await c.query('GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role');
+    await c.query('ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role');
+    // جدولٌ قائمٌ قبل الهجرة — يجب ألّا تمسّ صلاحيّاته
+    await c.query('CREATE TABLE legacy_probe (id int)');
   });
   afterAll(async () => { await c?.end(); await db?.drop(); });
 
@@ -77,6 +87,37 @@ describe('هجرة crew-salaries على PostgreSQL', () => {
     } finally { await ds.destroy(); }
   });
 
+  it('RLS مفعّلة على الجداول العشرة، والوصول المباشر مسحوبٌ من anon وauthenticated وservice_role', async () => {
+    const rls = await c.query(`SELECT relname, relrowsecurity FROM pg_class WHERE relname LIKE 'crew_salary_%' AND relkind='r'`);
+    expect(rls.rows).toHaveLength(10);
+    expect(rls.rows.every((r) => r.relrowsecurity)).toBe(true);
+    const tbls = rls.rows.map((r) => r.relname);
+    for (const role of ['anon', 'authenticated', 'service_role']) {
+      for (const t of tbls) {
+        for (const sql of [`SELECT 1 FROM ${t} LIMIT 1`, `INSERT INTO ${t} DEFAULT VALUES`, `TRUNCATE ${t}`, `DELETE FROM ${t}`]) {
+          await c.query('BEGIN');
+          await c.query(`SET LOCAL ROLE ${role}`);
+          await expect(c.query(sql)).rejects.toThrow(/permission denied/);
+          await c.query('ROLLBACK');
+        }
+      }
+    }
+    // الجدول القائم قبل الهجرة لم يُمسّ
+    await c.query('BEGIN'); await c.query('SET LOCAL ROLE anon');
+    await expect(c.query('SELECT 1 FROM legacy_probe')).resolves.toBeTruthy();
+    await c.query('ROLLBACK');
+  });
+
+  it('المالك (دور الباك) يعمل كما هو — RLS لا تُفرض عليه', async () => {
+    const r = await c.query(`INSERT INTO crew_salary_links (source_key, crew_id) VALUES ('owner probe', '1') RETURNING id`);
+    await c.query('DELETE FROM crew_salary_links WHERE id = $1', [r.rows[0].id]);
+  });
+
+  it('سجلّ التدقيق وإصدارات الاعتماد لا تُفرَّغ بـ TRUNCATE ولو من المالك', async () => {
+    await expect(c.query('TRUNCATE crew_salary_audit')).rejects.toThrow(/إلحاقٌ فقط/);
+    await expect(c.query('TRUNCATE crew_salary_versions CASCADE')).rejects.toThrow(/إلحاقٌ فقط/);
+  });
+
   it('سجلّ التدقيق إلحاقٌ فقط', async () => {
     const r = await c.query(`INSERT INTO crew_salary_audit (entity, action) VALUES ('t', 'probe') RETURNING id`);
     await expect(c.query(`UPDATE crew_salary_audit SET action='x' WHERE id=$1`, [r.rows[0].id])).rejects.toThrow(/إلحاقٌ فقط/);
@@ -94,8 +135,8 @@ describe('هجرة crew-salaries على PostgreSQL', () => {
   it('الاستحقاق الساري لا يتكرّر، والمنتهي لا يمنع', async () => {
     const cy = (await c.query(`SELECT id FROM crew_salary_cycles LIMIT 1`)).rows[0].id;
     const v = (await c.query(`SELECT id FROM crew_salary_versions LIMIT 1`)).rows[0].id;
-    const ins = (active: boolean) => c.query(`INSERT INTO crew_salary_entitlements (version_id, cycle_id, crew_id, currency, kind, amount, entitlement_key, active)
-      VALUES ($1, $2, '527', 'EUR', 'basic', 1131.33, 'k1', $3)`, [v, cy, active]);
+    const ins = (active: boolean) => c.query(`INSERT INTO crew_salary_entitlements (version_id, cycle_id, crew_id, currency, kind, amount, entry_key, entitlement_key, active)
+      VALUES ($1, $2, '527', 'EUR', 'basic', 1131.33, '527:EUR', 'k1', $3)`, [v, cy, active]);
     await ins(true);
     await expect(ins(true)).rejects.toThrow(/UQ_crew_salary_entitlements_active/);
     await ins(false);
@@ -116,8 +157,10 @@ describe('هجرة crew-salaries على PostgreSQL', () => {
     await expect(c.query(DOWN)).rejects.toThrow(/GATE FAILED/);
     await c.query('ROLLBACK');
     expect(await tables()).toHaveLength(10);
-    const forced = DOWN.replace('BEGIN;', "BEGIN;\nSET LOCAL crew_salary.force_drop = 'yes';");
-    await c.query(forced);
+    // بالطريقة الموثّقة: إعدادٌ على مستوى الجلسة ثمّ الملفّ كما هو
+    await c.query("SET crew_salary.force_drop = 'yes'");
+    await c.query(DOWN);
+    await c.query('RESET crew_salary.force_drop');
     expect(await tables()).toHaveLength(0);
     const fns = await c.query(`SELECT proname FROM pg_proc WHERE proname LIKE 'crew_salary_%'`);
     expect(fns.rowCount).toBe(0);

@@ -136,7 +136,6 @@ CREATE TABLE IF NOT EXISTS crew_salary_bank_accounts (
   swift                  varchar(20)  NOT NULL DEFAULT '',
   bank_code              varchar(40)  NOT NULL DEFAULT '',
   account_currency       varchar(3),
-  national_id            varchar(20)  NOT NULL DEFAULT '',
   source                 varchar(30)  NOT NULL DEFAULT 'manual',
   source_file_id         uuid REFERENCES crew_salary_files(id) ON DELETE RESTRICT,
   provenance             jsonb        NOT NULL DEFAULT '{}'::jsonb,
@@ -184,6 +183,7 @@ CREATE TABLE IF NOT EXISTS crew_salary_entitlements (
   period_start     date,
   period_end       date,
   amount           numeric(14,2) NOT NULL,
+  entry_key        varchar(80)   NOT NULL,
   entitlement_key  varchar(300)  NOT NULL,
   active           boolean       NOT NULL DEFAULT true,
   created_at       timestamptz   NOT NULL DEFAULT now()
@@ -191,6 +191,7 @@ CREATE TABLE IF NOT EXISTS crew_salary_entitlements (
 -- الاستحقاق الواحد لا يُعتمد مرّتين (في دورتين أو إصدارين ساريين)
 CREATE UNIQUE INDEX IF NOT EXISTS "UQ_crew_salary_entitlements_active" ON crew_salary_entitlements (entitlement_key) WHERE active;
 CREATE INDEX IF NOT EXISTS "IDX_crew_salary_entitlements_crew" ON crew_salary_entitlements (crew_id);
+CREATE INDEX IF NOT EXISTS "IDX_crew_salary_entitlements_entry" ON crew_salary_entitlements (cycle_id, entry_key) WHERE active;
 
 CREATE TABLE IF NOT EXISTS crew_salary_exports (
   id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -202,6 +203,7 @@ CREATE TABLE IF NOT EXISTS crew_salary_exports (
   file_sha256      varchar(64)   NOT NULL,
   row_count        integer       NOT NULL DEFAULT 0,
   is_redownload    boolean       NOT NULL DEFAULT false,
+  content          bytea,
   exported_by      uuid,
   exported_by_name varchar(150)  NOT NULL DEFAULT '',
   exported_at      timestamptz   NOT NULL DEFAULT now()
@@ -234,6 +236,14 @@ DROP TRIGGER IF EXISTS crew_salary_audit_no_change ON crew_salary_audit;
 CREATE TRIGGER crew_salary_audit_no_change BEFORE UPDATE OR DELETE ON crew_salary_audit
   FOR EACH ROW EXECUTE FUNCTION crew_salary_audit_append_only();
 
+-- والتفريغ الكامل أيضاً: TRUNCATE لا يمرّ بمشغّلات الصفوف
+DROP TRIGGER IF EXISTS crew_salary_audit_no_truncate ON crew_salary_audit;
+CREATE TRIGGER crew_salary_audit_no_truncate BEFORE TRUNCATE ON crew_salary_audit
+  FOR EACH STATEMENT EXECUTE FUNCTION crew_salary_audit_append_only();
+DROP TRIGGER IF EXISTS crew_salary_versions_no_truncate ON crew_salary_versions;
+CREATE TRIGGER crew_salary_versions_no_truncate BEFORE TRUNCATE ON crew_salary_versions
+  FOR EACH STATEMENT EXECUTE FUNCTION crew_salary_audit_append_only();
+
 -- لقطة الإصدار لا تتغيّر بعد إنشائه (الحالة وحدها تتقدّم)
 CREATE OR REPLACE FUNCTION crew_salary_version_frozen() RETURNS trigger AS $fn$
 BEGIN
@@ -253,6 +263,30 @@ DROP TRIGGER IF EXISTS crew_salary_versions_frozen ON crew_salary_versions;
 CREATE TRIGGER crew_salary_versions_frozen BEFORE UPDATE OR DELETE ON crew_salary_versions
   FOR EACH ROW EXECUTE FUNCTION crew_salary_version_frozen();
 
+
+-- ── منع الوصول المباشر (Supabase Data API والأدوار الافتراضيّة) ──
+-- الباك يتّصل بدور مالك الجداول عبر DATABASE_URL، والمالك لا تُطبَّق عليه RLS (بلا FORCE)،
+-- فيعمل كما هو. أمّا anon وauthenticated فتمنعهما RLS بلا سياسات، وسحب الصلاحيات يمنع
+-- الثلاثة — ومنهم service_role الذي يتجاوز RLS، ومفتاحه في الباك للتخزين وحده.
+-- نمطٌ قائم في المشروع: docs/migrations/gubal-foundation-up.sql
+DO $rls$
+DECLARE t text; r text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['crew_salary_cycles','crew_salary_files','crew_salary_decisions','crew_salary_links',
+    'crew_salary_authorizations','crew_salary_bank_accounts','crew_salary_versions','crew_salary_entitlements',
+    'crew_salary_exports','crew_salary_audit'] LOOP
+    EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
+    EXECUTE format('REVOKE ALL ON %I FROM PUBLIC', t);
+    FOREACH r IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
+        EXECUTE format('REVOKE ALL ON %I FROM %I', t, r);
+      END IF;
+    END LOOP;
+  END LOOP;
+  REVOKE ALL ON FUNCTION crew_salary_audit_append_only() FROM PUBLIC;
+  REVOKE ALL ON FUNCTION crew_salary_version_frozen() FROM PUBLIC;
+END $rls$;
+
 DO $$
 DECLARE t text; missing text := '';
 BEGIN
@@ -262,7 +296,11 @@ BEGIN
     IF to_regclass('public.' || t) IS NULL THEN missing := missing || ' ' || t; END IF;
   END LOOP;
   IF missing <> '' THEN RAISE EXCEPTION 'VERIFY FAILED: لم يُنشأ:%', missing; END IF;
-  RAISE NOTICE 'بعد الهجرة: الجداول العشرة موجودة';
+  IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+             WHERE n.nspname = 'public' AND c.relname LIKE 'crew\_salary\_%' AND c.relkind = 'r' AND NOT c.relrowsecurity) THEN
+    RAISE EXCEPTION 'VERIFY FAILED: جدول مرتّباتٍ بلا RLS';
+  END IF;
+  RAISE NOTICE 'بعد الهجرة: الجداول العشرة موجودة، وRLS مفعّلة، والوصول المباشر مسحوب';
 END $$;
 
 COMMIT;

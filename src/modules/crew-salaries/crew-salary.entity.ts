@@ -110,7 +110,6 @@ export class CrewSalaryBankAccount {
   @Column({ type: 'varchar', length: 20, default: '' }) swift: string;
   @Column({ type: 'varchar', length: 40, default: '' }) bank_code: string;
   @Column({ type: 'varchar', length: 3, nullable: true }) account_currency: string | null;
-  @Column({ type: 'varchar', length: 20, default: '' }) national_id: string;
   @Column({ type: 'varchar', length: 30, default: 'manual' }) source: string;
   @Column({ type: 'uuid', nullable: true }) source_file_id: string | null;
   @Column({ type: 'jsonb', default: () => "'{}'::jsonb" }) provenance: any;
@@ -149,6 +148,7 @@ export class CrewSalaryVersion {
 @Entity('crew_salary_entitlements')
 @Index('UQ_crew_salary_entitlements_active', ['entitlement_key'], { unique: true, where: 'active' })
 @Index('IDX_crew_salary_entitlements_crew', ['crew_id'])
+@Index('IDX_crew_salary_entitlements_entry', ['cycle_id', 'entry_key'], { where: 'active' })
 export class CrewSalaryEntitlement {
   @PrimaryGeneratedColumn('uuid') id: string;
   @Column({ type: 'uuid' }) version_id: string;
@@ -159,6 +159,7 @@ export class CrewSalaryEntitlement {
   @Column({ type: 'date', nullable: true }) period_start: string | null;
   @Column({ type: 'date', nullable: true }) period_end: string | null;
   @Column({ type: 'numeric', precision: 14, scale: 2 }) amount: string;
+  @Column({ type: 'varchar', length: 80 }) entry_key: string;
   @Column({ type: 'varchar', length: 300 }) entitlement_key: string;
   @Column({ type: 'boolean', default: true }) active: boolean;
   @CreateDateColumn({ type: 'timestamptz' }) created_at: Date;
@@ -176,6 +177,8 @@ export class CrewSalaryExport {
   @Column({ type: 'varchar', length: 64 }) file_sha256: string;
   @Column({ type: 'integer', default: 0 }) row_count: number;
   @Column({ type: 'boolean', default: false }) is_redownload: boolean;
+  // الملفّ كما صدر أوّل مرّة — إعادة التنزيل تعيده حرفيّاً
+  @Column({ type: 'bytea', nullable: true, select: false }) content: Buffer | null;
   @Column({ type: 'uuid', nullable: true }) exported_by: string | null;
   @Column({ type: 'varchar', length: 150, default: '' }) exported_by_name: string;
   @Column({ type: 'timestamptz', default: () => 'now()' }) exported_at: Date;

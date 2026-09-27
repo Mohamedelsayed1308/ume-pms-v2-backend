@@ -10,7 +10,10 @@ import { excelDate, readWorkbook, type Provenance } from './cfm.parser';
  * • قائمة الطاقم الكاملة (الرقم ⇐ الاسم والرتبة) — ويُترك منها الجواز والميلاد والعنوان:
  *   لا حاجة لها في المرتّبات، فلا تُقرأ ولا تُحفظ.
  *
- * أرقام الحسابات والهويّة تبقى **نصوصاً** كما هي (لا تتحوّل أرقاماً فتفقد أصفارها).
+ * أرقام الحسابات تبقى **نصوصاً** كما هي (لا تتحوّل أرقاماً فتفقد أصفارها).
+ * والرقم القوميّ في كشف الصرف لا يُقرأ: لا يلزم للحساب، ولا قالب بنكٍ معتمد يطلبه بعد.
+ * • ورقة نشاط اللاشينج (عدد الشاحنات والسيّارات) مرجعٌ داعم لا يُعاد منه حساب — مبالغ اللاشينج
+ *   من الرسالة وكشف التوزيع.
  */
 
 export interface PayoutRow {
@@ -23,7 +26,6 @@ export interface PayoutRow {
   branch: string;
   bank: string;
   beneficiary_ar: string;
-  national_id: string;
   cash_advance_eur: string | null;
   cigarettes_usd: string | null;
   other_addition: string | null;
@@ -53,6 +55,7 @@ export type AttachmentSheet =
   | { kind: 'payout'; rows: PayoutRow[]; vessel: string | null }
   | { kind: 'bank_blocks'; rows: BankBlock[] }
   | { kind: 'crew_list'; rows: CrewListRow[]; vessel: string | null; date: string | null }
+  | { kind: 'lashing_activity' }
   | { kind: 'unknown' };
 
 const txt = (v: unknown) => (v == null ? '' : String(v).replace(/ /g, ' ').replace(/\s+/g, ' ').trim());
@@ -79,6 +82,7 @@ export function parseAttachmentWorkbook(buf: Buffer, file?: string): AttachmentS
     if (has('رقم الحساب') && has('Name')) return parsePayout(rows, sheet, file);
     if (has('Surname & Name') && has('Bank details')) return parseBankBlocks(rows, sheet, file);
     if (has('Seafarer') && has('ID') && has('Rank')) return parseCrewList(rows, sheet, file);
+    if (flat.some((r) => r.some((c) => /lashing bonus/i.test(c))) && has('DATE') && (has('CARS') || has('PAX'))) return { kind: 'lashing_activity' };
   }
   return { kind: 'unknown' };
 }
@@ -94,7 +98,7 @@ function findHeader(rows: unknown[][], label: string, from = 0, to = 15): { row:
 function parsePayout(rows: unknown[][], sheet: string, file?: string): AttachmentSheet {
   const col = (label: string) => findHeader(rows, label)?.col ?? -1;
   const c = {
-    nid: col('الرقم القومي'), cur: col('عملة الحساب'), acc: col('رقم الحساب'), branch: col('الفرع'), bank: col('اسم البنك'),
+    cur: col('عملة الحساب'), acc: col('رقم الحساب'), branch: col('الفرع'), bank: col('اسم البنك'),
     ben: col('اسم المستفيد'), add: col('Other Addition'), bonus: col('Bonus'), ded: col('Other Deduct'),
     adv: col('Cash Advance'), cig: col('Cigarettes'), off: col('الرفت'), on: col('التعيين'),
     rank: col('الرتبة'), nameAr: col('الإسم'), name: col('Name'), no: col('NO'),
@@ -109,13 +113,11 @@ function parsePayout(rows: unknown[][], sheet: string, file?: string): Attachmen
     const no = Number(txt(at(r, c.no)));
     const name = txt(at(r, c.name));
     if (!Number.isInteger(no) || no <= 0 || !name) continue;
-    // الرقم القومي خانةٌ لكلّ رقم — من عموده حتّى عمود العملة
-    const nid = c.nid >= 0 && c.cur > c.nid ? r.slice(c.nid, c.cur).map((v) => txt(v)).join('') : '';
     out.push({
       no, name, name_ar: txt(at(r, c.nameAr)), rank: txt(at(r, c.rank)),
       account_currency: normalizeCurrency(txt(at(r, c.cur))),
       account_number: ident(at(r, c.acc)), branch: txt(at(r, c.branch)), bank: txt(at(r, c.bank)),
-      beneficiary_ar: txt(at(r, c.ben)), national_id: /^\d+$/.test(nid) ? nid : '',
+      beneficiary_ar: txt(at(r, c.ben)),
       cash_advance_eur: amt(r, c.adv), cigarettes_usd: amt(r, c.cig),
       other_addition: amt(r, c.add), bonus: amt(r, c.bonus), other_deduction: amt(r, c.ded),
       sign_off: excelDate(at(r, c.off)), sign_on: excelDate(at(r, c.on)),

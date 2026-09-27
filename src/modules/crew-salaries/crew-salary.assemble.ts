@@ -1,20 +1,34 @@
-import { computeEntry, compareWithReported, monthBounds, type Difference, type EntryInput, type EntryResult, type ExtraItemInput, type FxMonth, type ReportedItem } from './crew-salary.calc';
+import Decimal from 'decimal.js';
+import {
+  computeEntry, compareWithReported, COMPARE_GROUP, money, monthBounds,
+  type Difference, type EntryInput, type EntryResult, type ExtraItemInput, type FxMonth, type ItemFlag, type ItemKind, type ReportedItem,
+} from './crew-salary.calc';
 import { matchName, sourceKey, type Candidate, type MatchResult } from './crew-salary.match';
 import type { CfmExport, CfmSeafarer, CfmSummaryRow, Provenance } from './parsers/cfm.parser';
 import type { EmailNote, EmailRow, ParsedEmailBody } from './parsers/email-body.parser';
 import type { BankBlock, CrewListRow, PayoutRow } from './parsers/attachments.parser';
+import type { LashingRow } from './parsers/pdf.parser';
 
 /**
  * تجميع دورة شهرٍ لمركب من مصادرها — منطقٌ خالص.
  *
- * • **CFM** يعطي: من في الكشف، وعملة عقده، وتاريخي خدمته، ومرتّباته الشهريّة، وما صدّره
- *   من مبالغ (للمقارنة وحدها — لا يدخل منها بندٌ في الحساب إلّا السلفة عند غياب مصدرها).
- * • **الرسالة** تعطي البنود الإضافيّة (لاشينج، مكافأة، أمتعة، فرق مرتّب، يوما النزول والصعود).
- * • **كشف الصرف** يعطي السلف باليورو وبيانات بنوك المصريّين وتاريخي الرفت والتعيين.
- * • **كشف البنوك** يعطي حسابات الأجانب.
+ * • **CFM**: من في الكشف، وعملة عقده، وتاريخا خدمته، ومرتّباته الشهريّة، وما صدّره من مبالغ
+ *   (للمقارنة وحدها — لا يدخل منها بندٌ في الحساب إلّا السلفة عند غياب مصدرها الأصليّ).
+ * • **الرسالة**: البنود الإضافيّة (لاشينج، مكافأة، أمتعة، فرق مرتّب، يوما النزول والصعود).
+ * • **كشف الصرف**: السلف باليورو وبنوك المصريّين وتاريخا الرفت والتعيين.
+ * • **كشف البنوك**: حسابات الأجانب. • **PDF توزيع اللاشينج**: مرجعٌ للمقارنة لا يحلّ محلّ الرسالة.
  *
- * وكلّ بندٍ مستورَد يبدأ «معلّقاً» حتّى يراجعه إنسان — إلّا ما قرّرته المراجعة سلفاً.
+ * ── لا بيانات ماليّة تسقط بصمت ──
+ * كلّ ما لم يُحسم (صفٌّ بلا رقم بحّار، عمودٌ مجهول، ملاحظةٌ بمبلغ، ملفٌّ لم يُقرأ، انقطاعٌ في جدول)
+ * يظهر في `unresolved` بمصدره، ولا يُعدّ محسوماً إلّا بربطٍ أو تصحيحٍ أو استبعادٍ مسبَّب.
+ * وكلّ بندٍ مستورَد يبدأ «معلّقاً» حتّى يراجعه إنسان.
  */
+
+export interface Resolution { action: 'excluded' | 'resolved'; reason: string }
+export interface SupplementaryInput {
+  source_key: string;           // مفتاح الملاحظة أو المصدر: email:note:p9
+  crew_id: string; name: string; currency: string; amount: string; kind: ItemKind; reason: string;
+}
 
 export interface Sources {
   month: string;
@@ -25,9 +39,16 @@ export interface Sources {
   payout?: PayoutRow[];
   bank_blocks?: BankBlock[];
   crew_list?: CrewListRow[];
+  lashing_pdf?: { file: string; rows: LashingRow[] } | null;
   links?: Map<string, string>;                         // مفتاح الاسم ⇒ رقم البحّار (مؤكَّد)
   reviews?: Record<string, 'accepted' | 'rejected'>;   // مفتاح البند ⇒ قرار المراجعة
-  manual?: { crew_id: string; currency: string; item: ExtraItemInput }[];
+  classify?: Record<string, ItemKind>;                 // مفتاح بندٍ مجهول ⇒ نوعه بعد التصنيف
+  item_currency?: Record<string, string>;              // مفتاح بند ⇒ عملته المؤكَّدة
+  resolutions?: Record<string, Resolution>;            // مفتاح قضيّةٍ معلّقة ⇒ حسمها
+  manual?: { entry_key: string; item: ExtraItemInput }[];
+  supplementary?: SupplementaryInput[];
+  payment_currency?: Record<string, string>;           // مفتاح الحالة ⇒ عملة دفعٍ استثنائيّة
+  file_issues?: { key: string; name: string; detail: string }[];
 }
 
 export interface BankCandidate {
@@ -41,25 +62,28 @@ export interface BankCandidate {
   swift: string;
   bank_code: string;
   account_currency: string | null;
-  national_id: string;
   provenance: Provenance;
 }
 
 export interface DateCheck { field: 'pay_start' | 'pay_end'; cfm: string | null; other: string; source: string; provenance: Provenance }
+export interface SourceConflict { kind: ItemKind; email: string | null; other: string; currency: string; source: string; provenance: Provenance }
 
 export interface AssembledEntry {
-  key: string;                                         // crew_id:CUR
+  key: string;                                         // crew_id:عملة العقد
   crew_id: string;
   name: string;
   rank: string;
   nationality: string;
-  currency: string;
+  currency: string;                                    // عملة العقد
+  payment_currency: string;
+  payment_currency_exception: boolean;
   section: 'monthly' | 'final' | 'supplementary';
   input: EntryInput;
   result: EntryResult;
   reported: ReportedItem[];
   reported_balance: string | null;
   differences: Difference[];
+  source_conflicts: SourceConflict[];
   provenance: Provenance[];
   payout_match: (MatchResult & { row: number; name: string }) | null;
   bank_match: (MatchResult & { row: number; name: string }) | null;
@@ -67,24 +91,48 @@ export interface AssembledEntry {
   date_checks: DateCheck[];
 }
 
+export type UnresolvedKind = 'email_row_no_id' | 'email_row_unknown_currency' | 'parse_issue' | 'note' | 'file';
+export interface Unresolved {
+  key: string;
+  kind: UnresolvedKind;
+  detail: string;
+  name?: string;
+  amounts?: { column: string; amount: string; currency: string | null }[];
+  candidates?: { crew_id: string; score: number }[];
+  source: { file?: string; table?: number; row?: number; paragraph?: number };
+  resolution: Resolution | null;
+}
+
 export interface Unmatched {
   payout: { row: PayoutRow; match: MatchResult }[];
   bank_blocks: { row: BankBlock; match: MatchResult }[];
-  email_rows: EmailRow[];
-  notes: EmailNote[];
+  lashing_pdf: { row: LashingRow; match: MatchResult }[];
 }
 
 export interface Assembled {
   month: string;
   vessel: string;
   entries: AssembledEntry[];
+  unresolved: Unresolved[];
   unmatched: Unmatched;
+  notes: EmailNote[];
   warnings: string[];
 }
+
+const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40) || 'col';
+const groupOf = (k: ItemKind): ItemKind => COMPARE_GROUP[k] || k;
+const same = (a: string | null | undefined, b: string | null | undefined) => a != null && b != null && new Decimal(a).eq(b);
+
+export const noteKey = (n: EmailNote) => `email:note:p${n.paragraph}`;
+export const rowKey = (r: EmailRow) => `email:t${r.table}:r${r.row}`;
 
 export function assemble(src: Sources, fx: FxMonth | null): Assembled {
   const warnings: string[] = [];
   const reviews = src.reviews || {};
+  const classify = src.classify || {};
+  const curOverride = src.item_currency || {};
+  const resolutions = src.resolutions || {};
+  const unresolved: Unresolved[] = [];
   const decide = (key: string): ExtraItemInput['review'] => reviews[key] || 'pending';
 
   // ── المرشّحون للمطابقة بالاسم: أسماء CFM وأسماء قائمة الطاقم لكلّ رقم ──
@@ -115,22 +163,50 @@ export function assemble(src: Sources, fx: FxMonth | null): Assembled {
   const unmatchedBank: Unmatched['bank_blocks'] = [];
   for (const row of src.bank_blocks || []) {
     const match = matchName(row.beneficiary || row.name, candidates, src.links);
-    const m2 = match.status === 'none' || match.status === 'suggested' ? matchName(row.name, candidates, src.links) : match;
-    const best = linked(match) ? match : m2;
+    const best = linked(match) ? match : matchName(row.name, candidates, src.links);
     const id = linked(best);
     if (id && !bankBy.has(id)) bankBy.set(id, { row, match: best });
     else unmatchedBank.push({ row, match: best });
   }
-
-  const emailBy = new Map<string, EmailRow[]>();
-  for (const t of src.email?.tables || []) {
-    for (const r of t.rows) if (r.crew_id) emailBy.set(r.crew_id, [...(emailBy.get(r.crew_id) || []), r]);
+  const lashBy = new Map<string, LashingRow>();
+  const unmatchedLash: Unmatched['lashing_pdf'] = [];
+  for (const row of src.lashing_pdf?.rows || []) {
+    const match = matchName(row.name, candidates, src.links);
+    const id = linked(match);
+    if (id && !lashBy.has(id)) lashBy.set(id, row);
+    else if (Number(row.eur) > 0) unmatchedLash.push({ row, match });
   }
-  const emailCurrency = new Map<number, string | null>((src.email?.tables || []).map((t) => [t.index, t.currency]));
+
+  // ── صفوف الرسالة: برقم البحّار، أو بربطٍ مؤكَّد لاسمه — وإلّا قضيّةٌ معلّقة ──
+  const emailBy = new Map<string, EmailRow[]>();
+  const tableCur = new Map<number, string | null>((src.email?.tables || []).map((t) => [t.index, t.currency]));
+  for (const t of src.email?.tables || []) {
+    for (const r of t.rows) {
+      const id = r.crew_id || src.links?.get(sourceKey(r.name)) || null;
+      const hasMoney = r.items.length + r.unknown.length + r.unreadable.length > 0;
+      if (id) { emailBy.set(id, [...(emailBy.get(id) || []), { ...r, crew_id: id }]); continue; }
+      if (!hasMoney && !r.name) continue;
+      const m = matchName(r.name, candidates, src.links);
+      unresolved.push({
+        key: rowKey(r), kind: 'email_row_no_id', name: r.name,
+        detail: `صفٌّ في الجدول ${r.table} بلا رقم بحّار: ${r.name || '—'} — اربطه بالبحّار أو استبعده بسبب`,
+        amounts: [...r.items.map((i) => ({ column: i.column, amount: i.amount, currency: tableCur.get(r.table) ?? null })),
+          ...r.unknown.map((u) => ({ column: u.column, amount: u.value, currency: tableCur.get(r.table) ?? null }))],
+        candidates: m.candidates, source: { file: src.email_file, table: r.table, row: r.row },
+        resolution: resolutions[rowKey(r)] || null,
+      });
+    }
+  }
+  for (const i of src.email?.issues || []) {
+    unresolved.push({ key: i.key, kind: 'parse_issue', detail: i.detail, source: { file: src.email_file, table: i.table, row: i.row }, resolution: resolutions[i.key] || null });
+  }
+  for (const f of src.file_issues || []) {
+    unresolved.push({ key: f.key, kind: 'file', detail: f.detail, source: { file: f.name }, resolution: resolutions[f.key] || null });
+  }
 
   const entries: AssembledEntry[] = [];
-  const seen = new Set<string>();
   const b = monthBounds(src.month);
+  const inCfm = new Set<string>();
 
   for (const x of src.cfm) {
     if (x.month && x.month !== src.month) warnings.push(`تصدير CFM بعملة ${x.currency} لشهر ${x.month} لا ${src.month}`);
@@ -138,70 +214,129 @@ export function assemble(src: Sources, fx: FxMonth | null): Assembled {
     for (const row of x.rows) {
       const sheet = sheetBy.get(row.crew_id) || null;
       if (!sheet) warnings.push(`البحّار ${row.crew_id} بلا ورقة تفصيليّة في تصدير ${x.currency} — مرتّبه الشهريّ غير معروف`);
-      const e = buildEntry(src, x, row, sheet, emailBy.get(row.crew_id) || [], emailCurrency, payoutBy.get(row.crew_id), bankBy.get(row.crew_id), decide, fx, b);
-      seen.add(row.crew_id);
-      entries.push(e);
+      inCfm.add(row.crew_id);
+      entries.push(buildEntry(src, x, row, sheet, emailBy.get(row.crew_id) || [], tableCur, payoutBy.get(row.crew_id), bankBy.get(row.crew_id), lashBy.get(row.crew_id), decide, classify, curOverride, fx, b));
     }
   }
 
-  // ── بحّارةٌ في الرسالة لا في CFM: استحقاقٌ تكميليّ بلا مرتّب ──
-  const unmatchedEmail: EmailRow[] = [];
+  // ── بحّارةٌ في الرسالة لا في CFM: استحقاقٌ تكميليّ بلا مرتّب — حالةٌ لكلّ عملة ──
   for (const [id, rows] of emailBy) {
-    if (seen.has(id)) continue;
-    const cur = rows.map((r) => emailCurrency.get(r.table)).find(Boolean) || null;
-    if (!cur) { unmatchedEmail.push(...rows); continue; }
-    const extras = rows.flatMap((r) => emailExtras(r, cur, src.email_file, decide));
-    const input: EntryInput = { month: src.month, currency: cur, payStart: null, payEnd: null, signsOffThisMonth: false, rates: null, extras };
-    const result = computeEntry(input, fx);
-    entries.push({
-      key: `${id}:${cur}`, crew_id: id, name: rows[0].name, rank: rows[0].rank, nationality: rows[0].nationality,
-      currency: cur, section: 'supplementary', input, result, reported: [], reported_balance: null,
-      differences: [], provenance: rows.map((r) => ({ file: src.email_file, sheet: `email-table-${r.table}`, row: r.row })),
-      payout_match: null, bank_match: null, bank_candidates: [], date_checks: [],
+    if (inCfm.has(id)) continue;
+    const byCur = new Map<string, ExtraItemInput[]>();
+    for (const r of rows) {
+      const tc = tableCur.get(r.table) || null;
+      const items = rowExtras(r, '', decide, classify, curOverride, tc);
+      for (const it of items) {
+        if (!it.currency) {
+          unresolved.push({
+            key: `${it.key}:currency`, kind: 'email_row_unknown_currency', name: r.name,
+            detail: `بندٌ للبحّار ${id} في جدولٍ بلا عملة، والبحّار خارج CFM — حدّد عملته`,
+            amounts: [{ column: it.reason || it.kind, amount: it.amount, currency: null }],
+            source: { file: src.email_file, table: r.table, row: r.row }, resolution: resolutions[`${it.key}:currency`] || null,
+          });
+          continue;
+        }
+        byCur.set(it.currency, [...(byCur.get(it.currency) || []), it]);
+      }
+    }
+    for (const [cur, extras] of byCur) {
+      entries.push(supplementaryEntry(src, id, rows[0].name, rows[0].rank, rows[0].nationality, cur, extras,
+        rows.map((r) => ({ file: src.email_file, sheet: `email-table-${r.table}`, row: r.row })), fx));
+    }
+  }
+
+  // ── ملاحظات الرسالة: مستحقٌّ تكميليّ بعد ربطها ببحّارٍ مؤكَّد، أو استبعادٌ مسبَّب ──
+  const suppByNote = new Map((src.supplementary || []).map((s) => [s.source_key, s]));
+  for (const n of src.email?.notes || []) {
+    const k = noteKey(n);
+    const s = suppByNote.get(k);
+    unresolved.push({
+      key: k, kind: 'note', detail: n.text, amounts: n.amount ? [{ column: 'note', amount: n.amount, currency: n.currency }] : [],
+      source: { file: src.email_file, paragraph: n.paragraph },
+      resolution: s ? { action: 'resolved', reason: `مستحقٌّ تكميليّ للبحّار ${s.crew_id}: ${s.reason}` } : resolutions[k] || null,
     });
+  }
+  for (const s of src.supplementary || []) {
+    const item: ExtraItemInput = { key: `supp:${s.source_key}`, kind: s.kind, amount: s.amount, currency: s.currency, reason: s.reason, source: 'email-note', review: decide(`supp:${s.source_key}`), flags: ['manually_identified'] };
+    const host = entries.find((e) => e.crew_id === s.crew_id && e.currency === s.currency);
+    if (host) { host.input.extras.push(item); recompute(host, fx); continue; }
+    entries.push(supplementaryEntry(src, s.crew_id, s.name, '', '', s.currency, [item], [{ file: src.email_file, sheet: 'email-note', row: 0 }], fx));
   }
 
   for (const m of src.manual || []) {
-    const e = entries.find((x) => x.crew_id === m.crew_id && x.currency === m.currency);
-    if (!e) { warnings.push(`بندٌ يدويّ لبحّارٍ غير موجود في الدورة: ${m.crew_id}/${m.currency}`); continue; }
+    const e = entries.find((x) => x.key === m.entry_key);
+    if (!e) { warnings.push(`بندٌ يدويّ لحالةٍ غير موجودة في الدورة: ${m.entry_key}`); continue; }
     e.input.extras.push({ ...m.item, review: reviews[m.item.key] || m.item.review });
-    e.result = computeEntry(e.input, fx);
-    e.differences = compareWithReported(e.result, e.reported, e.reported_balance);
+    recompute(e, fx);
+  }
+
+  // عملة الدفع الاستثنائيّة — قرارٌ مسبَّب لكلّ حالة
+  for (const e of entries) {
+    const pc = src.payment_currency?.[e.key];
+    if (pc && pc !== e.currency) {
+      e.payment_currency = pc; e.payment_currency_exception = true;
+      e.input.paymentCurrency = pc;
+      recompute(e, fx);
+    }
   }
 
   return {
-    month: src.month, vessel: src.vessel, entries,
-    unmatched: { payout: unmatchedPayout, bank_blocks: unmatchedBank, email_rows: unmatchedEmail, notes: src.email?.notes || [] },
-    warnings,
+    month: src.month, vessel: src.vessel, entries, unresolved,
+    unmatched: { payout: unmatchedPayout, bank_blocks: unmatchedBank, lashing_pdf: unmatchedLash },
+    notes: src.email?.notes || [], warnings,
   };
 }
 
-function emailExtras(r: EmailRow, cur: string, file: string | undefined, decide: (k: string) => ExtraItemInput['review']): ExtraItemInput[] {
-  return r.items.map((it) => {
-    const key = `email:t${r.table}:r${r.row}:${it.kind}`;
+export function recompute(e: AssembledEntry, fx: FxMonth | null) {
+  e.result = computeEntry(e.input, fx);
+  e.differences = compareWithReported(e.result, e.reported, e.reported_balance);
+}
+
+/** بنود صفٍّ من الرسالة — بعملة جدوله، أو عملة العقد مع علامة «مستنتَجة»، أو بلا عملة. */
+function rowExtras(r: EmailRow, fallbackCur: string, decide: (k: string) => ExtraItemInput['review'],
+  classify: Record<string, ItemKind>, curOverride: Record<string, string>, tableCur?: string | null): ExtraItemInput[] {
+  const base = `email:t${r.table}:r${r.row}`;
+  const out: ExtraItemInput[] = [];
+  const make = (key: string, kind: ItemKind, amount: string, reason: string, flags: ItemFlag[]): ExtraItemInput => {
+    const confirmed = curOverride[key];
+    const cur = confirmed || tableCur || fallbackCur;
+    const f = [...flags];
+    if (!confirmed && !tableCur && cur) f.push('currency_inferred');
+    const k = classify[key] || kind;
     return {
-      key, kind: it.kind, amount: it.amount, currency: cur,
-      reason: [it.column, r.statement].filter(Boolean).join(' — '),
-      source: 'email', review: decide(key),
+      key, kind: k, amount, currency: cur, reason, source: 'email', flags: f.length ? f : undefined,
+      // التصنيف قرار مراجعة: يُقبل البند بتصنيفه ما لم يُرفض صراحة
+      review: classify[key] && decide(key) === 'pending' ? 'accepted' : decide(key),
     };
-  });
+  };
+  for (const it of r.items) out.push(make(`${base}:${it.kind}`, it.kind, it.amount, [it.column, r.statement].filter(Boolean).join(' — '), []));
+  for (const u of r.unreadable) out.push(make(`${base}:${u.kind}`, u.kind, u.value, `${u.column}: «${u.value}»`, ['unreadable_amount']));
+  for (const u of r.unknown) out.push(make(`${base}:x:${slug(u.column)}`, 'unclassified', money(u.value) ?? u.value, `${u.column}: ${u.value}`, ['unknown_column']));
+  return out;
+}
+
+function supplementaryEntry(src: Sources, id: string, name: string, rank: string, nationality: string, cur: string,
+  extras: ExtraItemInput[], provenance: Provenance[], fx: FxMonth | null): AssembledEntry {
+  const input: EntryInput = { month: src.month, currency: cur, payStart: null, payEnd: null, signsOffThisMonth: false, rates: null, extras };
+  const result = computeEntry(input, fx);
+  return {
+    key: `${id}:${cur}`, crew_id: id, name, rank, nationality, currency: cur, payment_currency: cur, payment_currency_exception: false,
+    section: 'supplementary', input, result, reported: [], reported_balance: null, differences: [], source_conflicts: [],
+    provenance, payout_match: null, bank_match: null, bank_candidates: [], date_checks: [],
+  };
 }
 
 function buildEntry(
   src: Sources, x: CfmExport, row: CfmSummaryRow, sheet: CfmSeafarer | null, emailRows: EmailRow[],
-  emailCurrency: Map<number, string | null>, payout: { row: PayoutRow; match: MatchResult } | undefined,
-  bank: { row: BankBlock; match: MatchResult } | undefined, decide: (k: string) => ExtraItemInput['review'],
+  tableCur: Map<number, string | null>, payout: { row: PayoutRow; match: MatchResult } | undefined,
+  bank: { row: BankBlock; match: MatchResult } | undefined, lash: LashingRow | undefined,
+  decide: (k: string) => ExtraItemInput['review'], classify: Record<string, ItemKind>, curOverride: Record<string, string>,
   fx: FxMonth | null, b: { start: string; end: string },
 ): AssembledEntry {
   const cur = x.currency;
   const extras: ExtraItemInput[] = [];
-  // بنود الرسالة — بعملة جدولها، وإلّا عملة العقد (يُذكر ذلك في السبب)
-  for (const r of emailRows) {
-    const tc = emailCurrency.get(r.table) || null;
-    for (const it of emailExtras(r, tc || cur, src.email_file, decide)) {
-      extras.push(tc ? it : { ...it, reason: `${it.reason} (عملة الجدول غير مذكورة — عملة العقد ${cur})` });
-    }
-  }
+  for (const r of emailRows) extras.push(...rowExtras(r, cur, decide, classify, curOverride, tableCur.get(r.table) || null));
+
   // السلف: من كشف الصرف بعملتها الأصليّة إن رُبط الصفّ، وإلّا من CFM كما صدّرها
   const p = payout?.row;
   if (p?.cash_advance_eur) {
@@ -221,16 +356,24 @@ function buildEntry(
     const v = p?.[field];
     if (!v) continue;
     const key = `payout:r${p!.provenance.row}:${field}`;
-    extras.push({ key, kind, amount: v, currency: p!.account_currency || cur, reason: `${label} — كشف الصرف (العملة من عملة الحساب — تحقّق)`, source: 'attachment', review: decide(key) });
+    const confirmed = curOverride[key];
+    const item: ExtraItemInput = {
+      key, kind, amount: v, currency: confirmed || p!.account_currency || cur, reason: `${label} — كشف الصرف`,
+      source: 'attachment', review: decide(key), flags: confirmed ? undefined : ['currency_inferred'],
+    };
+    // المبلغ نفسه في الرسالة ⇒ مكرّرٌ محتمل: لا يُقبل جماعيّاً، وقبول الاثنين مانع
+    const twin = extras.find((e) => e.source === 'email' && groupOf(e.kind) === groupOf(kind) && same(money(e.amount), v));
+    if (twin) { item.duplicate_of = twin.key; item.flags = [...(item.flags || []), 'possible_duplicate']; }
+    extras.push(item);
   }
 
   const rates = sheet && sheet.rates.basic && sheet.rates.fixed_ot && sheet.rates.leave
     ? { basic: sheet.rates.basic, fixed_ot: sheet.rates.fixed_ot, leave: sheet.rates.leave }
     : { basic: '', fixed_ot: '', leave: '' };
-  const signsOff = row.section === 'final' && !!row.pay_end && row.pay_end < b.end;
   const input: EntryInput = {
     month: src.month, currency: cur, payStart: row.pay_start, payEnd: row.pay_end,
-    signsOffThisMonth: signsOff, rates, extras,
+    // قسم «الحساب النهائيّ» = نزولٌ هذا الشهر. وشرط «قبل آخر يوم» في المحرّك نفسه
+    signsOffThisMonth: row.section === 'final', rates, extras,
   };
   const result = computeEntry(input, fx);
   const reported: ReportedItem[] = (sheet?.items || []).map((i) => ({ kind: i.kind, amount: i.amount, description: i.description }));
@@ -243,24 +386,39 @@ function buildEntry(
     if (inMonth(p.sign_off) && p.sign_off !== row.pay_end) date_checks.push({ field: 'pay_end', cfm: row.pay_end, other: p.sign_off!, source: 'كشف الصرف (الرفت)', provenance: p.provenance });
   }
 
+  // اللاشينج: الرسالة هي المصدر، وPDF التوزيع مرجعٌ يُظهر التعارض ولا يستبدل
+  const source_conflicts: SourceConflict[] = [];
+  if (lash && src.lashing_pdf) {
+    const pdfAmount = cur === 'USD' && lash.usd && Number(lash.usd) > 0 ? lash.usd : lash.eur_pay && Number(lash.eur_pay) > 0 ? lash.eur_pay : null;
+    const pdfCur = cur === 'USD' && lash.usd && Number(lash.usd) > 0 ? 'USD' : 'EUR';
+    const emailLash = extras.filter((e) => e.source === 'email' && groupOf(e.kind) === 'bonus' && e.kind !== 'captain_bonus');
+    const emailSum = emailLash.length ? emailLash.reduce((a, e) => a.plus(money(e.amount) ?? 0), new Decimal(0)).toFixed(2) : null;
+    if (pdfAmount && !same(emailSum, pdfAmount)) {
+      source_conflicts.push({
+        kind: 'lashing', email: emailSum, other: new Decimal(pdfAmount).toFixed(2), currency: pdfCur,
+        source: `PDF توزيع اللاشينج «${src.lashing_pdf.file}»`, provenance: { file: src.lashing_pdf.file, sheet: `page-${lash.page}`, row: lash.line },
+      });
+    }
+  }
+
   const bank_candidates: BankCandidate[] = [];
   if (sheet?.bank) {
     const k = sheet.bank;
-    bank_candidates.push({ source: 'cfm_sheet', beneficiary: k.beneficiary, bank: k.bank, branch: '', country: '', iban: k.iban, account_number: k.account_number, swift: k.swift, bank_code: k.bank_code, account_currency: null, national_id: '', provenance: k.provenance });
+    bank_candidates.push({ source: 'cfm_sheet', beneficiary: k.beneficiary, bank: k.bank, branch: '', country: '', iban: k.iban, account_number: k.account_number, swift: k.swift, bank_code: k.bank_code, account_currency: null, provenance: k.provenance });
   }
   if (p && (p.account_number || p.bank)) {
-    bank_candidates.push({ source: 'payout_sheet', beneficiary: p.beneficiary_ar || p.name, bank: p.bank, branch: p.branch, country: '', iban: '', account_number: p.account_number, swift: '', bank_code: '', account_currency: p.account_currency || null, national_id: p.national_id, provenance: p.provenance });
+    bank_candidates.push({ source: 'payout_sheet', beneficiary: p.beneficiary_ar || p.name, bank: p.bank, branch: p.branch, country: '', iban: '', account_number: p.account_number, swift: '', bank_code: '', account_currency: p.account_currency || null, provenance: p.provenance });
   }
   if (bank) {
     const k = bank.row;
     const isIban = /^[A-Z]{2}\d{2}[A-Z0-9]{8,}$/.test(k.iban_or_account);
-    bank_candidates.push({ source: 'bank_sheet', beneficiary: k.beneficiary || k.name, bank: k.bank, branch: k.branch, country: k.country, iban: isIban ? k.iban_or_account : '', account_number: isIban ? '' : k.iban_or_account, swift: k.swift, bank_code: '', account_currency: null, national_id: '', provenance: k.provenance });
+    bank_candidates.push({ source: 'bank_sheet', beneficiary: k.beneficiary || k.name, bank: k.bank, branch: k.branch, country: k.country, iban: isIban ? k.iban_or_account : '', account_number: isIban ? '' : k.iban_or_account, swift: k.swift, bank_code: '', account_currency: null, provenance: k.provenance });
   }
 
   return {
     key: `${row.crew_id}:${cur}`, crew_id: row.crew_id, name: sheet?.full_name || row.name, rank: row.rank, nationality: row.nationality,
-    currency: cur, section: row.section, input, result, reported, reported_balance,
-    differences: compareWithReported(result, reported, reported_balance),
+    currency: cur, payment_currency: cur, payment_currency_exception: false, section: row.section, input, result, reported, reported_balance,
+    differences: compareWithReported(result, reported, reported_balance), source_conflicts,
     provenance: [row.provenance, ...(sheet ? [{ file: row.provenance.file, sheet: sheet.sheet, row: 1 }] : [])],
     payout_match: payout ? { ...payout.match, row: payout.row.provenance.row, name: payout.row.name } : null,
     bank_match: bank ? { ...bank.match, row: bank.row.provenance.row, name: bank.row.name } : null,

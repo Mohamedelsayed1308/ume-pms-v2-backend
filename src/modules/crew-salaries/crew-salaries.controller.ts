@@ -20,7 +20,7 @@ function sendXlsx(res: Response, buffer: Buffer, filename: string) {
   res.setHeader('Content-Disposition', `attachment; filename="${filename.replace(/[^A-Za-z0-9._-]/g, '_')}"`);
   res.setHeader('Cache-Control', 'no-store');
   // الواجهة على أصلٍ آخر — تقرأ اسم الملفّ وعلامة إعادة التنزيل
-  res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, X-Redownload');
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, X-Redownload, X-Historical');
   res.send(buffer);
 }
 
@@ -104,7 +104,10 @@ export class CrewSalariesController {
   setFx(@Body() b: any, @Request() req: any) { return this.svc.setFx(b?.month, b?.currency, String(b?.usd_per_unit ?? ''), b?.reason, actor(req)); }
 
   @Post('cycles/:id/submit')
-  submit(@Param('id', ParseUUIDPipe) id: string, @Body() b: any, @Request() req: any) { return this.svc.submit(id, b?.reason, actor(req)); }
+  submit(@Param('id', ParseUUIDPipe) id: string, @Body() b: any, @Request() req: any) {
+    const keys = Array.isArray(b?.keys) ? b.keys.map(String).slice(0, 500) : undefined;
+    return this.svc.submit(id, b?.reason, actor(req), keys);
+  }
 
   @Post('versions/:id/approve')
   approve(@Param('id', ParseUUIDPipe) id: string, @Body() b: any, @Request() req: any) { return this.svc.approve(id, b?.reason, actor(req)); }
@@ -120,8 +123,9 @@ export class CrewSalariesController {
 
   @Post('cycles/:id/export/payments')
   async exportPayments(@Param('id', ParseUUIDPipe) id: string, @Body() b: any, @Request() req: any, @Res() res: Response) {
-    const x = await this.svc.exportPayments(id, b?.currency, actor(req));
+    const x = await this.svc.exportPayments(id, b?.currency, actor(req), b?.version_id || undefined);
     res.setHeader('X-Redownload', x.redownload ? '1' : '0');
+    res.setHeader('X-Historical', x.historical ? '1' : '0');
     sendXlsx(res, x.buffer, x.filename);
   }
 }
