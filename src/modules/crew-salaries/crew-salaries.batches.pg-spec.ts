@@ -54,6 +54,8 @@ describe('دفعات مرتّبات الأطقم على PostgreSQL', () => {
     await svc.approve(v.id, `اعتماد ${note}`, APPROVER);
     return v;
   };
+  /** قرار المالك على الحالة كما عرضتها اللوحة — بصمتها وإصدارها. */
+  const exp = (d: any) => ({ kind: 'batch_resolution', row_id: d.row_id, expected_hash: d.entry_hash, expected_version_id: d.version_id });
   const cycleWith = async (vessel: string, crews: FakeCrew[], month?: { y: number; m: number; name: string }) => (await svc.importFile(fakeCfm(vessel, 'EUR', crews, month), `${vessel}.xlsx`, CLERK) as any).cycle_id as string;
   const sheetRows = (buf: Buffer) => XLSX.utils.sheet_to_json<any[]>(XLSX.read(buf, { type: 'buffer' }).Sheets['الصرف'], { header: 1 }).filter((r) => typeof r[0] === 'number');
   const rowsOf = (cycleId: string) => ds.getRepository(CrewSalaryExportRow).find({ where: { cycle_id: cycleId }, order: { created_at: 'ASC' } });
@@ -110,9 +112,9 @@ describe('دفعات مرتّبات الأطقم على PostgreSQL', () => {
     expect(pend).toHaveLength(1);
     expect(pend[0]).toMatchObject({ state: 'pending', crew_id: '9601', balance: '1750.00', amount_changed: true, bank_changed: false, prior: [{ amount: '1650.00', batch_no: 'CS-BATCHUP-202608-V1-EUR' }] });
     // الموظّف لا يقرّر، ولا قرار بلا سبب
-    await expect(svc.decide(id, { kind: 'batch_resolution', row_id: pend[0].row_id, action: 'replace', reason: 'لم يُنفَّذ' }, CLERK)).rejects.toThrow(/وحده/);
-    await expect(svc.decide(id, { kind: 'batch_resolution', row_id: pend[0].row_id, action: 'replace', reason: '' }, APPROVER)).rejects.toThrow(/لم تُنفَّذ/);
-    await svc.decide(id, { kind: 'batch_resolution', row_id: pend[0].row_id, action: 'replace', reason: 'البنك أكّد أنّ الملفّ لم يُرفع' }, APPROVER);
+    await expect(svc.decide(id, { ...exp(pend[0]), action: 'replace', reason: 'لم يُنفَّذ' }, CLERK)).rejects.toThrow(/وحده/);
+    await expect(svc.decide(id, { ...exp(pend[0]), action: 'replace', reason: '' }, APPROVER)).rejects.toThrow(/لم تُنفَّذ/);
+    await svc.decide(id, { ...exp(pend[0]), action: 'replace', reason: 'البنك أكّد أنّ الملفّ لم يُرفع' }, APPROVER);
     expect((await view(id)).batch_decisions[0]).toMatchObject({ state: 'decided', amount_changed: true, bank_changed: false, resolution: { action: 'replace' } });
     const b2 = await svc.exportPayments(id, 'EUR', CLERK);
     expect(b2.filename).toBe('CS-BATCHUP-202608-V2-EUR.xlsx');
@@ -138,10 +140,10 @@ describe('دفعات مرتّبات الأطقم على PostgreSQL', () => {
     await svc.exportPayments(id, 'EUR', CLERK);
     await setBasic(id, '9611', '1100');
     await submitApprove(id, 'الزيادة');
-    const row = (await view(id)).batch_decisions[0].row_id;
-    await expect(svc.decide(id, { kind: 'batch_resolution', row_id: row, action: 'settle', amount: '-100', reason: 'فرق' }, APPROVER)).rejects.toThrow(/رقمٌ موجب/);
-    await expect(svc.decide(id, { kind: 'batch_resolution', row_id: row, action: 'settle', amount: '1750.01', reason: 'فرق' }, APPROVER)).rejects.toThrow(/لا تتجاوز/);
-    await svc.decide(id, { kind: 'batch_resolution', row_id: row, action: 'settle', amount: '100', reason: 'نُفِّذ الأوّل — إيصال البنك ١٢' }, APPROVER);
+    const row = (await view(id)).batch_decisions[0];
+    await expect(svc.decide(id, { ...exp(row), action: 'settle', amount: '-100', reason: 'فرق' }, APPROVER)).rejects.toThrow(/رقمٌ موجب/);
+    await expect(svc.decide(id, { ...exp(row), action: 'settle', amount: '1750.01', reason: 'فرق' }, APPROVER)).rejects.toThrow(/لا تتجاوز/);
+    await svc.decide(id, { ...exp(row), action: 'settle', amount: '100', reason: 'نُفِّذ الأوّل — إيصال البنك ١٢' }, APPROVER);
     const x = await svc.exportPayments(id, 'EUR', CLERK);
     expect(sheetRows(x.buffer).map((r) => [r[1], r[16]])).toEqual([['9611', 100]]);
     expect((await rowsOf(id)).map((r) => [r.amount, r.row_kind, r.status])).toEqual([['1650.00', 'full', 'active'], ['100.00', 'settlement', 'active']]);
@@ -158,11 +160,11 @@ describe('دفعات مرتّبات الأطقم على PostgreSQL', () => {
     await expect(svc.exportPayments(id, 'EUR', CLERK)).rejects.toThrow(/تنتظر قرار المالك/);
     const p = (await view(id)).batch_decisions[0];
     expect(p).toMatchObject({ amount_changed: false, bank_changed: true });
-    await svc.decide(id, { kind: 'batch_resolution', row_id: p.row_id, action: 'keep', reason: 'نُفِّذ على الحساب القديم' }, APPROVER);
+    await svc.decide(id, { ...exp(p), action: 'keep', reason: 'نُفِّذ على الحساب القديم' }, APPROVER);
     await expect(svc.exportPayments(id, 'EUR', CLERK)).rejects.toThrow(/لا حالات مكتملة بمستحقٍّ جديد/);
     expect((await view(id)).batch_decisions[0]).toMatchObject({ state: 'kept', amount_changed: false, bank_changed: true });
     // ثمّ تبيّن أنّ الملفّ لم يُنفَّذ: القرار يُستبدل قبل الخروج
-    await svc.decide(id, { kind: 'batch_resolution', row_id: p.row_id, action: 'replace', reason: 'رُدّ الملفّ من البنك' }, APPROVER);
+    await svc.decide(id, { ...exp(p), action: 'replace', reason: 'رُدّ الملفّ من البنك' }, APPROVER);
     await svc.exportPayments(id, 'EUR', CLERK);
     const rows = await rowsOf(id);
     expect(rows.map((r) => [r.bank_id, r.amount, r.status])).toEqual([[oldAcc, '1650.00', 'replaced'], [newAcc, '1650.00', 'active']]);
@@ -178,7 +180,7 @@ describe('دفعات مرتّبات الأطقم على PostgreSQL', () => {
     await expect(svc.exportPayments(id, 'EUR', CLERK)).rejects.toThrow(/تنتظر قرار المالك/);
     const p = (await view(id)).batch_decisions[0];
     expect(p).toMatchObject({ balance: '1550.00', amount_changed: true, prior: [{ amount: '1650.00' }] });
-    await svc.decide(id, { kind: 'batch_resolution', row_id: p.row_id, action: 'keep', reason: 'الزيادة المصروفة تُعالَج خارج الشاشة' }, APPROVER);
+    await svc.decide(id, { ...exp(p), action: 'keep', reason: 'الزيادة المصروفة تُعالَج خارج الشاشة' }, APPROVER);
     await expect(svc.exportPayments(id, 'EUR', CLERK)).rejects.toThrow(/لا حالات مكتملة/);
     expect((await rowsOf(id)).map((r) => [r.amount, r.status])).toEqual([['1650.00', 'active']]);
     expect(Number((await ds.query(`SELECT count(*)::int n FROM crew_salary_export_rows WHERE amount <= 0`))[0].n)).toBe(0);
@@ -214,11 +216,11 @@ describe('دفعات مرتّبات الأطقم على PostgreSQL', () => {
     await bank(id, '9607', 2);
     await submitApprove(id, 'تعديلان');
     const [a, b] = (await view(id)).batch_decisions.sort((x: any, y: any) => x.crew_id.localeCompare(y.crew_id));
-    await svc.decide(id, { kind: 'batch_resolution', row_id: a.row_id, action: 'replace', reason: 'لم يُنفَّذ' }, APPROVER);
+    await svc.decide(id, { ...exp(a), action: 'replace', reason: 'لم يُنفَّذ' }, APPROVER);
     const x = await svc.exportPayments(id, 'EUR', CLERK);
     expect(x.pending).toBe(1);
     expect(sheetRows(x.buffer).map((r) => r[1])).toEqual(['9606']);
-    await svc.decide(id, { kind: 'batch_resolution', row_id: b.row_id, action: 'replace', reason: 'لم يُنفَّذ' }, APPROVER);
+    await svc.decide(id, { ...exp(b), action: 'replace', reason: 'لم يُنفَّذ' }, APPROVER);
     const y = await svc.exportPayments(id, 'EUR', CLERK);
     expect(y.filename).toBe('CS-BATCHSEQ-202608-V2-EUR-B2.xlsx');
     expect(sheetRows(y.buffer).map((r) => r[1])).toEqual(['9607']);
@@ -242,8 +244,8 @@ describe('دفعات مرتّبات الأطقم على PostgreSQL', () => {
     const [p] = (await view(id)).batch_decisions;
     expect(p).toMatchObject({ state: 'pending', entry_key: '9641:USD', prior: [{ currency: 'EUR', amount: '1650.00' }] });
     // القرار على الحالة الجديدة وحدها، لا على حالةٍ قائمة لبحّارٍ آخر
-    await expect(svc.decide(id, { kind: 'batch_resolution', row_id: p.row_id, entry_key: '9999:USD', action: 'replace', reason: 'لم يُنفَّذ' }, APPROVER)).rejects.toThrow(/لبحّارٍ آخر/);
-    await svc.decide(id, { kind: 'batch_resolution', row_id: p.row_id, entry_key: p.entry_key, action: 'replace', reason: 'رُدّ ملفّ اليورو' }, APPROVER);
+    await expect(svc.decide(id, { ...exp(p), entry_key: '9999:USD', action: 'replace', reason: 'لم يُنفَّذ' }, APPROVER)).rejects.toThrow(/لبحّارٍ آخر/);
+    await svc.decide(id, { ...exp(p), entry_key: p.entry_key, action: 'replace', reason: 'رُدّ ملفّ اليورو' }, APPROVER);
     const x = await svc.exportPayments(id, 'USD', CLERK);
     expect(sheetRows(x.buffer).map((row) => [row[1], row[16]])).toEqual([['9641', 1650]]);
     expect((await rowsOf(id)).map((row) => [row.entry_key, row.status])).toEqual([['9641:EUR', 'replaced'], ['9641:USD', 'active']]);
@@ -263,11 +265,134 @@ describe('دفعات مرتّبات الأطقم على PostgreSQL', () => {
     await submitApprove(id, 'صفر');
     const [p] = (await view(id)).batch_decisions;
     expect(p).toMatchObject({ state: 'pending', balance: '0.00' });
-    const d: any = await svc.decide(id, { kind: 'batch_resolution', row_id: p.row_id, action: 'replace', reason: 'الملفّ لم يُرفع للبنك' }, APPROVER);
+    const d: any = await svc.decide(id, { ...exp(p), action: 'replace', reason: 'الملفّ لم يُرفع للبنك' }, APPROVER);
     const rows = await rowsOf(id);
     expect(rows.map((row) => [row.status, row.replaced_by])).toEqual([['replaced', d.id]]);
     await expect(svc.exportPayments(id, 'EUR', CLERK)).rejects.toThrow(/لا حالات مكتملة/);
     expect(await activeOut(id)).toEqual({});
+  });
+
+  // ══════════════ تصحيح العملة قبل أيّ تصدير: البديل يحلّ محلّ الأصل ══════════════
+  /** دورةٌ اعتُمدت فيها حالة 9701 باليورو، ثمّ صُحّح العقد إلى الدولار (المفتاح صار 9701:USD) وقُدّم. */
+  const ccySetup = async (vessel: string, crewId: string) => {
+    const r: any = await svc.importFile(fakeCfm(vessel, 'EUR', [crew(crewId)]), `${vessel}-eur.xlsx`, CLERK);
+    const id = r.cycle_id as string;
+    await bank(id, crewId);
+    const v1 = await submitApprove(id, 'اليورو');
+    await svc.importFile(fakeCfm(vessel, 'USD', [crew(crewId)]), `${vessel}-usd.xlsx`, CLERK, { replaces: r.file.id, reason: 'العقد بالدولار' });
+    await ack(id, crewId);
+    await svc.submit(id, 'الدولار', CLERK);
+    const v2 = await latest(id);
+    return { id, v1, v2 };
+  };
+
+  it('تصحيح العملة: الدولار يُعتمد ويُصدَّر ثمّ يُطلب اليورو القديم أوّل مرّة — يُرفض، ولا صفّ لليورو', async () => {
+    const { id, v1, v2 } = await ccySetup('Ccy First', '9701');
+    await svc.approve(v2.id, 'اعتماد الدولار', APPROVER);
+    const x = await svc.exportPayments(id, 'USD', CLERK);
+    expect(sheetRows(x.buffer).map((r) => [r[1], r[16]])).toEqual([['9701', 1650]]);
+    await expect(svc.exportPayments(id, 'EUR', CLERK, v1.id)).rejects.toThrow(/حلّ محلّ هذا الإصدار/);
+    expect(await activeOut(id)).toEqual({ '9701:USD': '1650.00' });
+    expect((await view(id)).versions.map((v: any) => [v.version_no, v.status])).toEqual([[2, 'approved'], [1, 'superseded']]);
+    expect(Number((await ds.query(`SELECT count(*)::int n FROM crew_salary_entitlements WHERE cycle_id = $1 AND entry_key = '9701:EUR' AND active`, [id]))[0].n)).toBe(0);
+    const snap = (await ds.getRepository(CrewSalaryVersion).findOne({ where: { id: v2.id } }))!.snapshot;
+    expect(snap.entries.map((e: any) => [e.key, e.replaces_keys])).toEqual([['9701:USD', ['9701:EUR']]]); // علاقة الاستبدال صريحةٌ في اللقطة
+  });
+
+  it('تصحيح العملة: طلب اليورو القديم بعد اعتماد الدولار وقبل تصديره — يُرفض، والدولار يخرج مرّةً واحدة', async () => {
+    const { id, v1, v2 } = await ccySetup('Ccy Second', '9702');
+    await svc.approve(v2.id, 'اعتماد الدولار', APPROVER);
+    await expect(svc.exportPayments(id, 'EUR', CLERK, v1.id)).rejects.toThrow(/حلّ محلّ هذا الإصدار/);
+    expect(await rowsOf(id)).toEqual([]);
+    const x = await svc.exportPayments(id, 'USD', CLERK);
+    expect(sheetRows(x.buffer).map((r) => [r[1], r[16]])).toEqual([['9702', 1650]]);
+    expect(await activeOut(id)).toEqual({ '9702:USD': '1650.00' });
+  });
+
+  it('تصحيح عملة حالةٍ في إصدارٍ جزئيّ: الحالة الأخرى تبقى معتمدةً وتخرج من إصدارها', async () => {
+    const r: any = await svc.importFile(fakeCfm('Ccy Partial', 'EUR', [crew('9721'), crew('9722')]), 'cp-eur.xlsx', CLERK);
+    const id = r.cycle_id as string;
+    await bank(id, '9721'); await bank(id, '9722');
+    const v1 = await submitApprove(id, 'الاثنان باليورو');
+    // 9721 صار بالدولار، و9722 باقٍ باليورو كما هو
+    await svc.importFile(fakeCfm('Ccy Partial', 'USD', [crew('9721')]), 'cp-usd.xlsx', CLERK);
+    await svc.importFile(fakeCfm('Ccy Partial', 'EUR', [crew('9722')]), 'cp-eur-2.xlsx', CLERK, { replaces: r.file.id, reason: '9721 انتقل إلى عقدٍ بالدولار' });
+    expect((await view(id)).entries.map((e: any) => e.key).sort()).toEqual(['9721:USD', '9722:EUR']);
+    expect((await entry(id, '9722')).approval).toMatchObject({ changed: false, version_no: 1 });
+    await ack(id, '9721');
+    const v2 = await submitApprove(id, '9721 بالدولار');
+    expect(v2.entries).toBe(1);
+    expect((await view(id)).versions.find((v: any) => v.version_no === 1).status).toBe('approved'); // 9722 ما زال عليه
+    const eur = await svc.exportPayments(id, 'EUR', CLERK, v1.id);
+    expect(sheetRows(eur.buffer).map((x) => x[1])).toEqual(['9722']);
+    const ex = XLSX.utils.sheet_to_json<any[]>(XLSX.read(eur.buffer, { type: 'buffer' }).Sheets['مستبعَد'], { header: 1 });
+    expect(ex.some((x) => x[0] === '9721' && /حلّ محلّها الإصدار 2/.test(x[3]))).toBe(true);
+    const usd = await svc.exportPayments(id, 'USD', CLERK);
+    expect(sheetRows(usd.buffer).map((x) => [x[1], x[16]])).toEqual([['9721', 1650]]);
+    expect(await activeOut(id)).toEqual({ '9721:USD': '1650.00', '9722:EUR': '1650.00' });
+  });
+
+  it('حالتان قائمتان للبحّار نفسه بعملتين لا تُدمجان: اعتماد إحداهما لا يطفئ الأخرى', async () => {
+    const r: any = await svc.importFile(fakeCfm('Two Ccy', 'EUR', [crew('9731')]), 'tc-eur.xlsx', CLERK);
+    const id = r.cycle_id as string;
+    await svc.importFile(fakeCfm('Two Ccy', 'USD', [crew('9731')]), 'tc-usd.xlsx', CLERK);
+    await bank(id, '9731');
+    expect((await view(id)).entries.map((e: any) => e.key).sort()).toEqual(['9731:EUR', '9731:USD']);
+    await svc.submit(id, 'اليورو وحده', CLERK, ['9731:EUR']);
+    const v1 = await latest(id);
+    await svc.approve(v1.id, 'اعتماد', APPROVER);
+    await svc.submit(id, 'الدولار', CLERK, ['9731:USD']);
+    const v2 = await latest(id);
+    expect((await ds.getRepository(CrewSalaryVersion).findOne({ where: { id: v2.id } }))!.snapshot.entries[0].replaces_keys).toBeUndefined();
+    await svc.approve(v2.id, 'اعتماد', APPROVER);
+    expect(sheetRows((await svc.exportPayments(id, 'EUR', CLERK, v1.id)).buffer).map((x) => x[1])).toEqual(['9731']);
+    expect(sheetRows((await svc.exportPayments(id, 'USD', CLERK, v2.id)).buffer).map((x) => x[1])).toEqual(['9731']);
+  });
+
+  // ══════════════ قرار المالك من صفحةٍ قديمة ══════════════
+  it('قرارٌ فُتح على V2 (1,750) ووصل بعد اعتماد V3 (2,450): يُرفض 409 لكلّ فعل، بلا قرارٍ ولا تصدير — ثمّ يُعاد على V3', async () => {
+    const id = await cycleWith('Stale Owner', [crew('9751')]);
+    await bank(id, '9751');
+    await submitApprove(id, 'الأوّل');
+    await svc.exportPayments(id, 'EUR', CLERK);
+    await setBasic(id, '9751', '1100');
+    await submitApprove(id, 'الإصدار ٢');
+    const d2 = (await view(id)).batch_decisions[0];
+    expect(d2).toMatchObject({ version_no: 2, balance: '1750.00' });
+    await setBasic(id, '9751', '1800');
+    await submitApprove(id, 'الإصدار ٣');
+    const count = async () => Number((await ds.query(`SELECT count(*)::int n FROM crew_salary_decisions WHERE cycle_id = $1 AND kind = 'batch_resolution'`, [id]))[0].n);
+    for (const body of [{ action: 'replace' }, { action: 'settle', amount: '100' }, { action: 'keep' }]) {
+      await expect(svc.decide(id, { ...exp(d2), ...body, reason: 'من الصفحة القديمة' }, APPROVER)).rejects.toMatchObject({ status: 409 });
+    }
+    // بلا الحالة المعروضة: لا يُربط تلقائيّاً بالأحدث
+    await expect(svc.decide(id, { kind: 'batch_resolution', row_id: d2.row_id, action: 'replace', reason: 'بلا بصمة' }, APPROVER)).rejects.toMatchObject({ status: 428 });
+    expect(await count()).toBe(0);
+    await expect(svc.exportPayments(id, 'EUR', CLERK)).rejects.toThrow(/تنتظر قرار المالك/);
+    expect((await rowsOf(id)).map((r) => r.amount)).toEqual(['1650.00']);
+    // بعد تحديث اللوحة: القرار على V3 كما يُعرض الآن
+    const d3 = (await view(id)).batch_decisions[0];
+    expect(d3).toMatchObject({ version_no: 3, balance: '2450.00', row_id: d2.row_id });
+    await svc.decide(id, { ...exp(d3), action: 'replace', reason: 'لم يُنفَّذ الأوّل' }, APPROVER);
+    const x = await svc.exportPayments(id, 'EUR', CLERK);
+    expect(sheetRows(x.buffer).map((r) => [r[1], r[16]])).toEqual([['9751', 2450]]);
+  });
+
+  it('قرارٌ فُتح ثمّ اعتُمد تغيير الحساب وحده: يُرفض 409 — والقرار على الحساب الجديد يمرّ', async () => {
+    const id = await cycleWith('Stale Bank', [crew('9752')]);
+    await bank(id, '9752', 1);
+    await submitApprove(id, 'الأوّل');
+    await svc.exportPayments(id, 'EUR', CLERK);
+    await setBasic(id, '9752', '1100');
+    await submitApprove(id, 'الإصدار ٢');
+    const d2 = (await view(id)).batch_decisions[0];
+    await bank(id, '9752', 2);
+    await submitApprove(id, 'حسابٌ جديد');
+    await expect(svc.decide(id, { ...exp(d2), action: 'settle', amount: '100', reason: 'قديم' }, APPROVER)).rejects.toMatchObject({ status: 409 });
+    const d3 = (await view(id)).batch_decisions[0];
+    expect(d3).toMatchObject({ bank_changed: true, amount_changed: true });
+    await svc.decide(id, { ...exp(d3), action: 'settle', amount: '100', reason: 'نُفِّذ الأوّل' }, APPROVER);
+    expect(sheetRows((await svc.exportPayments(id, 'EUR', CLERK)).buffer).map((r) => [r[1], r[16]])).toEqual([['9752', 100]]);
   });
 
   // ══════════════ التزامن: التصدير والاعتماد ══════════════
@@ -320,8 +445,8 @@ describe('دفعات مرتّبات الأطقم على PostgreSQL', () => {
     await svc.exportPayments(id, 'EUR', CLERK);
     await setBasic(id, '9623', '1100');
     await submitApprove(id, 'الزيادة');
-    const row = (await view(id)).batch_decisions[0].row_id;
-    await svc.decide(id, { kind: 'batch_resolution', row_id: row, action: 'replace', reason: 'لم يُنفَّذ' }, APPROVER);
+    const row = (await view(id)).batch_decisions[0];
+    await svc.decide(id, { ...exp(row), action: 'replace', reason: 'لم يُنفَّذ' }, APPROVER);
     const res = await Promise.allSettled([svc.exportPayments(id, 'EUR', CLERK), svc.exportPayments(id, 'EUR', CLERK)]);
     const ok = res.filter((r) => r.status === 'fulfilled').map((r) => (r as PromiseFulfilledResult<any>).value);
     expect(ok.map((x) => x.redownload).sort()).toEqual([false, true]);

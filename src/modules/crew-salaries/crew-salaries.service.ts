@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, HttpException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { createHash, randomUUID } from 'crypto';
 import Decimal from 'decimal.js';
@@ -907,7 +907,13 @@ export class CrewSalariesService {
         .map((e) => ({ key: e.key, crew_id: e.crew_id, currency: e.currency, balance: e.result.balance, reasons: e.eligible ? ['لم تُختَر في هذا التقديم'] : e.blockers }));
       const already = entries.filter((e) => e.approval && !e.approval.changed).map((e) => ({ key: e.key, version_no: e.approval!.version_no }));
       const fx = this.fxFrom(b.fx, b.cycle.month, included);
-      const strip = ({ approval, eligible: _e, ...rest }: EntryState) => ({ ...rest, revises: approval ? approval.version_no : undefined }); // eslint-disable-line @typescript-eslint/no-unused-vars
+      // علاقة استبدالٍ صريحة: حالةٌ غاب مفتاحها من الدورة (تغيّرت عملتها) وما زال لها اعتمادٌ ساري،
+      // لنفس البحّار ومن نفس المصدر ⇒ الحالة الجديدة تحلّ محلّها، ويُطفأ اعتمادها عند اعتماد البديل
+      const orphans = await this.orphanApprovals(cycleId, new Set(entries.map((e) => e.key)), m);
+      const strip = ({ approval, eligible: _e, ...rest }: EntryState) => { // eslint-disable-line @typescript-eslint/no-unused-vars
+        const rk = replacesFor(rest, orphans);
+        return { ...rest, revises: approval ? approval.version_no : undefined, replaces_keys: rk.length ? rk : undefined };
+      };
       const snap: Snapshot & { entries: (SnapshotEntry & { entry_hash: string; revises?: number })[] } = {
         cycle: { id: b.cycle.id, vessel: b.cycle.vessel, month: b.cycle.month },
         entries: [...included].sort((x, y) => x.key.localeCompare(y.key)).map(strip),
@@ -968,6 +974,18 @@ export class CrewSalariesService {
         throw new ConflictException('تغيّرت البيانات بعد التقديم — أعِد التقديم بإصدارٍ جديد');
       }
 
+      // علاقة الاستبدال كما قُدّمت هي نفسها الآن — وإلّا يُعاد التقديم
+      const orphans = await this.orphanApprovals(v.cycle_id, new Set(entries.map((e) => e.key)), m);
+      const replacedKeys = new Set<string>();
+      for (const e of s.entries as (SnapshotEntry & { replaces_keys?: string[] })[]) {
+        const had = e.replaces_keys || [];
+        for (const k of replacesFor(e, orphans)) if (!had.includes(k)) throw new ConflictException('ظهرت حالةٌ سابقة لهذا البحّار بعد التقديم — أعِد التقديم');
+        for (const k of had) {
+          if (entries.some((x) => x.key === k)) throw new ConflictException(`الحالة ${k} ما زالت قائمة في الدورة — لا يحلّ محلّها غيرها. أعِد التقديم`);
+          replacedKeys.add(k);
+        }
+      }
+
       const er = m.getRepository(CrewSalaryEntitlement);
       const rows: Partial<CrewSalaryEntitlement>[] = [];
       for (const e of s.entries) {
@@ -992,7 +1010,7 @@ export class CrewSalariesService {
 
       // الحالات المعدَّلة: تُطفأ استحقاقاتها السابقة في الدورة نفسها — حالةً حالة لا الإصدار كلّه
       const replaced = new Set<string>();
-      for (const k of keys) {
+      for (const k of [...keys, ...replacedKeys]) {
         const old = await er.find({ where: { cycle_id: v.cycle_id, entry_key: k, active: true } });
         for (const o of old) replaced.add(o.version_id);
         if (old.length) await er.update({ cycle_id: v.cycle_id, entry_key: k, active: true }, { active: false });
@@ -1009,7 +1027,7 @@ export class CrewSalariesService {
       }
       await vr.update({ id: v.id }, { status: 'approved', decided_by: a.id, decided_by_name: nameOf(a), decided_at: new Date(), decision_reason: r });
       await this.setStatus(m, v.cycle_id, { approved_version_id: v.id });
-      await this.audit(m, a, 'approved', 'version', v.id, v.cycle_id, r, { version_no: v.version_no, content_hash: v.content_hash, entitlements: rows.length, replaced: [...replaced] });
+      await this.audit(m, a, 'approved', 'version', v.id, v.cycle_id, r, { version_no: v.version_no, content_hash: v.content_hash, entitlements: rows.length, replaced: [...replaced], replaced_keys: [...replacedKeys] });
       return { ok: true, version_no: v.version_no, entitlements: rows.length };
     });
   }
@@ -1045,6 +1063,22 @@ export class CrewSalariesService {
     return { buffer, filename: `${batch}.xlsx` };
   }
 
+  /** اعتماداتٌ سارية لحالاتٍ غاب مفتاحها من الدورة — مع بحّارها ومصدرها وإصدارها. */
+  private async orphanApprovals(cycleId: string, live: Set<string>, m: EntityManager = this.ds.manager) {
+    const rows: { entry_key: string; version_id: string }[] = await m.query(
+      `SELECT DISTINCT entry_key, version_id FROM crew_salary_entitlements WHERE cycle_id = $1 AND active`, [cycleId]);
+    const out: Orphans = new Map();
+    const versions = new Map<string, CrewSalaryVersion | null>();
+    for (const r of rows) {
+      if (live.has(r.entry_key)) continue;
+      if (!versions.has(r.version_id)) versions.set(r.version_id, await m.getRepository(CrewSalaryVersion).findOne({ where: { id: r.version_id } }));
+      const v = versions.get(r.version_id);
+      const se = (v?.snapshot?.entries || []).find((e: SnapshotEntry) => e.key === r.entry_key) as SnapshotEntry | undefined;
+      if (v && se) out.set(r.entry_key, { crew_id: se.crew_id, origin: caseOrigin(se.section), version_no: v.version_no });
+    }
+    return out;
+  }
+
   /** مفاتيح الحالات الموجودة في الدورة الآن — ما خرج تحت مفتاحٍ غاب منها (تغيّرت عملته) يُعدّ خروجاً سابقاً للبحّار. */
   private async liveKeys(cycleId: string) {
     return new Set((await this.build(cycleId)).out.entries.map((e) => e.key));
@@ -1062,6 +1096,16 @@ export class CrewSalariesService {
       `SELECT DISTINCT e.entry_key, v.version_no FROM crew_salary_entitlements e JOIN crew_salary_versions v ON v.id = e.version_id
        WHERE e.cycle_id = $1 AND e.active`, [cycleId]);
     for (const r of active) if (r.version_no !== v.version_no && keys.has(r.entry_key)) ctx.superseded.set(r.entry_key, r.version_no);
+    // وحالةٌ أُطفئ اعتمادها كلّه (حلّ محلّها بديلٌ بمفتاحٍ آخر) — لا دفعة جديدة منها، والملفّات الصادرة تبقى تاريخيّة
+    const activeKeys = new Set(active.map((r: { entry_key: string }) => r.entry_key));
+    const gone = [...keys].filter((k) => !activeKeys.has(k));
+    if (gone.length) {
+      const vs = await m.getRepository(CrewSalaryVersion).find({ where: { cycle_id: cycleId, status: In(['approved', 'superseded']) }, order: { version_no: 'ASC' } });
+      for (const k of gone) {
+        const by = vs.find((x) => x.version_no > v.version_no && (x.snapshot?.entries || []).some((e: { replaces_keys?: string[] }) => (e.replaces_keys || []).includes(k)));
+        ctx.superseded.set(k, by?.version_no ?? 0);
+      }
+    }
     // كلّ العملات: حالةٌ خرجت بعملةٍ ثمّ تغيّرت عملة دفعها لا تخرج بالثانية كأنّها جديدة
     ctx.rows = await m.query(
       `SELECT r.id, x.batch_no, ver.version_no, r.entry_key, r.crew_id, r.currency, r.amount::text AS amount, r.balance::text AS balance,
@@ -1096,7 +1140,14 @@ export class CrewSalariesService {
     if (!['replace', 'settle', 'keep'].includes(action)) throw new BadRequestException('القرار: استبدال أو تسوية أو إبقاء');
     const reason = need(body?.reason, action === 'replace' ? 'ما يثبت أنّ الدفعة السابقة لم تُنفَّذ' : action === 'settle' ? 'سبب التسوية ومستندها' : 'سبب الإبقاء');
     const rowId = String(body?.row_id || '');
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rowId)) throw new BadRequestException('صفّ الدفعة مطلوب');
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID.test(rowId)) throw new BadRequestException('صفّ الدفعة مطلوب');
+    // القرار على الحالة كما عُرضت على المالك: بصمتها وإصدارها. غيابهما لا يتجاوز التحقّق
+    const expectedHash = String(body?.expected_hash || '');
+    const expectedVersion = String(body?.expected_version_id || '');
+    if (!/^[a-f0-9]{64}$/.test(expectedHash) || !UUID.test(expectedVersion)) {
+      throw new HttpException('حدِّث الصفحة ثمّ أعد القرار — يلزمه الحالة كما عُرضت عليك', HttpStatus.PRECONDITION_REQUIRED);
+    }
     let amount: string | null = null;
     if (action === 'settle') {
       if (!(isMoney(String(body?.amount ?? '')) && Number(body.amount) > 0)) throw new BadRequestException('مبلغ التسوية رقمٌ موجب');
@@ -1125,6 +1176,9 @@ export class CrewSalariesService {
       const v = holder ? await m.getRepository(CrewSalaryVersion).findOne({ where: { id: holder.version_id } }) : null;
       const se = (v?.snapshot?.entries || []).find((e: SnapshotEntry) => e.key === key) as (SnapshotEntry & { entry_hash: string }) | undefined;
       if (!v || !se) throw new ConflictException('لا اعتماد ساري لهذه الحالة');
+      if (se.entry_hash !== expectedHash || v.id !== expectedVersion) {
+        throw new ConflictException('تغيّرت الحالة منذ فتحتَ القرار (إصدارٌ أحدث أو مبلغٌ أو حسابٌ أو عملة) — حُدّثت اللوحة، راجِعها وأعد القرار');
+      }
       const bankChanged = (row.bank_id || null) !== (se.bank?.id || null);
       if (key === row.entry_key && se.entry_hash === row.entry_hash && !bankChanged) throw new BadRequestException('لم تتغيّر الحالة منذ خروجها — لا قرار يلزم');
       if (action === 'settle' && new Decimal(amount!).gt(se.result.balance)) throw new BadRequestException(`التسوية لا تتجاوز الصافي المعتمد (${se.result.balance})`);
@@ -1168,7 +1222,7 @@ export class CrewSalariesService {
           if (seen.has(r.entry.key)) continue;
           seen.add(r.entry.key);
           out.push({
-            state: r.state, entry_key: r.entry.key, crew_id: r.entry.crew_id, name: r.entry.name, currency: r.entry.currency,
+            state: r.state, entry_key: r.entry.key, entry_hash: r.entry.entry_hash, crew_id: r.entry.crew_id, name: r.entry.name, currency: r.entry.currency,
             version_id: v.id, version_no: v.version_no, balance: r.entry.result.balance, row_id: r.row.id,
             prior: r.prior.map((b) => ({ batch_no: b.batch_no, amount: b.amount, currency: b.currency, row_kind: b.row_kind, version_no: b.version_no })),
             amount_changed: r.amount_changed, bank_changed: r.bank_changed,
@@ -1273,6 +1327,14 @@ export class CrewSalariesService {
 /** ما تغيّر في الحالة منذ آخر صفٍّ خرج لها — المبلغ أو الحساب — يُعرض للمالك قبل قراره وبعده. */
 function changedSince(row: { balance: string; bank_id: string | null }, e: SnapshotEntry) {
   return { amount_changed: !new Decimal(row.balance).eq(e.result.balance), bank_changed: (row.bank_id || null) !== (e.bank?.id || null) };
+}
+
+type Orphans = Map<string, { crew_id: string; origin: string; version_no: number }>;
+/** مصدر الحالة: CFM (شهريّة أو نهائيّة) أو تكميليّة من الرسالة — لا تحلّ واحدةٌ محلّ الأخرى. */
+const caseOrigin = (section: string) => (section === 'supplementary' ? 'supplementary' : 'cfm');
+/** الحالات الغائبة التي تحلّ هذه الحالة محلّها: البحّار نفسه والمصدر نفسه — لا مجرّد رقم البحّار. */
+function replacesFor(e: { key: string; crew_id: string; section: string }, orphans: Orphans): string[] {
+  return [...orphans].filter(([k, o]) => k !== e.key && o.crew_id === e.crew_id && o.origin === caseOrigin(e.section)).map(([k]) => k).sort();
 }
 
 export type { ExtraItemInput };

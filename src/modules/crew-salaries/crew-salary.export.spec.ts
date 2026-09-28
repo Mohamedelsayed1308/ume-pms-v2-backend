@@ -129,6 +129,14 @@ describe('تصدير Excel', () => {
     expect(both.included.map((x) => x.entry.key)).toEqual(['0001:USD']);
   });
 
+  it('حالةٌ أُطفئ اعتمادها كلّه (حلّ محلّها بديل) لا تخرج من إصدارها القديم', () => {
+    const e = entry({ entry_hash: 'h1' } as any);
+    expect(payableEntries(snap([e]), 'EUR', { ...ctxOf([]), superseded: new Map([['0001:EUR', 2]]) }).excluded[0].reasons).toEqual(['حلّ محلّها الإصدار 2']);
+    const p = payableEntries(snap([e]), 'EUR', { ...ctxOf([]), superseded: new Map([['0001:EUR', 0]]) });
+    expect(p.included).toEqual([]);
+    expect(p.excluded[0].reasons).toEqual(['لا اعتماد ساري لها']);
+  });
+
   it('ما أُلغي بقرار المالك ولا صفّ ساريَ له لا يخرج تلقائيّاً', () => {
     const p = payableEntries(snap([entry({ entry_hash: 'h1' } as any)]), 'EUR', { ...ctxOf([]), replacedKeys: new Set(['0001:EUR']) });
     expect(p.included).toEqual([]);

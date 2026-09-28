@@ -200,7 +200,7 @@ describe('سير عمل مرتّبات الأطقم على PostgreSQL', () => {
     await expect(svc.exportPayments(cycleId, 'EUR', CLERK)).rejects.toThrow(/تنتظر قرار المالك/);
     const [p] = (await view()).batch_decisions;
     expect(p).toMatchObject({ state: 'pending', crew_id: '9101', balance: '4750.00', prior: [{ amount: '4450.00', batch_no: 'CS-TESTVESSEL-202608-V4-EUR' }] });
-    await svc.decide(cycleId, { kind: 'batch_resolution', row_id: p.row_id, action: 'settle', amount: '300', reason: 'نُفِّذت الدفعة الأولى — إيصال البنك' }, APPROVER);
+    await svc.decide(cycleId, { kind: 'batch_resolution', row_id: p.row_id, expected_hash: p.entry_hash, expected_version_id: p.version_id, action: 'settle', amount: '300', reason: 'نُفِّذت الدفعة الأولى — إيصال البنك' }, APPROVER);
     const x = await svc.exportPayments(cycleId, 'EUR', CLERK);
     const rows = XLSX.utils.sheet_to_json<any[]>(XLSX.read(x.buffer, { type: 'buffer' }).Sheets['الصرف'], { header: 1 });
     const a = rows.find((r) => r[1] === '9101')!;

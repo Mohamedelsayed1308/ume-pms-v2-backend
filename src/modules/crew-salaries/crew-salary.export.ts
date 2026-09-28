@@ -196,7 +196,7 @@ export interface BatchResolution {
 }
 
 export interface PaymentContext {
-  superseded: Map<string, number>;     // حالةٌ حلّ محلّها إصدارٌ أحدث ⇒ رقمه
+  superseded: Map<string, number>;     // حالةٌ حلّ محلّها إصدارٌ أحدث ⇒ رقمه (0: لا اعتماد ساري ولا بديل معروف)
   rows: BatchRow[];                    // الصفوف السارية التي خرجت فعلاً (لا لقطات الإصدارات)، بترتيب خروجها
   resolutions: BatchResolution[];
   replacedKeys?: Set<string>;          // حالاتٌ أُلغي ما خرج لها بقرار المالك ولا صفّ ساريَ لها
@@ -244,8 +244,11 @@ export function payableEntries(s: Snapshot, currency: string, ctx: PaymentContex
   const excluded: { entry: HashedEntry; reasons: string[]; resolution?: BatchResolution; row?: BatchRow }[] = [];
   const pending: PendingDecision[] = [];
   for (const e of s.entries.filter((x) => x.currency === currency) as HashedEntry[]) {
-    const sup = ctx.superseded.get(e.key);
-    if (sup) { excluded.push({ entry: e, reasons: [`حلّ محلّها الإصدار ${sup}`] }); continue; }
+    if (ctx.superseded.has(e.key)) {
+      const sup = ctx.superseded.get(e.key);
+      excluded.push({ entry: e, reasons: [sup ? `حلّ محلّها الإصدار ${sup}` : 'لا اعتماد ساري لها'] });
+      continue;
+    }
     if (!e.payable) { excluded.push({ entry: e, reasons: e.blockers.length ? e.blockers : ['غير مكتمل'] }); continue; }
     const own = ctx.rows.filter((r) => r.entry_key === e.key);
     // مفتاح الحالة يحمل عملتها: تغيّرت العملة ⇒ مفتاحٌ جديد. فما خرج للبحّار نفسه تحت مفتاحٍ
