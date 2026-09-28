@@ -11,6 +11,7 @@ import { CREW_SALARY_ENTITIES } from './crew-salary.entity';
  */
 const UP = fs.readFileSync(path.join(__dirname, '../../../docs/crew-salaries-up.sql'), 'utf8');
 const DOWN = fs.readFileSync(path.join(__dirname, '../../../docs/crew-salaries-down.sql'), 'utf8');
+const VERIFY = fs.readFileSync(path.join(__dirname, '../../../docs/crew-salaries-verify.sql'), 'utf8');
 
 describe('هجرة crew-salaries على PostgreSQL', () => {
   let db: Awaited<ReturnType<typeof freshDb>>;
@@ -36,6 +37,23 @@ describe('هجرة crew-salaries على PostgreSQL', () => {
   afterAll(async () => { await c?.end(); await db?.drop(); });
 
   const tables = async () => (await c.query(`SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name LIKE 'crew_salary_%' ORDER BY 1`)).rows.map((r) => r.table_name);
+
+  /** يشغّل ملفّ الفحص ويعيد رسائله — والفحص للقراءة فقط (يُختم بـ ROLLBACK). */
+  const verify = async () => {
+    const from = notices.length;
+    await c.query(VERIFY);
+    return notices.slice(from);
+  };
+
+  it('فحص ما قبل الهجرة (للقراءة فقط): يرفض غياب القيد الفريد على exchange_rates.month، ويقبل وجوده', async () => {
+    await c.query('CREATE TABLE exchange_rates (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), month varchar NOT NULL, rates jsonb)');
+    await expect(c.query(VERIFY)).rejects.toThrow(/CHECK FAILED: لا قيد فريد/);
+    await c.query('ROLLBACK');
+    await c.query('ALTER TABLE exchange_rates ADD CONSTRAINT "UQ_exchange_rates_month" UNIQUE (month)');
+    const out = await verify();
+    expect(out.some((n) => n.includes('OK 1'))).toBe(true);
+    expect(out.some((n) => n.includes('الهجرة لم تُطبَّق بعد'))).toBe(true);
+  });
 
   it('الصعود ينشئ الجداول الأحد عشر، وإعادته آمنة', async () => {
     await c.query(UP);
@@ -106,6 +124,31 @@ describe('هجرة crew-salaries على PostgreSQL', () => {
     await c.query('BEGIN'); await c.query('SET LOCAL ROLE anon');
     await expect(c.query('SELECT 1 FROM legacy_probe')).resolves.toBeTruthy();
     await c.query('ROLLBACK');
+  });
+
+  it('فحص ما بعد الهجرة (للقراءة فقط): كلّ البنود تنجح، ولا يكتب شيئاً', async () => {
+    const before = (await c.query(`SELECT count(*)::int n FROM crew_salary_audit`)).rows[0].n;
+    const out = await verify();
+    for (const k of ['OK 1', 'OK 2', 'OK 3', 'OK 4', 'OK 5', 'OK 6', 'OK 7', 'OK: كلّ الفحوص نجحت']) expect(out.some((n) => n.includes(k))).toBe(true);
+    expect((await c.query(`SELECT count(*)::int n FROM crew_salary_audit`)).rows[0].n).toBe(before);
+    await expect(c.query(`BEGIN READ ONLY; INSERT INTO crew_salary_links (source_key, crew_id) VALUES ('x', '1'); ROLLBACK;`)).rejects.toThrow(/read-only/);
+    await c.query('ROLLBACK');
+  });
+
+  it('فحص ما بعد الهجرة يكشف: صلاحيّةً لدورٍ عامّ، وRLS معطَّلة، ومشغّلاً معطَّلاً', async () => {
+    await c.query('GRANT SELECT ON crew_salary_export_rows TO anon');
+    await expect(c.query(VERIFY)).rejects.toThrow(/CHECK FAILED: الدور anon يملك SELECT على crew_salary_export_rows/);
+    await c.query('ROLLBACK');
+    await c.query('REVOKE ALL ON crew_salary_export_rows FROM anon');
+    await c.query('ALTER TABLE crew_salary_versions DISABLE ROW LEVEL SECURITY');
+    await expect(c.query(VERIFY)).rejects.toThrow(/CHECK FAILED: RLS غير مفعّلة على crew_salary_versions/);
+    await c.query('ROLLBACK');
+    await c.query('ALTER TABLE crew_salary_versions ENABLE ROW LEVEL SECURITY');
+    await c.query('ALTER TABLE crew_salary_export_rows DISABLE TRIGGER crew_salary_export_rows_guard');
+    await expect(c.query(VERIFY)).rejects.toThrow(/CHECK FAILED: المشغّل crew_salary_export_rows_guard/);
+    await c.query('ROLLBACK');
+    await c.query('ALTER TABLE crew_salary_export_rows ENABLE TRIGGER crew_salary_export_rows_guard');
+    expect((await verify()).some((n) => n.includes('OK: كلّ الفحوص نجحت'))).toBe(true);
   });
 
   it('المالك (دور الباك) يعمل كما هو — RLS لا تُفرض عليه', async () => {
