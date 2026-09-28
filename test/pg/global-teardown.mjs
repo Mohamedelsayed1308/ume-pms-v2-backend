@@ -1,17 +1,16 @@
-import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+
+const { listWindows, selectOwned } = createRequire(import.meta.url)('./owned-processes.cjs');
 
 export default async function teardown() {
   const pg = globalThis.__CREW_PG__;
   if (pg) { try { await pg.stop(); } catch { /* يُكمل التنظيف */ } }
-  // على ويندوز قد يبقى عاملُ إدخالٍ يتيم بعد الإيقاف. نُنهي ما يخصّ عنقود الاختبار وحده:
-  // العمليّة التي في سطرها مجلّده، أو العامل الفرعيّ الذي مات أبوه — ولا نمسّ عنقوداً آخر يعمل.
-  if (process.platform === 'win32') {
-    const dir = (process.env.CREW_PG_DIR || 'ume-crew-pg-cluster').replace(/'/g, "''");
-    const script = [
-      "$all = Get-CimInstance Win32_Process -Filter \"Name='postgres.exe'\" | Where-Object { $_.CommandLine -like '*embedded-postgres*' }",
-      "$ids = @($all | ForEach-Object { $_.ProcessId })",
-      `$all | Where-Object { $_.CommandLine -like '*${dir}*' -or ($_.CommandLine -like '*--forkchild*' -and -not ($ids -contains $_.ParentProcessId) -and -not (Get-Process -Id $_.ParentProcessId -ErrorAction SilentlyContinue)) } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`,
-    ].join('; ');
-    spawnSync('powershell', ['-NoProfile', '-Command', script], { stdio: 'ignore', timeout: 30000 });
+  // على ويندوز قد يبقى عاملٌ يتيم بعد الإيقاف. يُنهى ما ثبتت ملكيّته وحده: الـ postmaster المسجَّل
+  // عند الإقلاع وأبناؤه — لا مطابقة نصّ، فلا يُمسّ عنقودٌ آخر ولا عاملٌ يتيمٌ من عنقودٍ آخر.
+  const owner = globalThis.__CREW_PG_OWNER__;
+  if (process.platform === 'win32' && owner) {
+    for (const pid of selectOwned(listWindows(), owner)) {
+      try { process.kill(pid); } catch { /* انتهى بنفسه */ }
+    }
   }
 }

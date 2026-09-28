@@ -100,7 +100,7 @@ d('عيّنة أغسطس في القاعدة المؤقّتة', () => {
     const x = await svc.exportPayments(cycleId, 'EUR', USER);
     const rows = XLSX.utils.sheet_to_json<any[]>(XLSX.read(x.buffer, { type: 'buffer' }).Sheets['الصرف'], { header: 1 });
     const data = rows.filter((r) => typeof r[0] === 'number');
-    expect(data.map((r) => [r[1], r[15]])).toEqual([['990001', 47.73]]);
+    expect(data.map((r) => [r[1], r[15], r[16]])).toEqual([['990001', 'كامل', 47.73]]); // نوع الصفّ ثمّ ما خرج في الدفعة
     expect(rows.find((r) => r[0] === 'النطاق')![1]).toMatch(/جزئيّة/);
     // مرّةً واحدة: لا يُقدَّم ثانيةً ما دام لم يتغيّر
     await expect(svc.submit(cycleId, 'مكرّر', USER, ['990001:EUR'])).rejects.toThrow(/غير جاهزة/);

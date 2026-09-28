@@ -184,6 +184,33 @@ export class CrewSalaryExport {
   @Column({ type: 'timestamptz', default: () => 'now()' }) exported_at: Date;
 }
 
+/**
+ * ما خرج فعلاً في دفعةٍ بعينها — صفّاً صفّاً. عضويّة الدفعة من هنا لا من لقطة الإصدار.
+ * «خرج» ليس «صُرف»: الحالة التي تتغيّر بعد خروجها تنتظر قرار المالك (استبدال · تسوية · إبقاء).
+ */
+@Entity('crew_salary_export_rows')
+@Index('IDX_crew_salary_export_rows_export', ['export_id'])
+@Index('IDX_crew_salary_export_rows_entry', ['cycle_id', 'entry_key'], { where: "status = 'active'" })
+export class CrewSalaryExportRow {
+  @PrimaryGeneratedColumn('uuid') id: string;
+  @Column({ type: 'uuid' }) export_id: string;
+  @Column({ type: 'uuid' }) cycle_id: string;
+  @Column({ type: 'uuid' }) version_id: string;
+  @Column({ type: 'varchar', length: 80 }) entry_key: string;
+  @Column({ type: 'varchar', length: 40 }) crew_id: string;
+  @Column({ type: 'varchar', length: 3 }) currency: string;
+  @Column({ type: 'varchar', length: 64 }) entry_hash: string;
+  @Column({ type: 'uuid', nullable: true }) bank_id: string | null;
+  @Column({ type: 'numeric', precision: 14, scale: 2 }) balance: string;    // الصافي المعتمد وقت الخروج
+  @Column({ type: 'numeric', precision: 14, scale: 2 }) amount: string;     // ما خرج في هذه الدفعة
+  @Column({ type: 'varchar', length: 20 }) row_kind: 'full' | 'settlement';
+  @Column({ type: 'uuid', nullable: true }) resolution_id: string | null;   // قرار المالك الذي أجازه
+  @Column({ type: 'varchar', length: 20, default: 'active' }) status: 'active' | 'replaced';
+  @Column({ type: 'uuid', nullable: true }) replaced_by: string | null;
+  @Column({ type: 'timestamptz', nullable: true }) replaced_at: Date | null;
+  @Column({ type: 'timestamptz', default: () => 'clock_timestamp()' }) created_at: Date;
+}
+
 @Entity('crew_salary_audit')
 @Index('IDX_crew_salary_audit_cycle', ['cycle_id', 'occurred_at'])
 export class CrewSalaryAudit {
@@ -202,5 +229,5 @@ export class CrewSalaryAudit {
 
 export const CREW_SALARY_ENTITIES = [
   CrewSalaryCycle, CrewSalaryFile, CrewSalaryDecision, CrewSalaryLink, CrewSalaryAuthorization,
-  CrewSalaryBankAccount, CrewSalaryVersion, CrewSalaryEntitlement, CrewSalaryExport, CrewSalaryAudit,
+  CrewSalaryBankAccount, CrewSalaryVersion, CrewSalaryEntitlement, CrewSalaryExport, CrewSalaryExportRow, CrewSalaryAudit,
 ];

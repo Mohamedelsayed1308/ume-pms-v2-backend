@@ -9,7 +9,8 @@ import type { SourceConflict, Unresolved } from './crew-salary.assemble';
  * • **كشف المراجعة**: كلّ البنود بمصادرها وفروقها وتعارضاتها وقضاياها المعلّقة — للمراجعة لا للصرف.
  * • **كشف الصرف المعتمد**: من إصدارٍ معتمدٍ وحده، وبعملة دفعٍ واحدة، وللحالات المكتملة وحدها
  *   (حسابٌ معتمد، وتفويضٌ ساري إن كان المستفيد غير البحّار). والتصدير **ليس سداداً**.
- *   والحالة التي صُدِّرت في دفعةٍ سابقة ثمّ عُدِّلت تظهر بمبلغها السابق والفرق، ويُصرف الفرق وحده.
+ *   وعضويّة كلّ دفعةٍ صفوفٌ مسجَّلة (`crew_salary_export_rows`) لا لقطة الإصدار كلّها. والحالة
+ *   التي خرجت ثمّ تغيّرت لا تُخصم ولا تُعاد آليّاً — تنتظر قرار المالك (انظر `payableEntries`).
  *   وهو كشفٌ عامّ — لا يُسمّى «جاهزاً للبنك»: قالب كلّ بنكٍ يُضاف لاحقاً فوق هذه البيانات.
  *
  * ── الأمان ──
@@ -168,60 +169,150 @@ export interface PaymentsMeta {
   approved_at: string;
 }
 
-export interface PaymentContext {
-  superseded: Map<string, number>;                                  // حالةٌ حلّ محلّها إصدارٌ أحدث ⇒ رقمه
-  previous: Map<string, { batch: string; amount: string; version_no: number }>; // حالةٌ صُدِّرت قبلاً
+/** صفٌّ خرج في دفعةٍ سابقة وما زال سارياً (لم يُستبدل بقرار المالك). */
+export interface BatchRow {
+  id: string;
+  batch_no: string;
+  version_no: number;
+  entry_key: string;
+  crew_id: string;
+  currency: string;
+  amount: string;
+  balance: string;
+  entry_hash: string;
+  bank_id: string | null;
+  row_kind: 'full' | 'settlement';
 }
 
-export interface PaymentRow { entry: SnapshotEntry; previous: { batch: string; amount: string; version_no: number } | null; due: string }
+/** قرار المالك في حالةٍ خرجت ثمّ تغيّرت — مربوطٌ بآخر صفٍّ خرج لها وبالمحتوى الجديد نفسه. */
+export interface BatchResolution {
+  id: string;
+  row_id: string;
+  action: 'replace' | 'settle' | 'keep';
+  amount: string | null;
+  entry_hash: string;
+  reason: string;
+  decided_by_name: string;
+}
 
-/** الحالات الداخلة في كشف الصرف، والمستبعَدة بأسبابها. */
-export function payableEntries(s: Snapshot, currency: string, ctx: PaymentContext = { superseded: new Map(), previous: new Map() }) {
-  const inCur = s.entries.filter((e) => e.currency === currency);
+export interface PaymentContext {
+  superseded: Map<string, number>;     // حالةٌ حلّ محلّها إصدارٌ أحدث ⇒ رقمه
+  rows: BatchRow[];                    // الصفوف السارية التي خرجت فعلاً (لا لقطات الإصدارات)، بترتيب خروجها
+  resolutions: BatchResolution[];
+  replacedKeys?: Set<string>;          // حالاتٌ أُلغي ما خرج لها بقرار المالك ولا صفّ ساريَ لها
+  live?: Set<string>;                  // مفاتيح الحالات الموجودة في الدورة الآن — ما غاب منها «يتيم»
+}
+
+export const emptyContext = (): PaymentContext => ({ superseded: new Map(), rows: [], resolutions: [] });
+
+export type HashedEntry = SnapshotEntry & { entry_hash?: string };
+
+export interface PaymentRow {
+  entry: HashedEntry;
+  kind: 'full' | 'settlement';
+  due: string;
+  prior: BatchRow[];                   // ما خرج قبلاً لهذه الحالة — للعرض وحده، لا يُطرح
+  replaces: string[];                  // صفوفٌ يستبدلها هذا الصفّ بقرار المالك
+  resolution: BatchResolution | null;
+}
+
+export interface PendingDecision {
+  entry: HashedEntry;
+  row: BatchRow;                       // آخر ما خرج — القرار يُربط به
+  prior: BatchRow[];
+  exported: string;
+  amount_changed: boolean;
+  bank_changed: boolean;
+}
+
+const sumRows = (rows: BatchRow[]) => rows.reduce((a, r) => a.plus(r.amount), new Decimal(0)).toFixed(2);
+/** ما خرج بعملاته — لا يُجمع مبلغان بعملتين. */
+export const priorLabel = (rows: BatchRow[]) => [...new Set(rows.map((r) => r.currency))].map((c) => `${sumRows(rows.filter((r) => r.currency === c))} ${c}`).join(' + ');
+const batchesOf = (rows: BatchRow[]) => [...new Set(rows.map((r) => r.batch_no))].join(' و');
+
+/**
+ * الحالات الداخلة في الدفعة، والمستبعَدة بأسبابها، والتي تنتظر قرار المالك.
+ *
+ * لا يُستنتج السداد من التصدير: الحالة التي خرجت ثمّ تغيّرت (مبلغاً أو حساباً) لا تُخصم
+ * ولا تُعاد كاملةً آليّاً — تنتظر قراراً موثَّقاً من المالك على آخر صفٍّ خرج لها:
+ *   • استبدال: ما خرج سابقاً لم يُنفَّذ ⇒ تُلغى صفوفه، ويخرج الصافي الجديد كاملاً.
+ *   • تسوية: ما خرج نُفِّذ ⇒ يخرج مبلغٌ إضافيّ يحدّده المالك صراحةً.
+ *   • إبقاء: لا يخرج شيء (ومنه النقص: استرداده خارج هذه الشاشة).
+ */
+export function payableEntries(s: Snapshot, currency: string, ctx: PaymentContext = emptyContext()) {
   const included: PaymentRow[] = [];
-  const excluded: { entry: SnapshotEntry; reasons: string[] }[] = [];
-  for (const e of inCur) {
+  const excluded: { entry: HashedEntry; reasons: string[]; resolution?: BatchResolution; row?: BatchRow }[] = [];
+  const pending: PendingDecision[] = [];
+  for (const e of s.entries.filter((x) => x.currency === currency) as HashedEntry[]) {
     const sup = ctx.superseded.get(e.key);
     if (sup) { excluded.push({ entry: e, reasons: [`حلّ محلّها الإصدار ${sup}`] }); continue; }
     if (!e.payable) { excluded.push({ entry: e, reasons: e.blockers.length ? e.blockers : ['غير مكتمل'] }); continue; }
-    const prev = ctx.previous.get(e.key) || null;
-    const due = new Decimal(e.result.balance).minus(prev?.amount ?? 0);
-    if (due.lte(0)) {
-      excluded.push({ entry: e, reasons: [prev ? `صُدِّرت في ${prev.batch} بمبلغ ${prev.amount} — لا زيادة للصرف${due.lt(0) ? ` (زيادةٌ مصروفة ${due.abs().toFixed(2)} تُسترَدّ يدويّاً)` : ''}` : 'الصافي ليس موجباً'] });
+    const own = ctx.rows.filter((r) => r.entry_key === e.key);
+    // مفتاح الحالة يحمل عملتها: تغيّرت العملة ⇒ مفتاحٌ جديد. فما خرج للبحّار نفسه تحت مفتاحٍ
+    // لم يعد في الدورة يُعدّ خروجاً سابقاً لهذه الحالة — لا تخرج كاملةً كأنّها جديدة
+    const orphans = own.length || !ctx.live ? [] : ctx.rows.filter((r) => r.crew_id === e.crew_id && r.entry_key !== e.key && !ctx.live!.has(r.entry_key));
+    const prior = own.length ? own : orphans;
+    const balance = new Decimal(e.result.balance);
+    if (!prior.length) {
+      if (ctx.replacedKeys?.has(e.key)) excluded.push({ entry: e, reasons: ['أُلغي ما خرج لها بقرار المالك — لا تخرج تلقائيّاً'] });
+      else if (balance.gt(0)) included.push({ entry: e, kind: 'full', due: balance.toFixed(2), prior, replaces: [], resolution: null });
+      else excluded.push({ entry: e, reasons: ['الصافي ليس موجباً'] });
       continue;
     }
-    included.push({ entry: e, previous: prev, due: due.toFixed(2) });
+    const last = prior[prior.length - 1];
+    const bankChanged = (last.bank_id || null) !== (e.bank?.id || null);
+    if (last.entry_hash === e.entry_hash && !bankChanged) {
+      excluded.push({ entry: e, reasons: [`خرجت في ${batchesOf(prior)} — لا جديد`] });
+      continue;
+    }
+    const res = ctx.resolutions.find((r) => r.row_id === last.id && r.entry_hash === e.entry_hash) || null;
+    if (!res) {
+      const exported = priorLabel(prior);
+      pending.push({ entry: e, row: last, prior, exported, amount_changed: !new Decimal(last.balance).eq(balance), bank_changed: bankChanged });
+      const what = [orphans.length ? `العملة: ${last.entry_key} ⇐ ${e.key}` : '', bankChanged ? 'الحساب' : ''].filter(Boolean).join('، ');
+      excluded.push({ entry: e, reasons: [`خرجت في ${batchesOf(prior)} بمبلغ ${exported} ثمّ تغيّرت${what ? ` (${what})` : ''} — لا يُعرف أنُفِّذت: تنتظر قرار المالك (استبدال · تسوية · إبقاء)`] });
+      continue;
+    }
+    if (res.action === 'keep') { excluded.push({ entry: e, reasons: [`قرار المالك: يبقى ما خرج في ${batchesOf(prior)} دون صرفٍ إضافيّ — ${res.reason}`], resolution: res, row: last }); continue; }
+    if (res.action === 'settle') { included.push({ entry: e, kind: 'settlement', due: new Decimal(res.amount!).toFixed(2), prior, replaces: [], resolution: res }); continue; }
+    if (!balance.gt(0)) { excluded.push({ entry: e, reasons: ['الصافي ليس موجباً — قرار الاستبدال لا يُخرج شيئاً'] }); continue; }
+    included.push({ entry: e, kind: 'full', due: balance.toFixed(2), prior, replaces: prior.map((r) => r.id), resolution: res });
   }
-  return { included, excluded };
+  return { included, excluded, pending };
 }
 
-export function buildPaymentsWorkbook(s: Snapshot, m: PaymentsMeta, ctx?: PaymentContext): { buffer: Buffer; rows: number; total: string } {
-  const { included, excluded } = payableEntries(s, m.currency, ctx);
+const rowKindLabel = (r: PaymentRow) =>
+  r.kind === 'settlement' ? `تسوية إضافيّة بقرار المالك (${r.resolution!.decided_by_name})`
+    : r.replaces.length ? `استبدال بقرار المالك — ${batchesOf(r.prior)} لم تُنفَّذ`
+      : 'كامل';
+
+export function buildPaymentsWorkbook(s: Snapshot, m: PaymentsMeta, ctx?: PaymentContext) {
+  const { included, excluded, pending } = payableEntries(s, m.currency, ctx);
   const wb = XLSX.utils.book_new();
   wb.Workbook = { Views: [{ RTL: true }] };
-  const partial = (s.excluded?.length || 0) + (s.already_approved?.length || 0) > 0;
+  const partial = (s.excluded?.length || 0) + (s.already_approved?.length || 0) + excluded.length > 0;
   const rows: Cell[][] = [
     [S('كشف صرف مرتّبات — من إصدارٍ معتمد · التصدير ليس سداداً')],
     [S('المركب'), S(s.cycle.vessel)], [S('الشهر'), S(s.cycle.month)], [S('العملة'), S(m.currency)],
     [S('رقم الدفعة'), S(m.batch_no)], [S('تاريخ التصدير'), S(m.exported_at)],
     [S('الإصدار المعتمد'), S(m.version_no)], [S('اعتمده'), S(m.approved_by)], [S('تاريخ الاعتماد'), S(m.approved_at)],
-    [S('النطاق'), S(partial ? 'دفعةٌ جزئيّة — ليست إجماليّ المركب للشهر (انظر ورقة «مستبعَد»)' : 'كلّ حالات الدورة المكتملة')],
+    [S('النطاق'), S(partial ? 'دفعةٌ جزئيّة — ليست إجماليّ المركب للشهر (انظر ورقة «مستبعَد»)' : 'كلّ حالات الإصدار المكتملة')],
     [],
-    ['م', 'رقم البحّار', 'الاسم', 'الرتبة', 'المستفيد', 'البنك', 'الفرع', 'الدولة', 'IBAN', 'رقم الحساب', 'SWIFT', 'رمز البنك', 'الصافي المعتمد', 'صُدِّر سابقاً', 'في دفعة', 'المستحقّ في هذه الدفعة', 'العملة'].map(S),
+    ['م', 'رقم البحّار', 'الاسم', 'الرتبة', 'المستفيد', 'البنك', 'الفرع', 'الدولة', 'IBAN', 'رقم الحساب', 'SWIFT', 'رمز البنك', 'الصافي المعتمد', 'خرج سابقاً', 'في دفعة', 'نوع الصفّ', 'في هذه الدفعة', 'العملة'].map(S),
   ];
   let total = new Decimal(0);
   included.forEach((r, i) => {
     const e = r.entry, b = e.bank!;
     total = total.plus(r.due);
     rows.push([N(i + 1), S(e.crew_id), S(e.name), S(e.rank), S(b.beneficiary), S(b.bank), S(b.branch), S(b.country), S(b.iban), S(b.account_number), S(b.swift), S(b.bank_code),
-      N(e.result.balance), r.previous ? N(r.previous.amount) : S(''), S(r.previous?.batch || ''), N(r.due), S(m.currency)]);
+      N(e.result.balance), !r.prior.length ? S('') : r.prior.every((p) => p.currency === m.currency) ? N(sumRows(r.prior)) : S(priorLabel(r.prior)), S(batchesOf(r.prior)), S(rowKindLabel(r)), N(r.due), S(m.currency)]);
   });
-  rows.push([S(''), S(''), S('الإجماليّ'), ...Array(12).fill(S('')), N(total.toFixed(2)), S(m.currency)]);
-  XLSX.utils.book_append_sheet(wb, sheet(rows, [5, 11, 30, 14, 30, 24, 18, 12, 30, 20, 12, 10, 14, 13, 24, 16, 7]), 'الصرف');
+  rows.push([S(''), S(''), S('الإجماليّ'), ...Array(13).fill(S('')), N(total.toFixed(2)), S(m.currency)]);
+  XLSX.utils.book_append_sheet(wb, sheet(rows, [5, 11, 30, 14, 30, 24, 18, 12, 30, 20, 12, 10, 14, 13, 24, 40, 16, 7]), 'الصرف');
   const ex: Cell[][] = [['رقم البحّار', 'الاسم', 'الصافي', 'سبب الاستبعاد'].map(S)];
   for (const x of excluded) ex.push([S(x.entry.crew_id), S(x.entry.name), N(x.entry.result.balance), S(x.reasons.join(' · '))]);
   for (const x of s.excluded || []) if (x.currency === m.currency) ex.push([S(x.crew_id), S(''), N(x.balance), S(`خارج هذا الإصدار: ${x.reasons.join(' · ')}`)]);
   for (const x of s.already_approved || []) ex.push([S(x.key.split(':')[0]), S(''), S(''), S(`معتمَدة في الإصدار ${x.version_no} دون تغيير`)]);
-  XLSX.utils.book_append_sheet(wb, sheet(ex, [11, 30, 13, 70]), 'مستبعَد');
-  return { buffer: write(wb), rows: included.length, total: total.toFixed(2) };
+  XLSX.utils.book_append_sheet(wb, sheet(ex, [11, 30, 13, 90]), 'مستبعَد');
+  return { buffer: write(wb), rows: included.length, total: total.toFixed(2), included, pending };
 }

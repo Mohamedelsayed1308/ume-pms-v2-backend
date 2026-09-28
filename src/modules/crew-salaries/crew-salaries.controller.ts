@@ -20,7 +20,7 @@ function sendXlsx(res: Response, buffer: Buffer, filename: string) {
   res.setHeader('Content-Disposition', `attachment; filename="${filename.replace(/[^A-Za-z0-9._-]/g, '_')}"`);
   res.setHeader('Cache-Control', 'no-store');
   // الواجهة على أصلٍ آخر — تقرأ اسم الملفّ وعلامة إعادة التنزيل
-  res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, X-Redownload, X-Historical');
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, X-Redownload, X-Historical, X-Pending-Decisions');
   res.send(buffer);
 }
 
@@ -125,6 +125,16 @@ export class CrewSalariesController {
   async exportPayments(@Param('id', ParseUUIDPipe) id: string, @Body() b: any, @Request() req: any, @Res() res: Response) {
     const x = await this.svc.exportPayments(id, b?.currency, actor(req), b?.version_id || undefined);
     res.setHeader('X-Redownload', x.redownload ? '1' : '0');
+    res.setHeader('X-Historical', x.historical ? '1' : '0');
+    res.setHeader('X-Pending-Decisions', String(x.pending || 0));
+    sendXlsx(res, x.buffer, x.filename);
+  }
+
+  /** دفعةٌ بعينها كما خرجت أوّل مرّة — حرفيّاً. */
+  @Get('exports/:id/file')
+  async exportFile(@Param('id', ParseUUIDPipe) id: string, @Request() req: any, @Res() res: Response) {
+    const x = await this.svc.downloadExport(id, actor(req));
+    res.setHeader('X-Redownload', '1');
     res.setHeader('X-Historical', x.historical ? '1' : '0');
     sendXlsx(res, x.buffer, x.filename);
   }

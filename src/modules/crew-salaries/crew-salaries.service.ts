@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import Decimal from 'decimal.js';
 import { DataSource, EntityManager, In, IsNull, Not } from 'typeorm';
 import { ExchangeRatesService } from '../exchange-rates/exchange-rates.service';
@@ -10,9 +10,9 @@ import { assemble, recompute, type AssembledEntry, type Resolution, type Sources
 import { crossRate, isMoney, monthBounds, rateLabel, RATE_KINDS, type ExtraItemInput, type FxMonth, type ItemKind } from './crew-salary.calc';
 import {
   CrewSalaryAudit, CrewSalaryAuthorization, CrewSalaryBankAccount, CrewSalaryCycle, CrewSalaryDecision,
-  CrewSalaryEntitlement, CrewSalaryExport, CrewSalaryFile, CrewSalaryLink, CrewSalaryVersion,
+  CrewSalaryEntitlement, CrewSalaryExport, CrewSalaryExportRow, CrewSalaryFile, CrewSalaryLink, CrewSalaryVersion,
 } from './crew-salary.entity';
-import { buildPaymentsWorkbook, buildReviewWorkbook, payableEntries, type PaymentContext, type Snapshot, type SnapshotBank, type SnapshotEntry } from './crew-salary.export';
+import { buildPaymentsWorkbook, buildReviewWorkbook, emptyContext, payableEntries, type PaymentContext, type Snapshot, type SnapshotBank, type SnapshotEntry } from './crew-salary.export';
 import { combine, monthFromText, normalizeVessel, vesselFromBody } from './crew-salary.infer';
 import { sourceKey } from './crew-salary.match';
 import { parseAttachmentWorkbook, type AttachmentSheet } from './parsers/attachments.parser';
@@ -40,7 +40,7 @@ export interface Actor { id: string; email?: string; full_name?: string; role?: 
 export const SCREEN = '/dashboard/fleet-crew-salaries';
 /** تعديل أسعار الشركة المشتركة صلاحيةٌ قائمة: شاشة التقارير — لا شاشة المرتّبات. */
 export const FX_EDIT_SCREEN = '/dashboard/reports';
-export const DECISION_KINDS = ['item_review', 'field_override', 'manual_item', 'difference_ack', 'item_classify', 'item_currency', 'resolve', 'supplementary', 'payment_currency'] as const;
+export const DECISION_KINDS = ['item_review', 'field_override', 'manual_item', 'difference_ack', 'item_classify', 'item_currency', 'resolve', 'supplementary', 'payment_currency', 'batch_resolution'] as const;
 type DecisionKind = (typeof DECISION_KINDS)[number];
 const OVERRIDE_FIELDS = ['pay_start', 'pay_end', 'basic', 'fixed_ot', 'leave', 'signs_off'] as const;
 const MANUAL_KINDS: ItemKind[] = ['sign_on_settlement', 'lashing', 'captain_bonus', 'bonus', 'salary_difference', 'luggage', 'other_earning', 'cash_advance', 'other_deduction'];
@@ -593,6 +593,12 @@ export class CrewSalariesService {
         decided_by_name: v.decided_by_name, decided_at: v.decided_at, decision_reason: v.decision_reason,
       })),
       exports,
+      export_rows: await this.ds.query(
+        `SELECT r.id, r.export_id, x.batch_no, ver.version_no, r.entry_key, r.crew_id, r.currency, r.amount::text AS amount, r.balance::text AS balance,
+                r.row_kind, r.status, r.resolution_id, r.replaced_by, r.created_at
+         FROM crew_salary_export_rows r JOIN crew_salary_exports x ON x.id = r.export_id JOIN crew_salary_versions ver ON ver.id = r.version_id
+         WHERE r.cycle_id = $1 ORDER BY r.created_at DESC, r.id`, [cycleId]),
+      batch_decisions: await this.batchDecisions(cycleId),
       audit,
     };
   }
@@ -602,6 +608,7 @@ export class CrewSalariesService {
     const cycle = await this.cycleOr404(cycleId);
     const kind = String(body?.kind || '') as DecisionKind;
     if (!DECISION_KINDS.includes(kind)) throw new BadRequestException('نوع القرار غير معروف');
+    if (kind === 'batch_resolution') return this.resolveBatch(cycle.id, body, a);
     let target = String(body?.target_key || '').slice(0, 300);
     let value: any = {};
     let reason = String(body?.reason || '').trim();
@@ -1038,73 +1045,234 @@ export class CrewSalariesService {
     return { buffer, filename: `${batch}.xlsx` };
   }
 
+  /** مفاتيح الحالات الموجودة في الدورة الآن — ما خرج تحت مفتاحٍ غاب منها (تغيّرت عملته) يُعدّ خروجاً سابقاً للبحّار. */
+  private async liveKeys(cycleId: string) {
+    return new Set((await this.build(cycleId)).out.entries.map((e) => e.key));
+  }
+
   /**
-   * كشف صرف إصدارٍ معتمد بعملة دفعٍ واحدة. أوّل تصديرٍ يُولَّد ويُحفظ كما هو؛ وإعادة التنزيل
-   * تعيد الملفّ نفسه حرفيّاً — ولإصدارٍ حلّ محلّه غيره تُعلَّم «تاريخيّة» ولا تُعدّ اعتماداً لجديد.
+   * سياق دفعةٍ لإصدارٍ معتمد: حالاتٌ حلّ محلّها إصدارٌ أحدث، والصفوف السارية التي خرجت فعلاً
+   * (من جدول صفوف الدفعات — لا من لقطات الإصدارات)، وقرارات المالك القائمة. يُقرأ داخل القفل.
+   */
+  private async paymentContext(m: EntityManager, cycleId: string, v: CrewSalaryVersion, live?: Set<string>): Promise<PaymentContext> {
+    const s: Snapshot = v.snapshot;
+    const keys = new Set(s.entries.map((e) => e.key));
+    const ctx = emptyContext();
+    const active = await m.query(
+      `SELECT DISTINCT e.entry_key, v.version_no FROM crew_salary_entitlements e JOIN crew_salary_versions v ON v.id = e.version_id
+       WHERE e.cycle_id = $1 AND e.active`, [cycleId]);
+    for (const r of active) if (r.version_no !== v.version_no && keys.has(r.entry_key)) ctx.superseded.set(r.entry_key, r.version_no);
+    // كلّ العملات: حالةٌ خرجت بعملةٍ ثمّ تغيّرت عملة دفعها لا تخرج بالثانية كأنّها جديدة
+    ctx.rows = await m.query(
+      `SELECT r.id, x.batch_no, ver.version_no, r.entry_key, r.crew_id, r.currency, r.amount::text AS amount, r.balance::text AS balance,
+              r.entry_hash, r.bank_id, r.row_kind
+       FROM crew_salary_export_rows r
+       JOIN crew_salary_exports x ON x.id = r.export_id
+       JOIN crew_salary_versions ver ON ver.id = r.version_id
+       WHERE r.cycle_id = $1 AND r.status = 'active' ORDER BY r.created_at, r.id`, [cycleId]);
+    ctx.replacedKeys = new Set((await m.query(
+      `SELECT DISTINCT entry_key FROM crew_salary_export_rows r WHERE cycle_id = $1 AND status = 'replaced'
+         AND NOT EXISTS (SELECT 1 FROM crew_salary_export_rows a WHERE a.cycle_id = r.cycle_id AND a.entry_key = r.entry_key AND a.status = 'active')`,
+      [cycleId])).map((r: { entry_key: string }) => r.entry_key));
+    ctx.live = live;
+    const ds = await m.getRepository(CrewSalaryDecision).find({ where: { cycle_id: cycleId, kind: 'batch_resolution', superseded_at: IsNull() } });
+    ctx.resolutions = ds.map((d) => ({
+      id: d.id, row_id: d.value?.row_id, action: d.value?.action, amount: d.value?.amount ?? null,
+      entry_hash: d.value?.entry_hash, reason: d.reason, decided_by_name: d.decided_by_name,
+    }));
+    return ctx;
+  }
+
+  /**
+   * قرار المالك في حالةٍ خرجت ثمّ تغيّرت — لا يُستنتج السداد من التصدير، فلا خصم ولا إعادةٌ آليّة.
+   * القرار على آخر صفٍّ خرج للحالة، ولمحتواها في إصدارها المعتمد الساري — فلا يسري على تعديلٍ لاحق.
+   *   replace: ما خرج لم يُنفَّذ ⇒ يُستبدل، ويخرج الصافي الجديد كاملاً (وإن لم يكن موجباً يُلغى ما خرج فوراً بلا بديل).
+   *   settle:  ما خرج نُفِّذ ⇒ مبلغٌ إضافيّ صريح (موجب، ولا يتجاوز الصافي الجديد).
+   *   keep:    لا يخرج شيء.
+   */
+  async resolveBatch(cycleId: string, body: any, a: Actor) {
+    this.assertApprover(a);
+    const action = String(body?.action || '');
+    if (!['replace', 'settle', 'keep'].includes(action)) throw new BadRequestException('القرار: استبدال أو تسوية أو إبقاء');
+    const reason = need(body?.reason, action === 'replace' ? 'ما يثبت أنّ الدفعة السابقة لم تُنفَّذ' : action === 'settle' ? 'سبب التسوية ومستندها' : 'سبب الإبقاء');
+    const rowId = String(body?.row_id || '');
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rowId)) throw new BadRequestException('صفّ الدفعة مطلوب');
+    let amount: string | null = null;
+    if (action === 'settle') {
+      if (!(isMoney(String(body?.amount ?? '')) && Number(body.amount) > 0)) throw new BadRequestException('مبلغ التسوية رقمٌ موجب');
+      amount = new Decimal(String(body.amount)).toFixed(2);
+    }
+    await this.cycleOr404(cycleId);
+    return this.ds.transaction(async (m) => {
+      await this.lock(m, [`cycle:${cycleId}`]);
+      const rr = m.getRepository(CrewSalaryExportRow);
+      const row = await rr.findOne({ where: { id: rowId, cycle_id: cycleId } });
+      if (!row) throw new NotFoundException('صفّ الدفعة غير موجود');
+      if (row.status !== 'active') throw new ConflictException('استُبدل هذا الصفّ من قبل');
+      const last = (await m.query(
+        `SELECT id FROM crew_salary_export_rows WHERE cycle_id = $1 AND entry_key = $2 AND status = 'active' ORDER BY created_at DESC, id DESC LIMIT 1`,
+        [cycleId, row.entry_key]))[0];
+      if (last?.id !== row.id) throw new ConflictException('خرج لهذه الحالة صفٌّ أحدث — القرار على آخر ما خرج');
+      // الحالة المقصودة: حالة الصفّ نفسها، أو — إن تغيّرت عملتها فصار لها مفتاحٌ جديد — حالة البحّار
+      // الجديدة، بشرط أن يكون مفتاح الصفّ قد غاب من الدورة وألّا يكون للحالة الجديدة صفٌّ ساري
+      const key = String(body?.entry_key || row.entry_key).slice(0, 80);
+      if (key !== row.entry_key) {
+        if (key.split(':')[0] !== row.crew_id) throw new BadRequestException('الحالة لبحّارٍ آخر');
+        if ((await this.liveKeys(cycleId)).has(row.entry_key)) throw new BadRequestException('الحالة التي خرج لها الصفّ ما زالت قائمة — القرار عليها');
+        if (await rr.count({ where: { cycle_id: cycleId, entry_key: key, status: 'active' } })) throw new ConflictException('للحالة الجديدة صفٌّ خرج — القرار على آخر صفوفها');
+      }
+      const holder = (await m.query(`SELECT DISTINCT version_id FROM crew_salary_entitlements WHERE cycle_id = $1 AND entry_key = $2 AND active`, [cycleId, key]))[0];
+      const v = holder ? await m.getRepository(CrewSalaryVersion).findOne({ where: { id: holder.version_id } }) : null;
+      const se = (v?.snapshot?.entries || []).find((e: SnapshotEntry) => e.key === key) as (SnapshotEntry & { entry_hash: string }) | undefined;
+      if (!v || !se) throw new ConflictException('لا اعتماد ساري لهذه الحالة');
+      const bankChanged = (row.bank_id || null) !== (se.bank?.id || null);
+      if (key === row.entry_key && se.entry_hash === row.entry_hash && !bankChanged) throw new BadRequestException('لم تتغيّر الحالة منذ خروجها — لا قرار يلزم');
+      if (action === 'settle' && new Decimal(amount!).gt(se.result.balance)) throw new BadRequestException(`التسوية لا تتجاوز الصافي المعتمد (${se.result.balance})`);
+      const prior = await rr.find({ where: { cycle_id: cycleId, entry_key: row.entry_key, status: 'active' } });
+      const exported = prior.map((p) => `${p.amount} ${p.currency}`).join(' + ');
+      const target = `${key}|${row.id}`;
+      const repo = m.getRepository(CrewSalaryDecision);
+      const prev = await repo.findOne({ where: { cycle_id: cycleId, kind: 'batch_resolution', target_key: target, superseded_at: IsNull() } });
+      if (prev) await repo.update({ id: prev.id }, { superseded_at: new Date() });
+      // استبدالٌ والصافي الجديد ليس موجباً: لا بديل يخرج، فيُلغى ما خرج الآن (صفوفه «مُستبدَلة» بالقرار نفسه)
+      const cancel = action === 'replace' && !new Decimal(se.result.balance).gt(0);
+      const value = {
+        action, amount, row_id: row.id, entry_key: key, row_entry_key: row.entry_key, entry_hash: se.entry_hash, version_id: v.id, version_no: v.version_no,
+        exported, balance: se.result.balance, currency: se.currency, bank_changed: bankChanged, cancelled_without_replacement: cancel,
+      };
+      const d = await repo.save(repo.create({ cycle_id: cycleId, kind: 'batch_resolution', target_key: target, value, reason, decided_by: a.id || null, decided_by_name: nameOf(a) }));
+      if (cancel) await rr.update({ id: In(prior.map((p) => p.id)), status: 'active' }, { status: 'replaced', replaced_by: d.id, replaced_at: new Date() });
+      await this.audit(m, a, 'decision_batch_resolution', 'decision', d.id, cycleId, reason, { target_key: target, value, previous: prev ? { id: prev.id, value: prev.value } : null });
+      return d;
+    });
+  }
+
+  /** الحالات التي خرجت ثمّ تغيّرت في الإصدارات المعتمدة السارية — ما ينتظر قرار المالك وما قُرِّر ولم يخرج. */
+  private async batchDecisions(cycleId: string) {
+    const versions = await this.ds.getRepository(CrewSalaryVersion).find({ where: { cycle_id: cycleId, status: 'approved' }, order: { version_no: 'DESC' } });
+    const out: any[] = [];
+    const seen = new Set<string>();
+    const live = versions.length ? await this.liveKeys(cycleId) : undefined;
+    for (const v of versions) {
+      const ctx = await this.paymentContext(this.ds.manager, cycleId, v, live);
+      for (const cur of [...new Set((v.snapshot?.entries || []).map((e: SnapshotEntry) => e.currency))] as string[]) {
+        const p = payableEntries(v.snapshot, cur, ctx);
+        const rows = [
+          ...p.pending.map((x) => ({ state: 'pending', entry: x.entry, row: x.row, prior: x.prior, resolution: null as any, amount_changed: x.amount_changed, bank_changed: x.bank_changed })),
+          ...p.included.filter((x) => x.resolution).map((x) => ({ state: 'decided', entry: x.entry, row: x.prior[x.prior.length - 1], prior: x.prior, resolution: x.resolution, ...changedSince(x.prior[x.prior.length - 1], x.entry) })),
+        ];
+        for (const k of p.excluded.filter((x) => x.resolution)) {
+          rows.push({ state: 'kept', entry: k.entry, row: k.row!, prior: ctx.rows.filter((b) => b.entry_key === k.entry.key), resolution: k.resolution!, ...changedSince(k.row!, k.entry) });
+        }
+        for (const r of rows) {
+          if (seen.has(r.entry.key)) continue;
+          seen.add(r.entry.key);
+          out.push({
+            state: r.state, entry_key: r.entry.key, crew_id: r.entry.crew_id, name: r.entry.name, currency: r.entry.currency,
+            version_id: v.id, version_no: v.version_no, balance: r.entry.result.balance, row_id: r.row.id,
+            prior: r.prior.map((b) => ({ batch_no: b.batch_no, amount: b.amount, currency: b.currency, row_kind: b.row_kind, version_no: b.version_no })),
+            amount_changed: r.amount_changed, bank_changed: r.bank_changed,
+            resolution: r.resolution ? { action: r.resolution.action, amount: r.resolution.amount, reason: r.resolution.reason, decided_by_name: r.resolution.decided_by_name } : null,
+          });
+        }
+      }
+    }
+    return out;
+  }
+
+  /**
+   * كشف صرف إصدارٍ معتمد بعملة دفعٍ واحدة — كلّه داخل قفل الدورة (القفل نفسه الذي يأخذه الاعتماد):
+   * يُعاد قراءة الإصدار وحالته والاستحقاقات السارية والصفوف التي خرجت وقرارات المالك **بعد** القفل،
+   * ثمّ يُبنى الملفّ ويُسجَّل هو وصفوفه في المعاملة نفسها. فلا يُعتمد إصدارٌ مصحَّح بين التحقّق والتسجيل.
+   *
+   * الدفعة = الصفوف التي تخرج فيها فعلاً. طلبٌ لا جديد فيه يعيد آخر دفعةٍ للإصدار والعملة حرفيّاً؛
+   * وجديدٌ بعد دفعةٍ سابقة (قرار مالكٍ مثلاً) يخرج دفعةً تالية برقمٍ تالٍ لا تكرّر ما خرج.
    */
   async exportPayments(cycleId: string, currency: string, a: Actor, versionId?: string) {
     const cur = String(currency || '').toUpperCase();
     if (!/^[A-Z]{3}$/.test(cur)) throw new BadRequestException('العملة مطلوبة');
-    const cycle = await this.cycleOr404(cycleId);
-    const vr = this.ds.getRepository(CrewSalaryVersion);
-    const v = versionId ? await vr.findOne({ where: { id: versionId, cycle_id: cycleId } }) : cycle.approved_version_id ? await vr.findOne({ where: { id: cycle.approved_version_id } }) : null;
-    if (!v || !v.decided_by || !['approved', 'superseded'].includes(v.status) || v.decided_at == null) {
-      throw new BadRequestException('لا إصدار معتمد — كشف الصرف من إصدارٍ معتمدٍ وحده');
-    }
-    const s: Snapshot = v.snapshot;
-    const xr = this.ds.getRepository(CrewSalaryExport);
-    const prior = await xr.createQueryBuilder('x').addSelect('x.content')
-      .where('x.cycle_id = :c AND x.version_id = :v AND x.kind = :k AND x.currency = :cur AND x.is_redownload = false', { c: cycleId, v: v.id, k: 'approved_payments', cur })
-      .orderBy('x.exported_at', 'ASC').getOne();
-    const historical = v.status === 'superseded';
-    if (prior?.content) {
-      await this.ds.transaction(async (m) => {
-        await m.getRepository(CrewSalaryExport).insert({ cycle_id: cycleId, version_id: v.id, kind: 'approved_payments', batch_no: prior.batch_no, currency: cur, file_sha256: prior.file_sha256, row_count: prior.row_count, is_redownload: true, exported_by: a.id || null, exported_by_name: nameOf(a) });
-        await this.audit(m, a, historical ? 'export_payments_historical' : 'export_payments_redownload', 'export', prior.batch_no, cycleId, '', { version_no: v.version_no, currency: cur });
-      });
-      return { buffer: prior.content, filename: `${prior.batch_no}.xlsx`, redownload: true, historical };
-    }
-    if (historical) throw new ConflictException('حلّ محلّ هذا الإصدار إصدارٌ أحدث ولم يُصدَّر قبل ذلك — صدِّر من الإصدار الساري');
-    if (!s.entries.some((e) => e.currency === cur)) throw new BadRequestException(`لا حالات بعملة ${cur} في الإصدار المعتمد`);
-
-    // سياق الدفعة: حالاتٌ حلّ محلّها إصدارٌ أحدث، وحالاتٌ صُدِّرت في دفعةٍ سابقة (يُصرف الفرق وحده)
-    const ctx: PaymentContext = { superseded: new Map(), previous: new Map() };
-    const active = await this.ds.query(
-      `SELECT DISTINCT e.entry_key, v.version_no FROM crew_salary_entitlements e JOIN crew_salary_versions v ON v.id = e.version_id
-       WHERE e.cycle_id = $1 AND e.active`, [cycleId]);
-    for (const r of active) if (r.version_no !== v.version_no && s.entries.some((e) => e.key === r.entry_key)) ctx.superseded.set(r.entry_key, r.version_no);
-    const earlier = await this.ds.query(
-      `SELECT DISTINCT ON (ver.version_no) ver.id, ver.version_no, x.batch_no FROM crew_salary_exports x JOIN crew_salary_versions ver ON ver.id = x.version_id
-       WHERE x.cycle_id = $1 AND x.kind = 'approved_payments' AND x.currency = $2 AND ver.version_no < $3 AND NOT x.is_redownload
-       ORDER BY ver.version_no DESC, x.exported_at ASC`, [cycleId, cur, v.version_no]);
-    for (const row of earlier) {
-      const old = await vr.findOne({ where: { id: row.id } });
-      for (const e of (old?.snapshot?.entries || []) as SnapshotEntry[]) {
-        if (e.currency === cur && !ctx.previous.has(e.key) && s.entries.some((x) => x.key === e.key)) ctx.previous.set(e.key, { batch: row.batch_no, amount: e.result.balance, version_no: row.version_no });
-      }
-    }
-    const batch = `CS-${vesselSlug(cycle.vessel)}-${cycle.month.replace('-', '')}-V${v.version_no}-${cur}`;
-    const exportedAt = new Date().toISOString();
-    const out = buildPaymentsWorkbook(s, {
-      batch_no: batch, currency: cur, exported_at: exportedAt, version_no: v.version_no,
-      approved_by: v.decided_by_name, approved_at: v.decided_at ? new Date(v.decided_at).toISOString() : '',
-    }, ctx);
-    if (!out.rows) throw new BadRequestException(`لا حالات مكتملة بمستحقٍّ جديد بعملة ${cur} في الإصدار المعتمد`);
-    await this.ds.transaction(async (m) => {
+    await this.cycleOr404(cycleId);
+    return this.ds.transaction(async (m) => {
       await this.lock(m, [`cycle:${cycleId}`]);
-      // طلبان متزامنان لأوّل تصدير: الثاني يجد الأوّل هنا فيعيده بدل دفعةٍ ثانية
-      const again = await m.getRepository(CrewSalaryExport).findOne({ where: { cycle_id: cycleId, version_id: v.id, kind: 'approved_payments', currency: cur, is_redownload: false } });
-      if (again) return;
-      await m.getRepository(CrewSalaryExport).insert({
+      const cycle = (await m.getRepository(CrewSalaryCycle).findOne({ where: { id: cycleId } }))!;
+      const vr = m.getRepository(CrewSalaryVersion);
+      const v = versionId ? await vr.findOne({ where: { id: versionId, cycle_id: cycleId } }) : cycle.approved_version_id ? await vr.findOne({ where: { id: cycle.approved_version_id } }) : null;
+      if (!v || !v.decided_by || !['approved', 'superseded'].includes(v.status) || v.decided_at == null) {
+        throw new BadRequestException('لا إصدار معتمد — كشف الصرف من إصدارٍ معتمدٍ وحده');
+      }
+      const s: Snapshot = v.snapshot;
+      const xr = m.getRepository(CrewSalaryExport);
+      const batches = await xr.createQueryBuilder('x').addSelect('x.content')
+        .where('x.cycle_id = :c AND x.version_id = :v AND x.kind = :k AND x.currency = :cur AND x.is_redownload = false', { c: cycleId, v: v.id, k: 'approved_payments', cur })
+        .orderBy('x.exported_at', 'DESC').getMany();
+      const historical = v.status === 'superseded';
+      const ctx = historical ? null : await this.paymentContext(m, cycleId, v, await this.liveKeys(cycleId));
+      const plan = ctx ? payableEntries(s, cur, ctx) : null;
+
+      if (!plan?.included.length) {
+        const last = batches[0];
+        const pending = plan?.pending.length || 0;
+        if (last?.content) {
+          await xr.insert({ cycle_id: cycleId, version_id: v.id, kind: 'approved_payments', batch_no: last.batch_no, currency: cur, file_sha256: last.file_sha256, row_count: last.row_count, is_redownload: true, exported_by: a.id || null, exported_by_name: nameOf(a) });
+          await this.audit(m, a, historical ? 'export_payments_historical' : 'export_payments_redownload', 'export', last.batch_no, cycleId, '', { version_no: v.version_no, currency: cur, pending });
+          return { buffer: last.content, filename: `${last.batch_no}.xlsx`, redownload: true, historical, pending };
+        }
+        if (historical) throw new ConflictException('حلّ محلّ هذا الإصدار إصدارٌ أحدث ولم يُصدَّر قبل ذلك — صدِّر من الإصدار الساري');
+        if (!s.entries.some((e) => e.currency === cur)) throw new BadRequestException(`لا حالات بعملة ${cur} في الإصدار المعتمد`);
+        throw new BadRequestException(pending
+          ? `لا مستحقّ جديد بعملة ${cur} — ${pending} حالة خرجت ثمّ تغيّرت وتنتظر قرار المالك`
+          : `لا حالات مكتملة بمستحقٍّ جديد بعملة ${cur} في الإصدار المعتمد`);
+      }
+
+      const batch = `CS-${vesselSlug(cycle.vessel)}-${cycle.month.replace('-', '')}-V${v.version_no}-${cur}${batches.length ? `-B${batches.length + 1}` : ''}`;
+      const out = buildPaymentsWorkbook(s, {
+        batch_no: batch, currency: cur, exported_at: new Date().toISOString(), version_no: v.version_no,
+        approved_by: v.decided_by_name, approved_at: v.decided_at ? new Date(v.decided_at).toISOString() : '',
+      }, ctx!);
+      const x = await xr.insert({
         cycle_id: cycleId, version_id: v.id, kind: 'approved_payments', batch_no: batch, currency: cur, file_sha256: sha256(out.buffer),
         row_count: out.rows, is_redownload: false, content: out.buffer, exported_by: a.id || null, exported_by_name: nameOf(a),
       });
+      const exportId = x.identifiers[0].id as string;
+      const rr = m.getRepository(CrewSalaryExportRow);
+      for (const r of out.included) {
+        if (!r.entry.entry_hash) throw new ConflictException('لقطة الإصدار بلا بصمة حالة — أعِد التقديم');
+        const id = randomUUID();
+        // الاستبدال أوّلاً (الفهرس الفريد: صفٌّ كاملٌ ساري واحد للحالة)، بالقرار الذي أجازه
+        if (r.replaces.length) await rr.update({ id: In(r.replaces), status: 'active' }, { status: 'replaced', replaced_by: id, replaced_at: new Date() });
+        await rr.insert({
+          id, export_id: exportId, cycle_id: cycleId, version_id: v.id, entry_key: r.entry.key, crew_id: r.entry.crew_id, currency: cur,
+          entry_hash: r.entry.entry_hash, bank_id: r.entry.bank?.id || null, balance: r.entry.result.balance, amount: r.due,
+          row_kind: r.kind, resolution_id: r.resolution?.id || null,
+        });
+      }
       await this.setStatus(m, cycleId);
-      await this.audit(m, a, 'export_payments', 'export', batch, cycleId, '', { version_no: v.version_no, currency: cur, rows: out.rows, total: out.total, revisions: ctx.previous.size });
+      await this.audit(m, a, 'export_payments', 'export', batch, cycleId, '', {
+        version_no: v.version_no, currency: cur, rows: out.rows, total: out.total, pending: out.pending.length,
+        entries: out.included.map((r) => ({ key: r.entry.key, kind: r.kind, amount: r.due, replaces: r.replaces.length, resolution_id: r.resolution?.id || null })),
+      });
+      return { buffer: out.buffer, filename: `${batch}.xlsx`, redownload: false, historical: false, pending: out.pending.length };
     });
-    const stored = await xr.createQueryBuilder('x').addSelect('x.content').where('x.version_id = :v AND x.currency = :cur AND x.kind = :k AND x.is_redownload = false', { v: v.id, cur, k: 'approved_payments' }).getOne();
-    return { buffer: stored!.content!, filename: `${batch}.xlsx`, redownload: false, historical: false };
   }
+
+  /** دفعةٌ بعينها كما خرجت أوّل مرّة — حرفيّاً، وتُسجَّل إعادة تنزيل. */
+  async downloadExport(exportId: string, a: Actor) {
+    const x = await this.ds.getRepository(CrewSalaryExport).createQueryBuilder('x').addSelect('x.content')
+      .where('x.id = :id AND x.kind = :k AND x.is_redownload = false', { id: exportId, k: 'approved_payments' }).getOne();
+    if (!x?.content) throw new NotFoundException('الدفعة غير موجودة');
+    const v = x.version_id ? await this.ds.getRepository(CrewSalaryVersion).findOne({ where: { id: x.version_id } }) : null;
+    const historical = v?.status === 'superseded';
+    await this.ds.transaction(async (m) => {
+      await m.getRepository(CrewSalaryExport).insert({ cycle_id: x.cycle_id, version_id: x.version_id, kind: 'approved_payments', batch_no: x.batch_no, currency: x.currency, file_sha256: x.file_sha256, row_count: x.row_count, is_redownload: true, exported_by: a.id || null, exported_by_name: nameOf(a) });
+      await this.audit(m, a, historical ? 'export_payments_historical' : 'export_payments_redownload', 'export', x.batch_no, x.cycle_id, '', { version_no: v?.version_no ?? null, currency: x.currency, export_id: x.id });
+    });
+    return { buffer: x.content, filename: `${x.batch_no}.xlsx`, historical };
+  }
+}
+
+/** ما تغيّر في الحالة منذ آخر صفٍّ خرج لها — المبلغ أو الحساب — يُعرض للمالك قبل قراره وبعده. */
+function changedSince(row: { balance: string; bank_id: string | null }, e: SnapshotEntry) {
+  return { amount_changed: !new Decimal(row.balance).eq(e.result.balance), bank_changed: (row.bank_id || null) !== (e.bank?.id || null) };
 }
 
 export type { ExtraItemInput };

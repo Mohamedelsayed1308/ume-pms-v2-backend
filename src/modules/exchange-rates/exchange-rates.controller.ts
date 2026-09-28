@@ -21,11 +21,10 @@ export class ExchangeRatesController {
     return this.service.getMonth(month);
   }
 
-  // body = { rates: { EGP: 50, SAR: 3.75, ... } } أو الأسعار مباشرة
+  // body = { rates: { EGP: 50, ... }, base: الأسعار كما قُرئت } — base شرطٌ: لا يضيع تحديثٌ متزامن
   @RequireScreen('/dashboard/reports')
   @Put(':month')
   save(@Param('month') month: string, @Body() body: any) {
-    const rates = body && body.rates ? body.rates : body;
-    return this.service.upsert(month, rates);
+    return this.service.upsert(month, body?.rates, body?.base);
   }
 }

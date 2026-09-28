@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 import { computeEntry } from './crew-salary.calc';
-import { buildPaymentsWorkbook, buildReviewWorkbook, payableEntries, safeText, type Snapshot, type SnapshotEntry } from './crew-salary.export';
+import { buildPaymentsWorkbook, buildReviewWorkbook, payableEntries, safeText, type BatchResolution, type BatchRow, type PaymentContext, type Snapshot, type SnapshotEntry } from './crew-salary.export';
 
 const entry = (over: Partial<SnapshotEntry>): SnapshotEntry => ({
   key: '0001:EUR', crew_id: '0001', name: 'A', rank: 'AB', nationality: 'X', currency: 'EUR', contract_currency: 'EUR', payment_currency_exception: false, section: 'monthly',
@@ -36,19 +36,117 @@ describe('تصدير Excel', () => {
     expect(ex[1]).toEqual(['0002', 'A', 1000, 'لا حساب صرف']);
   });
 
-  it('حالةٌ صُدِّرت ثمّ عُدِّلت: يُصرف الفرق وحده، والنقص لا يُصرف', () => {
-    const up = entry({ result: { ...entry({}).result, balance: '1050.00' } });
-    const s = snap([up, entry({ key: '0004:EUR', crew_id: '0004', result: { ...entry({}).result, balance: '900.00' } })]);
-    const ctx = { superseded: new Map(), previous: new Map([['0001:EUR', { batch: 'CS-V-202608-V1-EUR', amount: '1000.00', version_no: 1 }], ['0004:EUR', { batch: 'CS-V-202608-V1-EUR', amount: '1000.00', version_no: 1 }]]) };
-    const p = payableEntries(s, 'EUR', ctx);
-    expect(p.included.map((r) => [r.entry.crew_id, r.due])).toEqual([['0001', '50.00']]);
-    expect(p.excluded[0].reasons[0]).toMatch(/تُسترَدّ يدويّاً/);
-    expect(buildPaymentsWorkbook(s, { ...meta, version_no: 2 }, ctx).total).toBe('50.00');
+  // ── ما خرج ليس ما صُرف: الحالة التي خرجت ثمّ تغيّرت تنتظر قرار المالك، ولا خصم ولا إعادة آليّة ──
+  const bal = (b: string) => ({ ...entry({}).result, balance: b });
+  const out1 = (over: Partial<BatchRow> = {}): BatchRow => ({
+    id: 'r1', batch_no: 'CS-V-202608-V1-EUR', version_no: 1, entry_key: '0001:EUR', crew_id: '0001', currency: 'EUR',
+    amount: '1000.00', balance: '1000.00', entry_hash: 'h1', bank_id: 'b', row_kind: 'full', ...over,
+  });
+  const decided = (over: Partial<BatchResolution>): BatchResolution => ({ id: 'd1', row_id: 'r1', action: 'keep', amount: null, entry_hash: 'h2', reason: 'مستند', decided_by_name: 'Owner', ...over });
+  const ctxOf = (rows: BatchRow[], resolutions: BatchResolution[] = []): PaymentContext => ({ superseded: new Map(), rows, resolutions });
+
+  it('زيادةٌ بعد تصديرٍ لم يُنفَّذ: لا يُصرف الفرق آليّاً — تنتظر قرار المالك', () => {
+    const s = snap([entry({ entry_hash: 'h2', result: bal('1100.00') } as any)]);
+    const p = payableEntries(s, 'EUR', ctxOf([out1()]));
+    expect(p.included).toEqual([]);
+    expect(p.pending).toHaveLength(1);
+    expect(p.pending[0]).toMatchObject({ exported: '1000.00 EUR', amount_changed: true, bank_changed: false, row: { id: 'r1' } });
+    expect(p.excluded[0].reasons[0]).toMatch(/تنتظر قرار المالك/);
+    // المالك: الملفّ السابق لم يُنفَّذ ⇒ يُستبدل ويخرج الصافي الجديد كاملاً
+    const r = payableEntries(s, 'EUR', ctxOf([out1()], [decided({ action: 'replace' })]));
+    expect(r.included.map((x) => [x.kind, x.due, x.replaces])).toEqual([['full', '1100.00', ['r1']]]);
+    // المالك: نُفِّذ ⇒ تسويةٌ إضافيّة بمبلغٍ يحدّده صراحةً (لا الفرق المحسوب آليّاً)
+    const t = payableEntries(s, 'EUR', ctxOf([out1()], [decided({ action: 'settle', amount: '100.00' })]));
+    expect(t.included.map((x) => [x.kind, x.due, x.replaces])).toEqual([['settlement', '100.00', []]]);
+    const wb = read(buildPaymentsWorkbook(s, { ...meta, version_no: 2 }, ctxOf([out1()], [decided({ action: 'settle', amount: '100.00' })])).buffer);
+    const row = XLSX.utils.sheet_to_json<any[]>(wb.Sheets['الصرف'], { header: 1 }).find((x) => x[1] === '0001')!;
+    expect([row[12], row[13], row[14], row[16]]).toEqual([1100, 1000, 'CS-V-202608-V1-EUR', 100]);
+    expect(row[15]).toMatch(/تسوية إضافيّة بقرار المالك/);
   });
 
+  it('تغيير الحساب وحده: لا يخرج المبلغ مرّةً ثانية — تنتظر قرار المالك', () => {
+    const s = snap([entry({ entry_hash: 'h2', bank: { ...entry({}).bank!, id: 'b2', iban: 'BG00TEST00000000000002' } } as any)]);
+    const p = payableEntries(s, 'EUR', ctxOf([out1()]));
+    expect(p.included).toEqual([]);
+    expect(p.pending[0]).toMatchObject({ amount_changed: false, bank_changed: true });
+    expect(p.excluded[0].reasons[0]).toMatch(/\(الحساب\)/);
+    const r = payableEntries(s, 'EUR', ctxOf([out1()], [decided({ action: 'replace' })]));
+    expect(r.included.map((x) => [x.kind, x.due, x.entry.bank!.id])).toEqual([['full', '1000.00', 'b2']]);
+  });
+
+  it('نقصٌ بلا إثبات سداد: لا خصم آليّ ولا صفّ سالب — والإبقاء لا يُخرج شيئاً', () => {
+    const s = snap([entry({ entry_hash: 'h2', result: bal('900.00') } as any)]);
+    const p = payableEntries(s, 'EUR', ctxOf([out1()]));
+    expect(p.included).toEqual([]);
+    expect(p.pending[0]).toMatchObject({ amount_changed: true });
+    expect(JSON.stringify(p)).not.toMatch(/-100|تُسترَدّ/);
+    const k = payableEntries(s, 'EUR', ctxOf([out1()], [decided({ action: 'keep', reason: 'نُفِّذ بإيصال البنك' })]));
+    expect(k.included).toEqual([]);
+    expect(k.pending).toEqual([]);
+    expect(k.excluded[0].reasons[0]).toMatch(/قرار المالك: يبقى ما خرج .* نُفِّذ بإيصال البنك/);
+    const r = payableEntries(s, 'EUR', ctxOf([out1()], [decided({ action: 'replace' })]));
+    expect(r.included.map((x) => [x.kind, x.due])).toEqual([['full', '900.00']]);
+  });
+
+  it('دفعةٌ جزئيّة A/B: ما لم يخرج فعلاً يخرج كاملاً — لقطة الإصدار ليست عضويّة الدفعة', () => {
+    // V1: A مكتملة وخرجت، وB في اللقطة نفسها بلا حساب فلم تخرج
+    const a = entry({ entry_hash: 'ha' } as any);
+    const b1 = entry({ key: '0002:EUR', crew_id: '0002', entry_hash: 'hb1', payable: false, blockers: ['لا حساب صرف'], bank: null } as any);
+    const v1 = payableEntries(snap([a, b1]), 'EUR', ctxOf([]));
+    expect(v1.included.map((x) => x.entry.crew_id)).toEqual(['0001']);
+    const rows = [out1({ entry_hash: 'ha' })]; // ما سُجِّل فعلاً: A وحدها
+    // V2: B اكتملت (حسابٌ معتمد) — تخرج كاملةً، وA لا تُعاد
+    const b2 = entry({ key: '0002:EUR', crew_id: '0002', entry_hash: 'hb2', result: bal('700.00') } as any);
+    const v2 = payableEntries(snap([a, b2]), 'EUR', ctxOf(rows));
+    expect(v2.included.map((x) => [x.entry.crew_id, x.kind, x.due])).toEqual([['0002', 'full', '700.00']]);
+    expect(v2.excluded.map((x) => [x.entry.crew_id, x.reasons[0]])).toEqual([['0001', 'خرجت في CS-V-202608-V1-EUR — لا جديد']]);
+    expect(v2.pending).toEqual([]);
+  });
+
+  it('قرارٌ لمحتوى سابق لا يسري على تعديلٍ لاحق', () => {
+    const s = snap([entry({ entry_hash: 'h3', result: bal('1200.00') } as any)]);
+    const p = payableEntries(s, 'EUR', ctxOf([out1()], [decided({ action: 'replace', entry_hash: 'h2' })]));
+    expect(p.included).toEqual([]);
+    expect(p.pending).toHaveLength(1);
+  });
+
+  it('تغيّر عملة الدفع بعد الخروج: لا تخرج بالعملة الجديدة كأنّها جديدة', () => {
+    const usd = entry({ currency: 'USD', payment_currency_exception: true, entry_hash: 'h2', result: bal('1170.00') } as any);
+    const p = payableEntries(snap([usd]), 'USD', ctxOf([out1()]));
+    expect(p.included).toEqual([]);
+    expect(p.pending[0]).toMatchObject({ exported: '1000.00 EUR' });
+  });
+
+  it('مفتاحٌ جديد لأنّ العملة تغيّرت: ما خرج تحت المفتاح الغائب يُعدّ خروجاً سابقاً', () => {
+    const usd = entry({ key: '0001:USD', currency: 'USD', contract_currency: 'USD', entry_hash: 'hu' } as any);
+    const gone = { ...ctxOf([out1()]), live: new Set(['0001:USD']) };
+    const p = payableEntries(snap([usd]), 'USD', gone);
+    expect(p.included).toEqual([]);
+    expect(p.pending[0]).toMatchObject({ row: { id: 'r1' }, exported: '1000.00 EUR' });
+    expect(p.excluded[0].reasons[0]).toMatch(/العملة: 0001:EUR ⇐ 0001:USD/);
+    // والحالتان قائمتان معاً (مستحقٌّ بعملةٍ ثانية): الثانية مستقلّة وتخرج
+    const both = payableEntries(snap([usd]), 'USD', { ...ctxOf([out1()]), live: new Set(['0001:USD', '0001:EUR']) });
+    expect(both.included.map((x) => x.entry.key)).toEqual(['0001:USD']);
+  });
+
+  it('ما أُلغي بقرار المالك ولا صفّ ساريَ له لا يخرج تلقائيّاً', () => {
+    const p = payableEntries(snap([entry({ entry_hash: 'h1' } as any)]), 'EUR', { ...ctxOf([]), replacedKeys: new Set(['0001:EUR']) });
+    expect(p.included).toEqual([]);
+    expect(p.excluded[0].reasons[0]).toMatch(/أُلغي ما خرج لها/);
+  });
+
+  it('بعد تسويةٍ: القرار التالي على آخر صفٍّ خرج (التسوية) لا على الأوّل', () => {
+    const rows = [out1(), out1({ id: 'r2', batch_no: 'CS-V-202608-V2-EUR', row_kind: 'settlement', amount: '100.00', balance: '1100.00', entry_hash: 'h2' })];
+    const s = snap([entry({ entry_hash: 'h3', result: bal('1150.00') } as any)]);
+    const p = payableEntries(s, 'EUR', ctxOf(rows, [decided({ action: 'settle', amount: '50.00', entry_hash: 'h3' })]));
+    expect(p.included).toEqual([]);
+    expect(p.pending[0]).toMatchObject({ row: { id: 'r2' }, exported: '1100.00 EUR' });
+    const q = payableEntries(s, 'EUR', ctxOf(rows, [decided({ row_id: 'r2', action: 'settle', amount: '50.00', entry_hash: 'h3' })]));
+    expect(q.included.map((x) => [x.kind, x.due])).toEqual([['settlement', '50.00']]);
+  });
   it('حالةٌ حلّ محلّها إصدارٌ أحدث لا تدخل كشف الإصدار القديم', () => {
     const s = snap([entry({})]);
-    const p = payableEntries(s, 'EUR', { superseded: new Map([['0001:EUR', 3]]), previous: new Map() });
+    const p = payableEntries(s, 'EUR', { superseded: new Map([['0001:EUR', 3]]), rows: [], resolutions: [] });
     expect(p.included).toEqual([]);
     expect(p.excluded[0].reasons).toEqual(['حلّ محلّها الإصدار 3']);
   });

@@ -190,17 +190,22 @@ describe('سير عمل مرتّبات الأطقم على PostgreSQL', () => {
     expect((await view()).cycle.status).toBe('exported');
   });
 
-  it('تعديلٌ بعد التصدير: الدفعة الجديدة تصرف الفرق وحده، والقديمة تُنزَّل كما هي', async () => {
+  it('تعديلٌ بعد التصدير: لا فرق آليّ — تنتظر قرار المالك، والتسوية بمبلغه الصريح، والقديمة تُنزَّل كما هي', async () => {
     await svc.decide(cycleId, { kind: 'field_override', target_key: '9101:EUR|basic', value: '3300', reason: 'زيادةٌ معتمدة' }, CLERK);
     await ack('9101');
     await svc.submit(cycleId, 'زيادة المرتّب', CLERK);
     const v5 = await latest();
     await svc.approve(v5.id, 'اعتماد الزيادة', APPROVER);
     await noDoubleEntitlements();
+    await expect(svc.exportPayments(cycleId, 'EUR', CLERK)).rejects.toThrow(/تنتظر قرار المالك/);
+    const [p] = (await view()).batch_decisions;
+    expect(p).toMatchObject({ state: 'pending', crew_id: '9101', balance: '4750.00', prior: [{ amount: '4450.00', batch_no: 'CS-TESTVESSEL-202608-V4-EUR' }] });
+    await svc.decide(cycleId, { kind: 'batch_resolution', row_id: p.row_id, action: 'settle', amount: '300', reason: 'نُفِّذت الدفعة الأولى — إيصال البنك' }, APPROVER);
     const x = await svc.exportPayments(cycleId, 'EUR', CLERK);
     const rows = XLSX.utils.sheet_to_json<any[]>(XLSX.read(x.buffer, { type: 'buffer' }).Sheets['الصرف'], { header: 1 });
     const a = rows.find((r) => r[1] === '9101')!;
-    expect([a[12], a[13], a[14], a[15]]).toEqual([4750, 4450, 'CS-TESTVESSEL-202608-V4-EUR', 300]); // 3300+1200+750−500 مقابل 3000+1200+750−500
+    expect([a[12], a[13], a[14], a[16]]).toEqual([4750, 4450, 'CS-TESTVESSEL-202608-V4-EUR', 300]); // 3300+1200+750−500 مقابل 3000+1200+750−500
+    expect(a[15]).toMatch(/تسوية إضافيّة بقرار المالك/);
     expect(rows.some((r) => r[1] === '9102')).toBe(false); // لم تتغيّر فلا تُعاد في دفعة V5
     const v4 = (await view()).versions.find((v: any) => v.version_no === 4);
     const old = await svc.exportPayments(cycleId, 'EUR', CLERK, v4.id);
@@ -277,7 +282,7 @@ describe('سير عمل مرتّبات الأطقم على PostgreSQL', () => {
   it('سجلّ التدقيق يحفظ من فعل ماذا ومتى ولماذا — ولا يُعدَّل', async () => {
     const rows = await ds.getRepository(CrewSalaryAudit).find();
     const actions = new Set(rows.map((r) => r.action));
-    for (const a of ['import', 'import_duplicate', 'decision_item_review', 'decision_difference_ack', 'decision_payment_currency', 'submitted', 'approved', 'rejected', 'bank_approved', 'authorization_approved', 'export_payments', 'export_payments_redownload', 'fx_set']) {
+    for (const a of ['import', 'import_duplicate', 'decision_item_review', 'decision_difference_ack', 'decision_payment_currency', 'submitted', 'approved', 'rejected', 'bank_approved', 'authorization_approved', 'export_payments', 'export_payments_redownload', 'decision_batch_resolution', 'fx_set']) {
       expect(actions.has(a)).toBe(true);
     }
     const approved = rows.find((r) => r.action === 'approved')!;

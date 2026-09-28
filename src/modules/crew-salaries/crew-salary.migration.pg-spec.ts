@@ -37,18 +37,18 @@ describe('هجرة crew-salaries على PostgreSQL', () => {
 
   const tables = async () => (await c.query(`SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name LIKE 'crew_salary_%' ORDER BY 1`)).rows.map((r) => r.table_name);
 
-  it('الصعود ينشئ الجداول العشرة، وإعادته آمنة', async () => {
+  it('الصعود ينشئ الجداول الأحد عشر، وإعادته آمنة', async () => {
     await c.query(UP);
-    expect(await tables()).toHaveLength(10);
+    expect(await tables()).toHaveLength(11);
     await c.query(UP);
-    expect(await tables()).toHaveLength(10);
+    expect(await tables()).toHaveLength(11);
     expect(notices.some((n) => n.includes('بعد الهجرة'))).toBe(true);
   });
 
   it('المفاتيح uuid بقيمةٍ افتراضيّة gen_random_uuid() في كلّ جدول', async () => {
     const r = await c.query(`SELECT table_name, column_default FROM information_schema.columns
       WHERE table_schema='public' AND table_name LIKE 'crew_salary_%' AND column_name='id'`);
-    expect(r.rows).toHaveLength(10);
+    expect(r.rows).toHaveLength(11);
     for (const row of r.rows) expect(row.column_default).toBe('gen_random_uuid()');
   });
 
@@ -87,9 +87,9 @@ describe('هجرة crew-salaries على PostgreSQL', () => {
     } finally { await ds.destroy(); }
   });
 
-  it('RLS مفعّلة على الجداول العشرة، والوصول المباشر مسحوبٌ من anon وauthenticated وservice_role', async () => {
+  it('RLS مفعّلة على الجداول الأحد عشر، والوصول المباشر مسحوبٌ من anon وauthenticated وservice_role', async () => {
     const rls = await c.query(`SELECT relname, relrowsecurity FROM pg_class WHERE relname LIKE 'crew_salary_%' AND relkind='r'`);
-    expect(rls.rows).toHaveLength(10);
+    expect(rls.rows).toHaveLength(11);
     expect(rls.rows.every((r) => r.relrowsecurity)).toBe(true);
     const tbls = rls.rows.map((r) => r.relname);
     for (const role of ['anon', 'authenticated', 'service_role']) {
@@ -142,6 +142,26 @@ describe('هجرة crew-salaries على PostgreSQL', () => {
     await ins(false);
   });
 
+  it('صفّ الدفعة: لا يُحذف ولا يُعدَّل إلّا من ساري إلى مُستبدَل، ولا يخرج كاملاً مرّتين', async () => {
+    const cy = (await c.query(`SELECT id FROM crew_salary_cycles LIMIT 1`)).rows[0].id;
+    const v = (await c.query(`SELECT id FROM crew_salary_versions LIMIT 1`)).rows[0].id;
+    const x = (await c.query(`INSERT INTO crew_salary_exports (cycle_id, version_id, kind, batch_no, currency, file_sha256) VALUES ($1, $2, 'approved_payments', 'B1', 'EUR', 'h') RETURNING id`, [cy, v])).rows[0].id;
+    const row = (kind = 'full', resolution: string | null = null, amount = '100.00') => c.query(`INSERT INTO crew_salary_export_rows (export_id, cycle_id, version_id, entry_key, crew_id, currency, entry_hash, balance, amount, row_kind, resolution_id)
+      VALUES ($1, $2, $3, '527:EUR', '527', 'EUR', 'h1', 100, $4, $5, $6) RETURNING id`, [x, cy, v, amount, kind, resolution]);
+    const r1 = (await row()).rows[0].id;
+    await expect(row()).rejects.toThrow(/UQ_crew_salary_export_rows_full/);
+    await expect(row('settlement')).rejects.toThrow(/CK_crew_salary_export_rows_settlement/);
+    await expect(row('full', null, '0')).rejects.toThrow(/CK_crew_salary_export_rows_amount/);
+    await expect(c.query(`UPDATE crew_salary_export_rows SET amount = 50 WHERE id = $1`, [r1])).rejects.toThrow(/لا يُعدَّل/);
+    await expect(c.query(`DELETE FROM crew_salary_export_rows WHERE id = $1`, [r1])).rejects.toThrow(/لا يُحذف/);
+    await expect(c.query('TRUNCATE crew_salary_export_rows')).rejects.toThrow(/إلحاقٌ فقط/);
+    const res = '00000000-0000-4000-8000-000000000001';
+    await c.query(`UPDATE crew_salary_export_rows SET status = 'replaced', replaced_by = $2, replaced_at = now() WHERE id = $1`, [r1, res]);
+    await expect(c.query(`UPDATE crew_salary_export_rows SET status = 'active' WHERE id = $1`, [r1])).rejects.toThrow(/لا يُعدَّل/);
+    await row('full', res);
+    await expect(row('settlement', res)).rejects.toThrow(/UQ_crew_salary_export_rows_resolution/);
+  });
+
   it('حسابٌ معتمدٌ واحد لكلّ بحّار، والملفّ المرفوع لا يتكرّر', async () => {
     const acc = (fp: string, status: string) => c.query(`INSERT INTO crew_salary_bank_accounts (crew_id, fingerprint, status) VALUES ('527', $1, $2)`, [fp, status]);
     await acc('a', 'approved');
@@ -156,7 +176,7 @@ describe('هجرة crew-salaries على PostgreSQL', () => {
   it('النزول: البوّابة ترفض الحذف مع وجود صفوف، وتقبله بقرارٍ صريح', async () => {
     await expect(c.query(DOWN)).rejects.toThrow(/GATE FAILED/);
     await c.query('ROLLBACK');
-    expect(await tables()).toHaveLength(10);
+    expect(await tables()).toHaveLength(11);
     // بالطريقة الموثّقة: إعدادٌ على مستوى الجلسة ثمّ الملفّ كما هو
     await c.query("SET crew_salary.force_drop = 'yes'");
     await c.query(DOWN);

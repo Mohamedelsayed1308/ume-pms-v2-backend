@@ -1,5 +1,5 @@
 -- ============================================================================
---  هجرة: مرتّبات أطقم السفن (Fleet Crew Salaries) — عشرة جداول جديدة
+--  هجرة: مرتّبات أطقم السفن (Fleet Crew Salaries) — أحد عشر جدولاً جديداً
 --  بطلب المالك ٢٧ سبتمبر ٢٠٢٦
 --
 --  لماذا
@@ -16,6 +16,7 @@
 --  • crew_salary_versions         إصدارات الاعتماد بلقطةٍ كاملة (البنود والسعر والحسابات)
 --  • crew_salary_entitlements     الاستحقاقات المعتمدة — فهرسٌ فريد يمنع ازدواجها
 --  • crew_salary_exports          سجلّ التصدير (والتصدير ليس سداداً)
+--  • crew_salary_export_rows      الصفوف التي خرجت فعلاً في كلّ دفعة — عضويّة الدفعة لا لقطة الإصدار
 --  • crew_salary_audit            سجلّ التدقيق — إلحاقٌ فقط: مشغّلٌ يرفض التعديل والحذف
 --
 --  وأسعار الصرف من جدول `exchange_rates` القائم (لا جدول موازٍ)، وتُحفظ لقطتها في الإصدار.
@@ -210,6 +211,37 @@ CREATE TABLE IF NOT EXISTS crew_salary_exports (
 );
 CREATE INDEX IF NOT EXISTS "IDX_crew_salary_exports_cycle" ON crew_salary_exports (cycle_id);
 
+-- ما خرج فعلاً في كلّ دفعة، صفّاً صفّاً. «خرج» ليس «صُرف»: لا يُستنتج السداد من التصدير،
+-- والحالة التي تتغيّر بعد خروجها لا تُخصم ولا تُعاد آليّاً — تنتظر قرار المالك الموثَّق.
+CREATE TABLE IF NOT EXISTS crew_salary_export_rows (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  export_id      uuid          NOT NULL REFERENCES crew_salary_exports(id) ON DELETE RESTRICT,
+  cycle_id       uuid          NOT NULL REFERENCES crew_salary_cycles(id) ON DELETE RESTRICT,
+  version_id     uuid          NOT NULL REFERENCES crew_salary_versions(id) ON DELETE RESTRICT,
+  entry_key      varchar(80)   NOT NULL,
+  crew_id        varchar(40)   NOT NULL,
+  currency       varchar(3)    NOT NULL,
+  entry_hash     varchar(64)   NOT NULL,
+  bank_id        uuid,
+  balance        numeric(14,2) NOT NULL,
+  amount         numeric(14,2) NOT NULL,
+  row_kind       varchar(20)   NOT NULL,
+  resolution_id  uuid,
+  status         varchar(20)   NOT NULL DEFAULT 'active',
+  replaced_by    uuid,
+  replaced_at    timestamptz,
+  created_at     timestamptz   NOT NULL DEFAULT clock_timestamp(),
+  CONSTRAINT "CK_crew_salary_export_rows_kind" CHECK (row_kind IN ('full', 'settlement')),
+  CONSTRAINT "CK_crew_salary_export_rows_status" CHECK (status IN ('active', 'replaced')),
+  CONSTRAINT "CK_crew_salary_export_rows_amount" CHECK (amount > 0),
+  CONSTRAINT "CK_crew_salary_export_rows_settlement" CHECK (row_kind <> 'settlement' OR resolution_id IS NOT NULL)
+);
+CREATE INDEX IF NOT EXISTS "IDX_crew_salary_export_rows_export" ON crew_salary_export_rows (export_id);
+CREATE INDEX IF NOT EXISTS "IDX_crew_salary_export_rows_entry" ON crew_salary_export_rows (cycle_id, entry_key) WHERE status = 'active';
+-- الحالة لا تخرج كاملةً مرّتين وهي سارية، وقرار المالك يُستهلك مرّةً واحدة
+CREATE UNIQUE INDEX IF NOT EXISTS "UQ_crew_salary_export_rows_full" ON crew_salary_export_rows (cycle_id, entry_key) WHERE status = 'active' AND row_kind = 'full';
+CREATE UNIQUE INDEX IF NOT EXISTS "UQ_crew_salary_export_rows_resolution" ON crew_salary_export_rows (resolution_id) WHERE resolution_id IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS crew_salary_audit (
   id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   cycle_id     uuid,
@@ -264,6 +296,27 @@ CREATE TRIGGER crew_salary_versions_frozen BEFORE UPDATE OR DELETE ON crew_salar
   FOR EACH ROW EXECUTE FUNCTION crew_salary_version_frozen();
 
 
+-- صفّ الدفعة لا يُحذف ولا يُعدَّل — إلّا انتقالٌ واحد: ساري ⇐ مُستبدَل (بقرار المالك)
+CREATE OR REPLACE FUNCTION crew_salary_export_row_guard() RETURNS trigger AS $fn$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'صفّ الدفعة لا يُحذف';
+  END IF;
+  IF OLD.status <> 'active' OR NEW.status <> 'replaced' OR NEW.replaced_by IS NULL
+     OR (to_jsonb(NEW) - 'status' - 'replaced_by' - 'replaced_at') IS DISTINCT FROM (to_jsonb(OLD) - 'status' - 'replaced_by' - 'replaced_at') THEN
+    RAISE EXCEPTION 'صفّ الدفعة لا يُعدَّل — الانتقال الوحيد: ساري إلى مُستبدَل';
+  END IF;
+  RETURN NEW;
+END
+$fn$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS crew_salary_export_rows_guard ON crew_salary_export_rows;
+CREATE TRIGGER crew_salary_export_rows_guard BEFORE UPDATE OR DELETE ON crew_salary_export_rows
+  FOR EACH ROW EXECUTE FUNCTION crew_salary_export_row_guard();
+DROP TRIGGER IF EXISTS crew_salary_export_rows_no_truncate ON crew_salary_export_rows;
+CREATE TRIGGER crew_salary_export_rows_no_truncate BEFORE TRUNCATE ON crew_salary_export_rows
+  FOR EACH STATEMENT EXECUTE FUNCTION crew_salary_audit_append_only();
+
 -- ── منع الوصول المباشر (Supabase Data API والأدوار الافتراضيّة) ──
 -- الباك يتّصل بدور مالك الجداول عبر DATABASE_URL، والمالك لا تُطبَّق عليه RLS (بلا FORCE)،
 -- فيعمل كما هو. أمّا anon وauthenticated فتمنعهما RLS بلا سياسات، وسحب الصلاحيات يمنع
@@ -274,7 +327,7 @@ DECLARE t text; r text;
 BEGIN
   FOREACH t IN ARRAY ARRAY['crew_salary_cycles','crew_salary_files','crew_salary_decisions','crew_salary_links',
     'crew_salary_authorizations','crew_salary_bank_accounts','crew_salary_versions','crew_salary_entitlements',
-    'crew_salary_exports','crew_salary_audit'] LOOP
+    'crew_salary_exports','crew_salary_export_rows','crew_salary_audit'] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('REVOKE ALL ON %I FROM PUBLIC', t);
     FOREACH r IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
@@ -285,6 +338,7 @@ BEGIN
   END LOOP;
   REVOKE ALL ON FUNCTION crew_salary_audit_append_only() FROM PUBLIC;
   REVOKE ALL ON FUNCTION crew_salary_version_frozen() FROM PUBLIC;
+  REVOKE ALL ON FUNCTION crew_salary_export_row_guard() FROM PUBLIC;
 END $rls$;
 
 DO $$
@@ -292,7 +346,7 @@ DECLARE t text; missing text := '';
 BEGIN
   FOREACH t IN ARRAY ARRAY['crew_salary_cycles','crew_salary_files','crew_salary_decisions','crew_salary_links',
     'crew_salary_authorizations','crew_salary_bank_accounts','crew_salary_versions','crew_salary_entitlements',
-    'crew_salary_exports','crew_salary_audit'] LOOP
+    'crew_salary_exports','crew_salary_export_rows','crew_salary_audit'] LOOP
     IF to_regclass('public.' || t) IS NULL THEN missing := missing || ' ' || t; END IF;
   END LOOP;
   IF missing <> '' THEN RAISE EXCEPTION 'VERIFY FAILED: لم يُنشأ:%', missing; END IF;
@@ -300,7 +354,7 @@ BEGIN
              WHERE n.nspname = 'public' AND c.relname LIKE 'crew\_salary\_%' AND c.relkind = 'r' AND NOT c.relrowsecurity) THEN
     RAISE EXCEPTION 'VERIFY FAILED: جدول مرتّباتٍ بلا RLS';
   END IF;
-  RAISE NOTICE 'بعد الهجرة: الجداول العشرة موجودة، وRLS مفعّلة، والوصول المباشر مسحوب';
+  RAISE NOTICE 'بعد الهجرة: الجداول الأحد عشر موجودة، وRLS مفعّلة، والوصول المباشر مسحوب';
 END $$;
 
 COMMIT;
