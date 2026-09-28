@@ -3,13 +3,13 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../../common/jwt-auth.guard';
-import { ScreenGuard } from '../../common/screen.guard';
-import { RequireScreen } from '../../common/require-screen.decorator';
-import { CrewSalariesService, SCREEN, type Actor } from './crew-salaries.service';
+import { CrewSalariesAccessGuard } from './crew-salary.access';
+import { CrewSalariesService, type Actor } from './crew-salaries.service';
 
 /**
  * مرتّبات أطقم السفن — `api/crew-salaries`.
- * القراءة والاستيراد والمراجعة لمن يملك الشاشة. والاعتماد (الإصدارات والحسابات
+ * كلّ المسارات خلف مفتاح التفعيل (`CrewSalariesAccessGuard`): مغلقةٌ إلّا لصاحب صلاحية الاعتماد
+ * حتّى تُفتح، ثمّ لمن مُنح الشاشة صراحةً — ولا يكفي دور الأدمن. والاعتماد (الإصدارات والحسابات
  * والتفويضات) لصاحب الصلاحية المعيَّن وحده — يُفحص في الخدمة بمعرّفٍ ثابت لا بدور.
  */
 const upload = FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 30 * 1024 * 1024, files: 1 } });
@@ -25,8 +25,7 @@ function sendXlsx(res: Response, buffer: Buffer, filename: string) {
 }
 
 @Controller('api/crew-salaries')
-@UseGuards(JwtAuthGuard, ScreenGuard)
-@RequireScreen(SCREEN)
+@UseGuards(JwtAuthGuard, CrewSalariesAccessGuard)
 export class CrewSalariesController {
   constructor(private readonly svc: CrewSalariesService) {}
 

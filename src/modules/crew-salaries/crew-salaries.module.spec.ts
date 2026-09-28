@@ -8,7 +8,7 @@ import { CrewSalariesModule } from './crew-salaries.module';
 import { CrewSalariesController } from './crew-salaries.controller';
 import { CrewSalariesService } from './crew-salaries.service';
 import { JwtAuthGuard } from '../../common/jwt-auth.guard';
-import { ScreenGuard } from '../../common/screen.guard';
+import { CrewSalariesAccessGuard } from './crew-salary.access';
 import { approverId, isApprover } from './crew-salary.approver';
 
 /**
@@ -33,12 +33,11 @@ describe('تركيب CrewSalariesModule', () => {
     await moduleRef.close();
   });
 
-  it('الموجّه على `api/crew-salaries` ومحروسٌ بالمصادقة والشاشة', () => {
+  it('الموجّه على `api/crew-salaries` ومحروسٌ بالمصادقة ومفتاح التفعيل', () => {
     expect(Reflect.getMetadata('path', CrewSalariesController)).toBe('api/crew-salaries');
     const guards = (Reflect.getMetadata(GUARDS_METADATA, CrewSalariesController) || []) as any[];
     expect(guards).toContain(JwtAuthGuard);
-    expect(guards).toContain(ScreenGuard);
-    expect(Reflect.getMetadata('require_screen', CrewSalariesController)).toEqual(['/dashboard/fleet-crew-salaries']);
+    expect(guards).toContain(CrewSalariesAccessGuard); // مفتاح التفعيل بدل حارس الشاشة العامّ (الذي يمرّر الأدمن)
   });
 });
 
