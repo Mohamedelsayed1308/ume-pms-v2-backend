@@ -30,6 +30,7 @@ import { EmailRewriteModule } from './modules/email-rewrite/email-rewrite.module
 import { InvestmentsModule } from './modules/investments/investments.module';
 import { VesselCogsModule } from './modules/vessel-cogs/vessel-cogs.module';
 import { CrewSalariesModule } from './modules/crew-salaries/crew-salaries.module';
+import { CostStructureModule } from './modules/cost-structure/cost-structure.module';
 import { HealthModule } from './modules/health/health.module';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { R3aRunnerModule } from './migrations/r3a-runner.module';
@@ -127,6 +128,7 @@ import { EMAIL_REWRITE_THROTTLE, LOGIN_THROTTLE } from './common/rate-limit';
     InvestmentsModule,
     VesselCogsModule, // مصاريف المركب من QuickBooks — لكارت الربحيّة
     CrewSalariesModule, // مرتّبات أطقم السفن — هجرتها docs/crew-salaries-up.sql
+    CostStructureModule, // رموز هيكل التكاليف — هجرتها docs/cost-structure-codes-up.sql
     AccountingModule,
     ReceiptsModule,
     R3aRunnerModule,
