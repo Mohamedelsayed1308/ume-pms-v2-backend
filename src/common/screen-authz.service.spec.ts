@@ -99,3 +99,20 @@ describe('ScreenAuthzService.assert / assertAny — رمي 403', () => {
     await expect(s.assertAny('e3', [INV, REP])).rejects.toThrow();
   });
 });
+
+describe('ScreenAuthzService.isListed / isActive — منحٌ صريح بلا تجاوز الأدمن', () => {
+  it('الأدمن بلا قائمة ⇒ ليس ممنوحاً صراحةً (وإن سمح له can)', async () => {
+    const s = svc({ id: 'x1', role: 'admin', is_active: true, allowed_screens: null });
+    await expect(s.can('x1', INV)).resolves.toBe(true);
+    await expect(s.isListed('x1', INV)).resolves.toBe(false);
+  });
+  it('الشاشة في القائمة ⇒ ممنوح · والمعطَّل ⇒ لا', async () => {
+    await expect(svc({ id: 'x2', role: 'admin', is_active: true, allowed_screens: [INV] }).isListed('x2', INV)).resolves.toBe(true);
+    await expect(svc({ id: 'x3', role: 'user', is_active: false, allowed_screens: [INV] }).isListed('x3', INV)).resolves.toBe(false);
+  });
+  it('isActive: الموجود النشط وحده', async () => {
+    await expect(svc({ id: 'x4', is_active: true }).isActive('x4')).resolves.toBe(true);
+    await expect(svc({ id: 'x5', is_active: false }).isActive('x5')).resolves.toBe(false);
+    await expect(svc(null).isActive('x6')).resolves.toBe(false);
+  });
+});

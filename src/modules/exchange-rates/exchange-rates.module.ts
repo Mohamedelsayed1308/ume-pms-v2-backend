@@ -9,5 +9,7 @@ import { ExchangeRatesController } from './exchange-rates.controller';
   imports: [CommonAuthzModule, TypeOrmModule.forFeature([ExchangeRate])],
   providers: [ExchangeRatesService],
   controllers: [ExchangeRatesController],
+  // مرتّبات الأطقم تقرأ سعر الشهر وتكتبه هنا — مصدرٌ واحدٌ للأسعار لا جدولٌ موازٍ
+  exports: [ExchangeRatesService],
 })
 export class ExchangeRatesModule {}

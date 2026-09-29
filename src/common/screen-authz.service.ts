@@ -19,6 +19,23 @@ export class ScreenAuthzService {
     return allowed.includes(href);
   }
 
+  /** الحساب موجودٌ ونشط. */
+  async isActive(userId: string): Promise<boolean> {
+    const user = userId ? await this.userRepo.findOne({ where: { id: userId } }) : null;
+    return !!user && (user as any).is_active !== false;
+  }
+
+  /**
+   * الشاشة في قائمة المستخدم **صراحةً** — بلا تجاوز الأدمن. لميزاتٍ لا يكفي فيها الدور وحده
+   * (مرتّبات الأطقم). حسابٌ معطَّل أو قائمةٌ غائبة ⇒ لا.
+   */
+  async isListed(userId: string, href: string): Promise<boolean> {
+    const user = userId ? await this.userRepo.findOne({ where: { id: userId } }) : null;
+    if (!user || (user as any).is_active === false) return false;
+    const allowed = (user as any).allowed_screens;
+    return Array.isArray(allowed) && allowed.includes(href);
+  }
+
   // يسمح إذا كان لدى المستخدم أيٌّ من الشاشات المعطاة
   async canAny(userId: string, hrefs: string[]): Promise<boolean> {
     for (const h of hrefs) if (await this.can(userId, h)) return true;
