@@ -65,6 +65,12 @@ export class VesselsService implements OnModuleInit {
         'COALESCE(SUM((SELECT COALESCE(SUM(p.amount),0) FROM payments p' +
         ' WHERE p.invoice_id = inv.id AND UPPER(TRIM(p.currency)) = UPPER(TRIM(inv.currency)))), 0)',
         'paid_via_pms')
+      // تطبيقات الإشعارات الدائنة: ما طُبّق على الفاتورة − ما طُبّق منها (إن كانت إشعاراً)
+      .addSelect(
+        'COALESCE(SUM((SELECT COALESCE(SUM(CASE WHEN a.invoice_id = inv.id THEN a.amount ELSE -a.amount END),0)' +
+        ' FROM credit_note_allocations a WHERE (a.invoice_id = inv.id OR a.credit_note_id = inv.id)' +
+        ' AND UPPER(TRIM(a.currency)) = UPPER(TRIM(inv.currency)))), 0)',
+        'credit_applied')
       .addSelect(
         "COALESCE(SUM(CASE WHEN inv.settlement_basis = 'pre_system_settled' THEN inv.paid_amount ELSE 0 END), 0)",
         'settled_pre_system')
@@ -80,11 +86,12 @@ export class VesselsService implements OnModuleInit {
       const paidViaPms = round2(Number(r.paid_via_pms));
       const settledPreSystem = round2(Number(r.settled_pre_system));
       const creditNoteOffset = round2(Number(r.credit_note_offset));
+      const creditApplied = round2(Number(r.credit_applied));
       return {
         currency: normalizeCurrency(r.currency), invoiced, paid,
         outstanding: round2(invoiced - paid), invoiceCount: Number(r.invoice_count),
-        paidViaPms, settledPreSystem, creditNoteOffset,
-        unevidencedResidual: round2(paid - paidViaPms - settledPreSystem - creditNoteOffset),
+        paidViaPms, settledPreSystem, creditNoteOffset, creditApplied,
+        unevidencedResidual: round2(paid - paidViaPms - settledPreSystem - creditNoteOffset - creditApplied),
       };
     }).sort((a, b) => a.currency.localeCompare(b.currency));
 

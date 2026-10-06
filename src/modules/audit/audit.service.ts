@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Invoice } from '../invoices/invoice.entity';
 import { Payment } from '../payments/payment.entity';
+import { CreditAllocation } from '../payments/credit-allocation.entity';
 
 /**
  * تدقيق السلامة المالية — قراءة فقط (SELECT).
@@ -62,6 +63,7 @@ export class AuditService {
   constructor(
     @InjectRepository(Invoice) private invoiceRepo: Repository<Invoice>,
     @InjectRepository(Payment) private paymentRepo: Repository<Payment>,
+    @InjectRepository(CreditAllocation) private allocRepo: Repository<CreditAllocation>,
   ) {}
 
   async run() {
@@ -71,6 +73,7 @@ export class AuditService {
       order: { invoice_date: 'DESC' },
     });
     const payments = await this.paymentRepo.find({ relations: { invoice: true } });
+    const allocations = await this.allocRepo.find();
 
     const findings: Finding[] = [];
     const add = (f: Omit<Finding, 'severity' | 'issue'> & { ruleKey: string; severityOverride?: Severity }) => {
@@ -87,7 +90,12 @@ export class AuditService {
 
       // مجموع السدادات الفعلية — بعملة الفاتورة فقط (لا خلط عملات إطلاقاً)
       const samePays = pays.filter((p) => ccy(p.currency) === invCcy);
-      const actual = r2(samePays.reduce((s, p) => s + n(p.amount), 0));
+      // + تطبيقات الإشعارات الدائنة: ما طُبّق عليها − ما طُبّق منها — سدادٌ بلا بنك
+      const applied = allocations
+        .filter((a) => ccy(a.currency) === invCcy && (a.invoice_id === inv.id || a.credit_note_id === inv.id))
+        .reduce((s, a) => s + (a.invoice_id === inv.id ? n(a.amount) : -n(a.amount)), 0);
+      const hasEvidence = pays.length > 0 || applied !== 0;
+      const actual = r2(samePays.reduce((s, p) => s + n(p.amount), 0) + applied);
       const remaining = r2(total - actual);
       const isCreditNote = total < 0; // فاتورة سالبة = إشعار دائن/تسوية (تُصنَّف لا تُعالَج)
 
@@ -122,7 +130,7 @@ export class AuditService {
       }
 
       // 1) مُعلَّمة مدفوعة بلا أي سداد
-      if (!isLegacy && inv.status === 'paid' && pays.length === 0) {
+      if (!isLegacy && inv.status === 'paid' && !hasEvidence) {
         add({ ...ctx, ruleKey: 'paid_without_payments', exposure: r2(Math.abs(stored)) });
       }
       // 13) حالة الموافقة paid بلا دليل كافٍ
@@ -153,8 +161,9 @@ export class AuditService {
           currency: ccy(p.currency) });
       }
       // 9) حالة غير متسقة مع واقع السدادات
-      const derived = actual <= TOL ? 'unpaid' : actual + TOL >= total ? 'paid' : 'partial';
-      if (inv.status !== 'cancelled' && inv.status !== derived && !(inv.status === 'paid' && pays.length === 0)) {
+      // بالمقدار كـ derivePaymentState: الإشعار المستنفَد مسدَّده سالبٌ كإجماليّه وهو «مدفوع»
+      const derived = Math.abs(actual) <= TOL ? 'unpaid' : Math.abs(actual) + TOL >= Math.abs(total) ? 'paid' : 'partial';
+      if (inv.status !== 'cancelled' && inv.status !== derived && !(inv.status === 'paid' && !hasEvidence)) {
         add({ ...ctx, ruleKey: 'status_inconsistent', exposure: 0 });
       }
       // 14) مغطّاة بالكامل لكن غير مُعلَّمة مدفوعة
