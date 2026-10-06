@@ -5,6 +5,7 @@ import { Invoice, InvoiceStatus } from './invoice.entity';
 import { Attachment } from '../attachments/attachment.entity';
 import { stripSystemControlledFields } from '../../common/financial-control-fields';
 import { derivePaymentState, isLegacySettled } from '../../common/payment-derivation';
+import { CreditAllocation } from '../payments/credit-allocation.entity';
 
 // ملخّص كشف الحساب لعملة واحدة — لا يُجمع أبداً مع عملة أخرى
 export interface CurrencySummary { total_debit: number; total_credit: number; balance: number; }
@@ -101,6 +102,9 @@ export class InvoicesService {
   }
 
   async remove(id: string) {
+    // المفتاح الأجنبيّ RESTRICT يمنع الحذف أصلاً — نسبقه برسالةٍ مفهومة لا خطأ قاعدة
+    const linked = await this.repo.manager.count(CreditAllocation, { where: [{ invoice_id: id }, { credit_note_id: id }] });
+    if (linked) throw new BadRequestException('لا تُحذف فاتورةٌ أو إشعارٌ طُبّق عليه إشعارٌ دائن — ألغِ التطبيق من شاشة المدفوعات أوّلاً');
     await this.attachmentRepo.delete({ invoice_id: id });
     await this.repo.delete(id);
     return { deleted: true };
@@ -118,7 +122,9 @@ export class InvoicesService {
     if (!invoice) return;
     if (isLegacySettled(invoice)) return;   // ← لا تلمس تسوية تاريخية
 
-    const { paidAmount, status } = derivePaymentState(invoice as any, invoice.payments || []);
+    // تطبيقات الإشعارات الدائنة جزءٌ من السداد — عليها (للفاتورة) أو منها (للإشعار)
+    const allocations = await this.repo.manager.find(CreditAllocation, { where: [{ invoice_id: invoiceId }, { credit_note_id: invoiceId }] });
+    const { paidAmount, status } = derivePaymentState(invoice as any, invoice.payments || [], allocations);
     await this.repo.update(invoiceId, { paid_amount: paidAmount, status });
   }
 

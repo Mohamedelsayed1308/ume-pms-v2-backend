@@ -145,6 +145,7 @@ function makeInvoiceSvc(initial: any) {
     save: async (d: any) => { Object.assign(store, d); return { ...store }; },
     update: async (_id: string, patch: any) => { Object.assign(store, patch); },
     findOne: async () => ({ ...store }),
+    manager: { find: async () => [], count: async () => 0 },
   };
   return { svc: new InvoicesService(repo, { delete: async () => {} } as any), store };
 }

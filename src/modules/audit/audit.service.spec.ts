@@ -4,10 +4,11 @@ import { AuditService } from './audit.service';
  * اختبارات قواعد التدقيق ببيانات مُصطنعة (بلا قاعدة بيانات).
  * تُحقن مستودعات وهمية تُرجع مصفوفات ثابتة — لا اتصال ولا كتابة.
  */
-const makeSvc = (invoices: any[], payments: any[]) =>
+const makeSvc = (invoices: any[], payments: any[], allocations: any[] = []) =>
   new AuditService(
     { find: async () => invoices } as any,
     { find: async () => payments } as any,
+    { find: async () => allocations } as any,
   );
 
 const inv = (o: Partial<any>) => ({
