@@ -24,6 +24,7 @@ import { FleetModule } from './modules/fleet/fleet.module';
 import { MarketModule } from './modules/market/market.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AskUmeModule } from './modules/ask-ume/ask-ume.module';
+import { VesselAnalystModule } from './modules/vessel-analyst/vessel-analyst.module';
 import { AccountingModule } from './modules/accounting/accounting.module';
 import { ReceiptsModule } from './modules/receipts/receipts.module';
 import { EmailRewriteModule } from './modules/email-rewrite/email-rewrite.module';
@@ -124,6 +125,7 @@ import { EMAIL_REWRITE_THROTTLE, LOGIN_THROTTLE } from './common/rate-limit';
     MarketModule,
     AuditModule,
     AskUmeModule,
+    VesselAnalystModule, // مساعد تحليل بنود كارت المركب — قراءةٌ فقط
     EmailRewriteModule,
     InvestmentsModule,
     VesselCogsModule, // مصاريف المركب من QuickBooks — لكارت الربحيّة
