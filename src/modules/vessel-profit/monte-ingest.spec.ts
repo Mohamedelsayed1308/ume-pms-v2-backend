@@ -86,6 +86,22 @@ describe('الدفع الآليّ لحزمة مونتي', () => {
     expect(validateMontePackage({ ...pkg(), schema: 'x' }).errors[0]).toContain('غير مدعوم');
   });
 
+  it('بنود السفينة في fixed_items تدخل في الثابتة بلا تعديل كود', () => {
+    const withItems = (items: unknown, fixed: number, net: number) => {
+      const p = pkg();
+      Object.assign(p.monthly[0], { fixed_items: items, fixed, net });
+      return validateMontePackage(p);
+    };
+    const items = [{ key: 'prov', label: 'مؤن', usd: -40 }, { key: 'outfit', label: 'تجهيز', usd: -60 }];
+    expect(withItems(items, -200, 500).errors).toEqual([]);
+    // البند غائبٌ عن مجموع الثابتة ← الشهر لا يطابق مكوّناته
+    expect(withItems(items, -100, 600).errors[0]).toContain('الثابتة');
+    expect(withItems([items[0], items[0]], -180, 520).errors.join()).toContain('مكرّر');
+    expect(withItems([{ key: 'x', usd: -1 }], -101, 599).errors.join()).toContain('بلا مفتاحٍ أو اسم');
+    expect(withItems('x', -100, 600).errors[0]).toContain('ليس قائمة');
+    expect(withItems([{ key: 'r', label: 'استرداد', usd: 10 }], -90, 610).warnings.join()).toContain('موجب');
+  });
+
   describe('عبر HTTP', () => {
     let app: INestApplication;
     const repo = memoryRepo();

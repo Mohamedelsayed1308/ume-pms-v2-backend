@@ -7,6 +7,9 @@
  * أيّ تغييرٍ في القواعد يُنقل إلى النسختين معاً.
  *
  * رحلة 07 محجوبة بقرار المالك: تُنزع قبل الفحص، والحزمة تُحفظ كما وصلت.
+ *
+ * بنود السفينة الثابتة المستجدّة (مؤن · تجهيز · صيانة…) تأتي في `monthly[].fixed_items`
+ * `{ key, label, usd }` وتدخل في مجموع الثابتة — ٣١ أكتوبر ٢٠٢٦، فبندٌ جديد لا يحتاج كوداً.
  */
 export const MONTE_SCHEMA = 'monte-pms/1';
 export const HIDDEN_VOYAGES = ['07'];
@@ -70,7 +73,7 @@ export function validateMontePackage(raw: unknown): MonteCheck {
     const badEx = v.items.filter((i: any) => i?.excluded && i.kind !== 'cost');
     if (badEx.length) errors.push(`الرحلة ${id}: بند إيرادٍ مستبعَد (${badEx[0].label}) — المستبعَد الإيجار وحده`);
     if (Math.abs(it.excluded + n0(v.hire_in_file)) > TOL) warnings.push(`الرحلة ${id}: المستبعَد ${-it.excluded} لا يساوي إيجار الملفّ ${v.hire_in_file}`);
-    if (n0(v.cost_catering) !== 0) warnings.push(`الرحلة ${id}: كاترينج ${v.cost_catering} — القاعدة صفرٌ حتّى تصل الفواتير`);
+    if (n0(v.cost_catering) !== 0) warnings.push(`الرحلة ${id}: كاترينج ${v.cost_catering} — مؤن السفينة في الشهريّ لا على الرحلة`);
   }
 
   for (const m of p.monthly) {
@@ -78,7 +81,20 @@ export function validateMontePackage(raw: unknown): MonteCheck {
     const vnet = r2(vs.reduce((s: number, v: any) => s + voyageNet(v).net, 0));
     if (Math.abs(vnet - n0(m.vnet)) > TOL) errors.push(`شهر ${m.month}: صافي الرحلات ${m.vnet} ورحلاته المعروضة ${vnet}`);
     if (vs.length !== n0(m.trips)) errors.push(`شهر ${m.month}: ${m.trips} رحلة والمعروض ${vs.length}`);
-    const fixed = r2(n0(m.ins) + n0(m.sal_usd) + n0(m.sal_eur) + n0(m.crew_misc) + n0(m.ctm));
+    let items = 0;
+    if (m.fixed_items != null) {
+      if (!Array.isArray(m.fixed_items)) { errors.push(`شهر ${m.month}: fixed_items ليس قائمة`); continue; }
+      const keys = new Set<string>();
+      for (const i of m.fixed_items) {
+        if (!i || typeof i.key !== 'string' || !i.key || typeof i.label !== 'string' || !i.label) { errors.push(`شهر ${m.month}: بندٌ ثابت بلا مفتاحٍ أو اسم`); continue; }
+        if (typeof i.usd !== 'number' || !isFinite(i.usd)) errors.push(`شهر ${m.month}: البند ${i.label} ليس رقماً`);
+        if (keys.has(i.key)) errors.push(`شهر ${m.month}: البند ${i.label} مكرّر`);
+        keys.add(i.key);
+        if (i.usd > 0) warnings.push(`شهر ${m.month}: البند ${i.label} موجب ${i.usd} — التكاليف بالسالب`);
+        items += n0(i.usd);
+      }
+    }
+    const fixed = r2(n0(m.ins) + n0(m.sal_usd) + n0(m.sal_eur) + n0(m.crew_misc) + n0(m.ctm) + items);
     if (Math.abs(fixed - n0(m.fixed)) > TOL) errors.push(`شهر ${m.month}: الثابتة ${m.fixed} ومكوّناتها ${fixed}`);
     const net = r2(n0(m.vnet) + n0(m.pos) + n0(m.fixed));
     if (Math.abs(net - n0(m.net)) > TOL) errors.push(`شهر ${m.month}: الصافي ${m.net} ومكوّناته ${net}`);
