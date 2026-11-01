@@ -14,6 +14,8 @@ import { MONTE_INGEST_HEADER } from './monte-ingest.guard';
 import { inputContext, validateInput } from './monte-inputs';
 import { JwtAuthGuard } from '../../common/jwt-auth.guard';
 import { ScreenGuard } from '../../common/screen.guard';
+import { Invoice } from '../invoices/invoice.entity';
+import { Vessel } from '../vessels/vessel.entity';
 
 /**
  * مدخلات فريق مونتي — الفحص الخالص ثمّ المسارات عبر HTTP بتركيب الوحدة كاملةً
@@ -99,11 +101,20 @@ describe('مدخلات فريق مونتي', () => {
     const user = { id: 'u1', full_name: 'أحمد', email: 'a@x' };
     const add = (kind: string, data: object) => request(app.getHttpServer()).post('/api/vessel-profit-inputs/monte').send({ kind, data });
     const inputsOf = () => repo.rows.get('MonteJS')?.manual?.inputs || [];
+    // فواتير مونتي من شاشة الفواتير: المستودعان يكفيان لإثبات الحقن وشكل الردّ
+    const invFind = jest.fn().mockResolvedValue([{
+      id: 'i1', invoice_number: 'F-1', invoice_date: '2026-10-02', currency: 'EUR', total_amount: '1250.50', type: 'final',
+      status: 'unpaid', item: { name: 'Spare Parts' }, supplier: { name: 'S' }, line_items: null, depreciation_months: 60,
+      description: 'x'.repeat(300), created_by_name: 'Bassel', created_at: '2026-11-01T00:00:00Z',
+    }]);
+    const vesselFind = jest.fn().mockResolvedValue({ id: 'v1', name: 'Monte Express' });
 
     beforeAll(async () => {
       process.env.MONTE_INGEST_KEY = KEY;
       const moduleRef = await Test.createTestingModule({ imports: [StubDataSourceModule, VesselProfitModule] })
         .overrideProvider(getRepositoryToken(VesselProfitData)).useValue(repo)
+        .overrideProvider(getRepositoryToken(Invoice)).useValue({ find: invFind })
+        .overrideProvider(getRepositoryToken(Vessel)).useValue({ findOne: vesselFind })
         .overrideGuard(JwtAuthGuard).useValue({ canActivate: (c: any) => { c.switchToHttp().getRequest().user = user; return true; } })
         .overrideGuard(ScreenGuard).useValue({ canActivate: () => true })
         .compile();
@@ -156,6 +167,16 @@ describe('مدخلات فريق مونتي', () => {
       await request(app.getHttpServer()).get('/api/vessel-profit-ingest/monte/inputs').expect(401);
       const r = await request(app.getHttpServer()).get('/api/vessel-profit-ingest/monte/inputs').set(MONTE_INGEST_HEADER, KEY).expect(200);
       expect(r.body.inputs.map((x: any) => x.kind)).toEqual(['ship_cost', 'void']);
+    });
+
+    it('وفواتير المركب بالمفتاح وحده، بلا الملغاة، والمبلغ رقمٌ والوصف مقصوص', async () => {
+      await request(app.getHttpServer()).get('/api/vessel-profit-ingest/monte/invoices').expect(401);
+      const r = await request(app.getHttpServer()).get('/api/vessel-profit-ingest/monte/invoices').set(MONTE_INGEST_HEADER, KEY).expect(200);
+      expect(r.body.vessel).toEqual({ id: 'v1', name: 'Monte Express' });
+      expect(r.body.invoices[0]).toMatchObject({ number: 'F-1', amount: 1250.5, item: 'Spare Parts', depreciation_months: 60, by: 'Bassel' });
+      expect(r.body.invoices[0].description).toHaveLength(200);
+      expect(invFind.mock.calls[0][0].where.vessel_id).toBe('v1');
+      expect(String(invFind.mock.calls[0][0].where.status._type)).toBe('not');
     });
   });
 });
