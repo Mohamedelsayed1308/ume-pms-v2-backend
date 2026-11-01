@@ -83,7 +83,13 @@ export class VesselProfitService {
     let row = await this.repo.findOne({ where: { vessel } });
     if (!row) row = this.repo.create({ vessel });
     if (body.voyages !== undefined) row.voyages = body.voyages;
-    if (body.manual !== undefined) row.manual = body.manual;
+    if (body.manual !== undefined) {
+      // مدخلات فريق مونتي تُضاف من مسارها وحده — الحفظ من الكارت يحمل نسخةً قرأها قبلُ فلا يمحو الأحدث
+      const inputs = row.manual?.inputs;
+      row.manual = body.manual && typeof body.manual === 'object' && !Array.isArray(body.manual) && inputs !== undefined
+        ? { ...body.manual, inputs }
+        : body.manual;
+    }
     return this.repo.save(row);
   }
 }

@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { VesselProfitData } from './vessel-profit.entity';
 import { validateMontePackage } from './monte-package';
+import { withVesselRow } from './monte-row';
 
 export const MONTE_KEY = 'MonteJS';
 export const MONTE_SOURCE = 'monte-session';
@@ -38,22 +39,24 @@ export class MonteIngestService {
     const check = validateMontePackage(raw);
     if (!check.ok) throw new BadRequestException({ message: 'الحزمة مرفوضة — لا تطابق نفسها', errors: check.errors });
 
-    const row = (await this.repo.findOne({ where: { vessel: MONTE_KEY } })) || this.repo.create({ vessel: MONTE_KEY });
-    const manual = row.manual && typeof row.manual === 'object' && !Array.isArray(row.manual) ? row.manual : {};
-    const summary = { voyages: check.voyages, hidden: check.hidden, warnings: check.warnings, generatedAt: check.generatedAt };
+    // تحت قفل الصفّ: مُدخَلٌ من الفريق بين القراءة والكتابة لا يضيع
+    return withVesselRow(this.repo, MONTE_KEY, async (row, repo) => {
+      const manual = row.manual && typeof row.manual === 'object' && !Array.isArray(row.manual) ? row.manual : {};
+      const summary = { voyages: check.voyages, hidden: check.hidden, warnings: check.warnings, generatedAt: check.generatedAt };
 
-    const prevAt = manual.package?.generated_at;
-    if (typeof prevAt === 'string' && ISO.test(prevAt) && check.generatedAt && ISO.test(check.generatedAt) && check.generatedAt < prevAt) {
-      throw new ConflictException(`المحفوظة أحدث (${prevAt}) من المدفوعة (${check.generatedAt}) — للرجوع إليها ارفعها من الكارت`);
-    }
-    if (manual.package && canonical(manual.package) === canonical(raw)) {
-      return { saved: false, unchanged: true, ...summary, savedAt: manual.packageSavedAt ?? null };
-    }
+      const prevAt = manual.package?.generated_at;
+      if (typeof prevAt === 'string' && ISO.test(prevAt) && check.generatedAt && ISO.test(check.generatedAt) && check.generatedAt < prevAt) {
+        throw new ConflictException(`المحفوظة أحدث (${prevAt}) من المدفوعة (${check.generatedAt}) — للرجوع إليها ارفعها من الكارت`);
+      }
+      if (manual.package && canonical(manual.package) === canonical(raw)) {
+        return { saved: false, unchanged: true, ...summary, savedAt: manual.packageSavedAt ?? null };
+      }
 
-    const name = typeof file === 'string' ? file.split(/[\\/]/).pop()!.slice(0, 120) : '';
-    const savedAt = new Date().toISOString();
-    row.manual = { ...manual, package: raw, packageFile: name || 'monte_pms.json', packageSavedAt: savedAt, packageSource: MONTE_SOURCE };
-    await this.repo.save(row);
-    return { saved: true, unchanged: false, ...summary, savedAt };
+      const name = typeof file === 'string' ? file.split(/[\\/]/).pop()!.slice(0, 120) : '';
+      const savedAt = new Date().toISOString();
+      row.manual = { ...manual, package: raw, packageFile: name || 'monte_pms.json', packageSavedAt: savedAt, packageSource: MONTE_SOURCE };
+      await repo.save(row);
+      return { saved: true, unchanged: false, ...summary, savedAt };
+    });
   }
 }
